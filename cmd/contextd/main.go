@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -37,7 +38,33 @@ import (
 	"github.com/fyrsmithlabs/contextd/pkg/vectorstore"
 )
 
+// Version information (set via ldflags during build)
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildDate = "unknown"
+)
+
 func main() {
+	// Parse command-line arguments
+	flag.Parse()
+	args := flag.Args()
+
+	// Handle subcommands
+	if len(args) > 0 {
+		switch args[0] {
+		case "version":
+			printVersion()
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
+			fmt.Fprintf(os.Stderr, "\nUsage:\n")
+			fmt.Fprintf(os.Stderr, "  contextd           Start the contextd daemon\n")
+			fmt.Fprintf(os.Stderr, "  contextd version   Show version information\n")
+			os.Exit(1)
+		}
+	}
+
 	// Setup signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -58,6 +85,14 @@ func main() {
 	}
 
 	log.Println("Server shutdown complete")
+}
+
+// printVersion prints version information
+func printVersion() {
+	fmt.Printf("contextd by Fyrsmith Labs\n")
+	fmt.Printf("Version:    %s\n", version)
+	fmt.Printf("Commit:     %s\n", gitCommit)
+	fmt.Printf("Build Date: %s\n", buildDate)
 }
 
 // run starts the contextd server and blocks until context is cancelled.

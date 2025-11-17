@@ -71,7 +71,11 @@ help:
 # Build targets
 build:
 	@echo "🔨 Building contextd..."
-	@go build -o contextd ./cmd/contextd/
+	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+	go build -ldflags="-X main.version=$$VERSION -X main.gitCommit=$$COMMIT -X main.buildDate=$$DATE" \
+		-o contextd ./cmd/contextd/
 	@echo "✓ Built contextd"
 
 build-all: build
