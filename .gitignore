@@ -1,7 +1,7 @@
-# Binaries (never commit)
-contextd
-ctxd
-migrate
+# Binaries (never commit) - root level only
+/contextd
+/ctxd
+/migrate
 *.test
 *.exe
 
