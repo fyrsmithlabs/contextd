@@ -6,11 +6,8 @@ help:
 	@echo ""
 	@echo "Build & Run:"
 	@echo "  make build          Build contextd binary"
-	@echo "  make build-all      Build contextd + ctxd client"
+	@echo "  make build-all      Build contextd binary (alias for build)"
 	@echo "  make go-install     Install binaries to GOPATH/bin"
-	@echo "  make install        Install contextd service (via ctxd)"
-	@echo "  make setup-claude   Setup Claude integration (via ctxd)"
-	@echo "  make index-repo path=/repo  Index repository (via ctxd)"
 	@echo "  make start          Start contextd service"
 	@echo "  make stop           Stop contextd service"
 	@echo "  make logs           View contextd logs"
@@ -76,8 +73,6 @@ build:
 	@./scripts/build.sh
 
 build-all: build
-	@go build -o ctxd ./cmd/ctxd/
-	@echo "✓ Built ctxd client"
 
 go-install:
 	@echo "📦 Installing contextd binaries with go install..."
@@ -85,12 +80,11 @@ go-install:
 	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
 	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 	go install -ldflags="-X main.version=$$VERSION -X main.gitCommit=$$COMMIT -X main.buildDate=$$DATE" ./cmd/contextd
-	@go install ./cmd/ctxd
-	@echo "✓ Installed contextd and ctxd to $(shell go env GOPATH)/bin"
+	@echo "✓ Installed contextd to $(shell go env GOPATH)/bin"
 	@echo "  Make sure $(shell go env GOPATH)/bin is in your PATH"
 
 clean:
-	@rm -f contextd ctxd
+	@rm -f contextd
 	@rm -rf dist/
 	@rm -f coverage.out coverage.html
 	@echo "✓ Cleaned build artifacts"
@@ -100,9 +94,7 @@ build-linux:
 	@echo "🔨 Building for Linux..."
 	@mkdir -p dist/linux
 	@GOOS=linux GOARCH=amd64 go build -o dist/linux/contextd-linux-amd64 ./cmd/contextd
-	@GOOS=linux GOARCH=amd64 go build -o dist/linux/ctxd-linux-amd64 ./cmd/ctxd
 	@GOOS=linux GOARCH=arm64 go build -o dist/linux/contextd-linux-arm64 ./cmd/contextd
-	@GOOS=linux GOARCH=arm64 go build -o dist/linux/ctxd-linux-arm64 ./cmd/ctxd
 	@echo "✓ Linux binaries built in dist/linux/"
 	@ls -lh dist/linux/
 
@@ -110,9 +102,7 @@ build-darwin:
 	@echo "🔨 Building for macOS..."
 	@mkdir -p dist/darwin
 	@GOOS=darwin GOARCH=amd64 go build -o dist/darwin/contextd-darwin-amd64 ./cmd/contextd
-	@GOOS=darwin GOARCH=amd64 go build -o dist/darwin/ctxd-darwin-amd64 ./cmd/ctxd
 	@GOOS=darwin GOARCH=arm64 go build -o dist/darwin/contextd-darwin-arm64 ./cmd/contextd
-	@GOOS=darwin GOARCH=arm64 go build -o dist/darwin/ctxd-darwin-arm64 ./cmd/ctxd
 	@echo "✓ macOS binaries built in dist/darwin/"
 	@ls -lh dist/darwin/
 
@@ -120,7 +110,6 @@ build-windows:
 	@echo "🔨 Building for Windows..."
 	@mkdir -p dist/windows
 	@GOOS=windows GOARCH=amd64 go build -o dist/windows/contextd-windows-amd64.exe ./cmd/contextd
-	@GOOS=windows GOARCH=amd64 go build -o dist/windows/ctxd-windows-amd64.exe ./cmd/ctxd
 	@echo "✓ Windows binaries built in dist/windows/"
 	@ls -lh dist/windows/
 
@@ -131,16 +120,7 @@ build-all-platforms: build-linux build-darwin build-windows
 	@echo "Distribution structure:"
 	@tree -L 2 dist/ 2>/dev/null || find dist/ -type f
 
-# Installation targets
-install:
-	@./ctxd install
-
-setup-claude:
-	@./ctxd setup-claude
-
-index-repo:
-	@./ctxd index $(path) $(flags)
-
+# Service management targets
 start:
 	@systemctl --user start contextd
 	@echo "✓ contextd started"
@@ -327,9 +307,8 @@ deps: install-tools install-trufflehog install-pre-commit install-air
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Run 'make test' to verify setup"
-	@echo "  2. Run 'make build-all' to build binaries"
-	@echo "  3. Run 'make install' to install contextd service"
-	@echo "  4. Run 'make dev-mcp' for live reload development"
+	@echo "  2. Run 'make build' to build binary"
+	@echo "  3. Run 'make dev-mcp' for live reload development"
 	@echo ""
 
 setup-dev: deps
