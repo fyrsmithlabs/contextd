@@ -1,0 +1,293 @@
+name: "Automated Development Workflow"
+on:
+  issues:
+    types: [labeled]
+
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+    paths:
+      - "docs/specs/**/SPEC.md"
+
+  pull_request_review_comment:
+    types: [created]
+
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      spec_path:
+        description: "Path to spec file (e.g., docs/specs/authentication/SPEC.md)"
+        required: true
+        type: string
+      issue_number:
+        description: "Related issue number (optional)"
+        required: false
+        type: string
+      dry_run:
+        description: "Test mode (no changes)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.issue.number || github.event.pull_request.number || 'manual' }}
+  cancel-in-progress: false # Don't cancel - auto-development should complete
+
+jobs:
+  auto-development:
+    # Run if:
+    # 1. Issue labeled with ai:needs-dev
+    # 2. PR was merged (spec approval)
+    # 3. Manual trigger
+    # 4. PR comment mentions @claude or @golang-pro (for fixing code review findings)
+    # 5. Review comment mentions @claude or @golang-pro
+    # Security: Only collaborators can trigger via comments
+    if: >
+      (github.event_name == 'issues' && github.event.label.name == 'ai:needs-dev') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       (contains(github.event.comment.body, '@claude') || contains(github.event.comment.body, '@golang-pro')) &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR')) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       (contains(github.event.comment.body, '@claude') || contains(github.event.comment.body, '@golang-pro')) &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
+
+    runs-on: axyzlabs-runners
+    timeout-minutes: 60 # Prevent hung jobs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup-gh-cli: 'true'
+
+      - name: Determine PR number and issue number
+        id: pr-info
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER_EVENT: ${{ github.event.issue.number }}
+          INPUT_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          PR_NUMBER_EVENT: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract PR number and issue number based on event type
+          if [ "$EVENT_NAME" = "issues" ]; then
+            # Issue labeled event - no PR, just issue
+            PR_NUMBER=""
+            ISSUE_NUMBER="$ISSUE_NUMBER_EVENT"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Manual trigger - may not have PR number
+            PR_NUMBER=""
+            ISSUE_NUMBER="$INPUT_ISSUE_NUMBER"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            # PR event - direct access
+            PR_NUMBER="$PR_NUMBER_EVENT"
+            ISSUE_NUMBER=""
+          elif [ "$EVENT_NAME" = "issue_comment" ]; then
+            # Issue comment - PR info is in issue object
+            PR_NUMBER="$ISSUE_NUMBER_EVENT"
+            ISSUE_NUMBER=""
+          elif [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+            # Review comment - get from pull_request object
+            PR_NUMBER="$PR_NUMBER_EVENT"
+            ISSUE_NUMBER=""
+          else
+            PR_NUMBER=""
+            ISSUE_NUMBER=""
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "Detected PR number: $PR_NUMBER"
+          echo "Detected Issue number: $ISSUE_NUMBER"
+
+      - name: Validate PR has code changes (for comment triggers)
+        if: github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment'
+        id: validate-files
+        env:
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking if PR #$PR_NUMBER has code changes..."
+          FILES=$(gh pr view $PR_NUMBER --repo "$REPOSITORY" --json files -q '.files[].path')
+
+          if echo "$FILES" | grep -qE '\.(go|mod|sum)$|^(pkg|cmd|internal|api)/'; then
+            echo "✅ PR has code changes"
+            echo "has_code=true" >> $GITHUB_OUTPUT
+          else
+            echo "⏭️  PR has no code changes - skipping auto-development"
+            echo "has_code=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+      - name: Get issue details
+        if: github.event_name == 'issues'
+        id: issue-details
+        env:
+          ISSUE_NUMBER: ${{ steps.pr-info.outputs.issue_number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue view $ISSUE_NUMBER \
+            --repo "$REPOSITORY" \
+            --json body,title \
+            --jq '{body: .body, title: .title}' > issue.json
+
+      - name: Determine spec path
+        id: spec-path
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_SPEC_PATH: ${{ github.event.inputs.spec_path }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SPEC_PATH="$WORKFLOW_SPEC_PATH"
+          elif [ "$EVENT_NAME" = "issues" ]; then
+            # Read issue details from file (safe from injection)
+            ISSUE_BODY=$(jq -r '.body' issue.json)
+            ISSUE_TITLE=$(jq -r '.title' issue.json)
+
+            # Look for spec path in issue body (format: docs/specs/feature/SPEC.md)
+            SPEC_PATH=$(echo "$ISSUE_BODY" | grep -oP 'docs/specs/[^/]+/SPEC\.md' | head -1)
+
+            # If not found in body, derive from sanitized issue title
+            if [ -z "$SPEC_PATH" ]; then
+              # Sanitize title: keep only alphanumeric and convert to lowercase
+              FEATURE_NAME=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+              SPEC_PATH="docs/specs/$FEATURE_NAME/SPEC.md"
+            fi
+          else
+            # Extract from PR changed files using the correct PR number
+            SPEC_PATH=$(gh pr view $PR_NUMBER \
+              --repo "$REPOSITORY" \
+              --json files \
+              --jq '.files[].path' | grep 'docs/specs/.*/SPEC.md' | head -1)
+          fi
+
+          if [ -z "$SPEC_PATH" ]; then
+            echo "ERROR: No spec file found"
+            exit 1
+          fi
+
+          echo "spec_path=$SPEC_PATH" >> $GITHUB_OUTPUT
+          echo "Processing spec: $SPEC_PATH"
+
+      - name: Extract feature name
+        id: feature-info
+        env:
+          SPEC_PATH: ${{ steps.spec-path.outputs.spec_path }}
+        run: |
+          FEATURE_NAME=$(echo "$SPEC_PATH" | sed 's|docs/specs/||' | sed 's|/SPEC.md||')
+
+          echo "feature_name=$FEATURE_NAME" >> $GITHUB_OUTPUT
+          echo "Feature name: $FEATURE_NAME"
+
+      - name: Prepare auto-development prompt
+        id: prompt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SPEC_PATH: ${{ steps.spec-path.outputs.spec_path }}
+          FEATURE_NAME: ${{ steps.feature-info.outputs.feature_name }}
+          ISSUE_NUM_OUTPUT: ${{ steps.pr-info.outputs.issue_number }}
+          INPUT_ISSUE_NUM: ${{ github.event.inputs.issue_number }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          PROMPT=$(cat .claude/prompts/auto-development.md)
+          PROMPT="${PROMPT//\{\{ repository \}\}/$REPOSITORY}"
+          PROMPT="${PROMPT//\{\{ spec_path \}\}/$SPEC_PATH}"
+          PROMPT="${PROMPT//\{\{ feature_name \}\}/$FEATURE_NAME}"
+
+          # Determine issue number from various sources
+          ISSUE_NUM="$ISSUE_NUM_OUTPUT"
+          if [ -z "$ISSUE_NUM" ]; then
+            ISSUE_NUM="$INPUT_ISSUE_NUM"
+          fi
+          if [ -z "$ISSUE_NUM" ]; then
+            ISSUE_NUM="auto-detect from spec"
+          fi
+
+          PROMPT="${PROMPT//\{\{ issue_number \}\}/$ISSUE_NUM}"
+          PROMPT="${PROMPT//\{\{ dry_run \}\}/${DRY_RUN:-false}}"
+
+          # Handle dry_run_check conditionally
+          if [ "$DRY_RUN" = "true" ]; then
+            PROMPT="${PROMPT//\{\{ dry_run_check \}\}/DRY RUN: Show what would be created.}"
+          else
+            PROMPT="${PROMPT//\{\{ dry_run_check \}\}/}"
+          fi
+
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code for Auto-Development
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+            checks: read
+
+          prompt: ${{ steps.prompt.outputs.content }}
+
+          claude_args: --model sonnet --max-turns 50
+
+          settings: |
+            {
+              "trackProgress": true,
+              "useStickyComment": false,
+              "autoApprove": false
+            }
+
+      - name: Upload development artifacts
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: auto-development-${{ steps.feature-info.outputs.feature_name }}
+          path: |
+            pkg/**/*.go
+            coverage.out
+            *.json
+          retention-days: 30
+
+  # notify-on-failure:
+  #   needs: [auto-development]
+  #   if: failure()
+  #   runs-on: self-hosted
+
+  #   steps:
+  #     - name: Create failure issue
+  #       run: |
+  #         gh issue create \
+  #           --repo "\${{ github.repository }}" \
+  #           --title "Auto-Development Workflow Failed - \$(date +%Y-%m-%d)" \
+  #           --label "type:bug,status:needs-triage" \
+  #           --body "The auto-development workflow failed for spec \${{ needs.auto-development.outputs.spec_path }}. Please review the logs: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}"
+  #       env:
+  #         GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,43 @@
+name: opencode
+
+on:
+  issue_comment:
+    types: [created]
+  # NOTE: According to official opencode docs (https://opencode.ai/docs/github/),
+  # only issue_comment is officially supported. The events below are experimental
+  # and may fail with "Unsupported event type" errors.
+  #
+  # RECOMMENDED USAGE: Use /opencode or @opencode in comments on issues/PRs
+  # instead of relying on labels or failed workflow triggers.
+
+jobs:
+  opencode:
+    # Trigger on comments containing /oc or /opencode
+    # Official documentation: https://opencode.ai/docs/github/
+    if: |
+      github.event_name == 'issue_comment' &&
+      (contains(github.event.comment.body, '/oc') ||
+       contains(github.event.comment.body, '/opencode'))
+
+    runs-on: axyzlabs-runners
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Run opencode
+        uses: sst/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: opencode/grok-code

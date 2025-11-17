@@ -1,0 +1,137 @@
+name: Issue Grooming
+
+on:
+  schedule:
+    # Run every Monday at 9:00 AM UTC
+    - cron: "0 9 * * 1"
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run mode (no changes to issues)"
+        required: false
+        default: true
+        type: boolean
+      scope:
+        description: "Grooming scope"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - issues-only
+          - roadmap-only
+      issue_numbers:
+        description: "Comma-separated issue numbers to groom (optional)"
+        required: false
+        type: string
+      create_summary:
+        description: "Create summary issue"
+        required: false
+        default: true
+        type: boolean
+
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write # For creating branches/commits
+  issues: write # For creating/updating issues
+  pull-requests: write # For creating PRs
+  actions: read # For reading workflow results
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-grooming
+  cancel-in-progress: true # Only one grooming at a time
+
+jobs:
+  issue-grooming:
+    # Only run on 'needs-grooming' label or scheduled/manual triggers
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'needs-grooming'))
+
+    runs-on: axyzlabs-runners
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup-gh-cli: 'true'
+
+      - name: Prepare issue grooming prompt
+        id: prompt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          PROMPT=$(cat .claude/prompts/issue-grooming.md)
+          PROMPT="${PROMPT//\{\{ repository \}\}/$REPOSITORY}"
+          # For issue grooming, we may not have a specific issue number if grooming all
+          if [ "$EVENT_NAME" = "issues" ]; then
+            PROMPT="${PROMPT//\{\{ issue_number \}\}/$ISSUE_NUMBER}"
+          else
+            PROMPT="${PROMPT//\{\{ issue_number \}\}/all open issues}"
+          fi
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code for Issue Grooming
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Additional permissions for reading workflow results
+          additional_permissions: |
+            actions: read
+            checks: read
+
+          # Automation mode: Execute immediately with this prompt
+          prompt: ${{ steps.prompt.outputs.content }}
+
+          # Configuration
+          claude_args: --model sonnet --max-turns 20
+
+          # Settings for automation
+          settings: |
+            {
+              "trackProgress": true,
+              "useStickyComment": false,
+              "autoApprove": false
+            }
+
+      - name: Upload grooming artifacts
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: grooming-report-${{ github.run_number }}
+          path: |
+            *.md
+            grooming-report-*.json
+          retention-days: 30
+
+  # notify-on-failure:
+  #   needs: [issue-grooming]
+  #   if: failure()
+  #   runs-on: self-hosted
+
+  #   steps:
+  #     - name: Create failure issue
+  #       run: |
+  #         gh issue create \
+  #           --repo "${{ github.repository }}" \
+  #           --title "Issue Grooming Workflow Failed - $(date +%Y-%m-%d)" \
+  #           --label "type:bug,status:needs-triage" \
+  #           --body "The issue grooming workflow failed. Please review the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

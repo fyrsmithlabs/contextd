@@ -1,0 +1,122 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters-settings:
+  govet:
+    enable:
+      - shadow
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  gosec:
+    excludes:
+      - G101
+      - G102
+      - G204
+      - G302
+      - G304
+
+linters:
+  enable:
+    # Critical linters (must pass)
+    - errcheck      # Unchecked errors
+    - gosec         # Security issues
+    - govet         # Suspicious constructs
+    - staticcheck   # Static analysis
+    - typecheck     # Type errors
+    - unused        # Unused code
+
+    # Code quality (important)
+    - gofmt         # Formatting
+    - gosimple      # Simplifications
+    - ineffassign   # Ineffective assignments
+
+    # Best practices (recommended)
+    - bodyclose     # HTTP response body closing
+    - misspell      # Spelling
+
+  disable:
+    # Too noisy for this codebase
+    - depguard      # Import restrictions (430 violations)
+    - revive        # Code style (337 violations)
+    - gocritic      # Opinionated checks (165 violations)
+    - lll           # Line length (105 violations)
+    - dupl          # Code duplication (acceptable in tests)
+    - gocyclo       # Cyclomatic complexity
+    - gochecknoinits # init functions (used intentionally)
+    - goconst       # Repeated strings
+    - dogsled       # Blank identifiers
+    - exhaustive    # Exhaustive switch
+    - nakedret      # Naked returns
+    - prealloc      # Slice pre-allocation
+    - unconvert     # Unnecessary conversions
+    - unparam       # Unused parameters
+    - whitespace    # Extra whitespace
+    - exportloopref # Deprecated (Go 1.22+)
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - unparam
+        - lll
+        - errcheck  # Allow unchecked errors in test files
+
+  exclude-dirs:
+    - vendor
+    - .git
+
+  exclude-use-default: false
+  exclude:
+    # Exclude safe operations that rarely fail
+    - Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|.*println|os\.(Un)?Setenv). is not checked
+    - Error return value of `fmt\.(F|S)?Print(ln|f)?` is not checked
+    - func name will be used as test\.Test.* by other packages, and that stutters
+    - (possible misuse of unsafe.Pointer|should have signature)
+    - ineffective break statement. Did you mean to break out of the outer loop
+    - Use of unsafe calls
+    - Potential file inclusion via variable
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

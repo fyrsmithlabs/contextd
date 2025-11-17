@@ -1,0 +1,307 @@
+name: Spec Creation Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to create spec for"
+        required: true
+        type: string
+      feature_name:
+        description: "Override feature name (optional)"
+        required: false
+        type: string
+      dry_run:
+        description: "Test mode (no changes)"
+        required: false
+        default: false
+        type: boolean
+
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number }}
+  cancel-in-progress: false # Let spec creation complete
+
+jobs:
+  spec-creation:
+    # Only run on 'ai:needs-spec' label or manual triggers
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ai:needs-spec'))
+
+    runs-on: axyzlabs-runners
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup-gh-cli: 'true'
+          setup-python: 'true'
+
+      - name: Determine issue number
+        id: issue-info
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ISSUE_NUMBER="$INPUT_ISSUE_NUMBER"
+          else
+            ISSUE_NUMBER="$EVENT_ISSUE_NUMBER"
+          fi
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "Processing issue #$ISSUE_NUMBER"
+
+      - name: Validate issue author is collaborator
+        if: github.event_name == 'issues'
+        env:
+          AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+          ASSOCIATION: ${{ github.event.issue.author_association }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Validating author: $AUTHOR"
+          echo "Author association: $ASSOCIATION"
+
+          # OWNER and COLLABORATOR are always trusted
+          if [[ "$ASSOCIATION" == "OWNER" || "$ASSOCIATION" == "COLLABORATOR" ]]; then
+            echo "✅ Author $AUTHOR is authorized (association: $ASSOCIATION)"
+            exit 0
+          fi
+
+          # MEMBER means organization member, but not necessarily write access
+          # Check actual repository permission for org members
+          if [[ "$ASSOCIATION" == "MEMBER" ]]; then
+            echo "Org member detected, checking repository permission..."
+            PERMISSION=$(gh api "/repos/$REPOSITORY/collaborators/$AUTHOR/permission" --jq '.permission' 2>/dev/null || echo "none")
+            echo "Repository permission: $PERMISSION"
+
+            if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" || "$PERMISSION" == "maintain" ]]; then
+              echo "✅ Author $AUTHOR is authorized (org member with $PERMISSION permission)"
+              exit 0
+            else
+              echo "❌ Security: Org member $AUTHOR has only $PERMISSION permission (need: write/maintain/admin)"
+              gh issue comment $ISSUE_NUMBER --repo "$REPOSITORY" --body "⚠️ Only repository collaborators with write access can trigger spec creation. Your permission level: $PERMISSION. Please contact a maintainer."
+              exit 1
+            fi
+          fi
+
+          # All other associations are not authorized
+          echo "❌ Security: Only collaborators can trigger spec creation"
+          echo "Author: $AUTHOR, Association: $ASSOCIATION"
+          gh issue comment $ISSUE_NUMBER --repo "$REPOSITORY" --body "⚠️ Only repository collaborators can trigger spec creation. Please contact a maintainer."
+          exit 1
+
+      - name: Prepare spec creation prompt
+        id: prompt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+          FEATURE_NAME: ${{ github.event.inputs.feature_name || 'auto-detect from issue' }}
+        run: |
+          PROMPT=$(cat .claude/prompts/spec-creation.md)
+          PROMPT="${PROMPT//\{\{ repository \}\}/$REPOSITORY}"
+          PROMPT="${PROMPT//\{\{ issue_number \}\}/$ISSUE_NUMBER}"
+          PROMPT="${PROMPT//\{\{ feature_name \}\}/$FEATURE_NAME}"
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+           echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create feature branch
+        id: create-branch
+        env:
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+        run: |
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create feature branch
+          BRANCH_NAME="spec/issue-${ISSUE_NUMBER}"
+          git checkout -b "$BRANCH_NAME"
+
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Checkout feature branch for spec creation
+        env:
+          BRANCH_NAME: ${{ steps.create-branch.outputs.branch_name }}
+        run: |
+          git checkout "$BRANCH_NAME"
+          echo "Checked out branch: $BRANCH_NAME"
+
+      - name: Run Claude Code for Spec Creation
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+          additional_permissions: |
+            actions: read
+            checks: read
+
+          prompt: ${{ steps.prompt.outputs.content }}
+
+          claude_args: --model sonnet --max-turns 15
+
+          settings: |
+            {
+              "trackProgress": false,
+              "useStickyComment": false,
+              "autoApprove": false
+            }
+
+      - name: Upload spec artifacts
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: spec-creation-${{ steps.issue-info.outputs.issue_number }}
+          path: |
+            docs/specs/**/*.md
+            *.json
+          retention-days: 30
+
+      - name: Commit and push spec changes
+        id: commit-spec
+        if: steps.create-branch.outputs.branch_name != ''
+        env:
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="${{ steps.create-branch.outputs.branch_name }}"
+
+          # Ensure we're on the correct branch
+          git checkout "$BRANCH_NAME"
+          echo "On branch: $(git branch --show-current)"
+
+          # Check if there are changes to commit
+          if git diff --quiet && git diff --staged --quiet && [ -z "$(git ls-files --others --exclude-standard docs/specs/)" ]; then
+            echo "No spec changes to commit"
+            exit 0
+          fi
+
+          # Stage all spec files
+          git add docs/specs/
+
+          # Commit changes
+          git commit -m "docs: Add specification for issue #${ISSUE_NUMBER}" \
+            -m "Specification created by Claude Code spec-creation workflow." \
+            -m "Closes #${ISSUE_NUMBER}" \
+            -m "🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+            -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          # Push branch
+          git push origin "$BRANCH_NAME"
+
+      - name: Create Pull Request
+        if: steps.commit-spec.outcome == 'success'
+        env:
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="spec/issue-${ISSUE_NUMBER}"
+
+          # Get issue details
+          ISSUE_TITLE=$(gh issue view $ISSUE_NUMBER --repo "$REPOSITORY" --json title --jq '.title')
+
+          # Create PR body
+          PR_BODY="## Specification Created
+
+          This PR adds the specification document for issue #${ISSUE_NUMBER}.
+
+          ### Issue
+          **Title**: ${ISSUE_TITLE}
+          **Link**: Closes #${ISSUE_NUMBER}
+
+          ### What's Included
+          - Comprehensive specification document
+          - Architecture and design decisions
+          - Implementation guidelines
+          - Testing requirements
+          - Security considerations
+
+          ### Review Checklist
+          - [ ] Specification is complete and clear
+          - [ ] Architecture decisions documented
+          - [ ] Security considerations addressed
+          - [ ] Testing strategy defined
+          - [ ] Implementation phases outlined
+
+          ### Next Steps
+          After merging:
+          1. Issue will be automatically closed
+          2. Label will change from \`ai:needs-spec\` to \`ai:spec-complete\`
+          3. Implementation can begin following the spec
+
+          ---
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH_NAME" --base main --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR already exists: #$EXISTING_PR"
+            echo "Skipping PR creation"
+          else
+            # Create PR
+            gh pr create \
+              --repo "$REPOSITORY" \
+              --base main \
+              --head "$BRANCH_NAME" \
+              --title "docs: Specification for #${ISSUE_NUMBER}" \
+              --body "$PR_BODY" \
+              --label "type:docs,ai:spec-created"
+            echo "✅ Pull request created successfully"
+          fi
+
+          echo "✅ Pull request created successfully"
+
+      - name: Update issue labels
+        if: steps.commit-spec.outcome == 'success'
+        env:
+          ISSUE_NUMBER: ${{ steps.issue-info.outputs.issue_number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Updating labels for issue #$ISSUE_NUMBER"
+
+          # Add ai:spec-created label (PR created)
+          gh issue edit $ISSUE_NUMBER --repo "$REPOSITORY" --add-label "ai:spec-created" || echo "Failed to add ai:spec-created label"
+
+          echo "✅ Labels updated successfully (ai:spec-created added)"
+          echo "Note: ai:needs-spec will be removed and ai:spec-complete will be added when PR is merged"
+
+  # notify-on-failure:
+  #   needs: [spec-creation]
+  #   if: failure()
+  #   runs-on: self-hosted
+
+  #   steps:
+  #     - name: Create failure issue
+  #       run: |
+  #         gh issue create \
+  #           --repo "${{ github.repository }}" \
+  #           --title "Spec Creation Workflow Failed - $(date +%Y-%m-%d)" \
+  #           --label "type:bug,status:needs-triage" \
+  #           --body "The spec creation workflow failed for issue #${{ github.event.inputs.issue_number || github.event.issue.number }}. Please review the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

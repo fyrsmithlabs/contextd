@@ -1,0 +1,312 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - develop # Snapshot builds
+    tags:
+      - "v*.*.*" # Production releases
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: "Create prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  # Pre-release job - triggered by labels, develop branch, or manual dispatch
+  prerelease:
+    if: >
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'prerelease')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    runs-on: axyzlabs-runners
+    outputs:
+      version: ${{ steps.goreleaser.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Wait for test-matrix workflow
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+
+            console.log(`Checking test-matrix workflow status for SHA: ${sha}`);
+
+            // Get workflow runs for this commit
+            const { data: workflowRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner,
+              repo,
+              head_sha: sha,
+              per_page: 100
+            });
+
+            const testMatrixRun = workflowRuns.workflow_runs.find(
+              run => run.name === 'Go Test Matrix' && run.head_sha === sha
+            );
+
+            if (!testMatrixRun) {
+              core.warning('No test-matrix workflow run found for this commit. Proceeding anyway for prerelease.');
+              return;
+            }
+
+            console.log(`Found test-matrix run: ${testMatrixRun.id}`);
+            console.log(`Status: ${testMatrixRun.status}, Conclusion: ${testMatrixRun.conclusion}`);
+
+            if (testMatrixRun.status !== 'completed') {
+              core.warning('test-matrix workflow has not completed yet. Proceeding anyway for prerelease.');
+              return;
+            }
+
+            if (testMatrixRun.conclusion !== 'success') {
+              core.warning(`test-matrix workflow failed with conclusion: ${testMatrixRun.conclusion}. Proceeding anyway for prerelease.`);
+              return;
+            }
+
+            console.log('✅ test-matrix workflow passed successfully');
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version: "1.25.3"
+          cache: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Run GoReleaser (snapshot)
+        id: goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Note: COSIGN_EXPERIMENTAL removed - OIDC not supported on self-hosted runners
+
+      - name: Upload snapshot artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: snapshot-${{ github.sha }}
+          path: dist/*.tar.gz
+          retention-days: 7
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Pre-release Build Complete
+
+              Snapshot build artifacts are available for testing.
+
+              ### Next Steps
+              - Download artifacts from workflow run
+              - Test the pre-release thoroughly
+              - Report any issues in the comments
+              - Apply \`release-ready\` label when ready for production release
+
+              ---
+              *This is an automated pre-release build from commit ${context.sha.substring(0, 7)}*`
+            });
+
+  # Production release - triggered by version tags or release-ready label
+  release:
+    if: >
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-ready'))
+    runs-on: axyzlabs-runners
+    outputs:
+      version: ${{ steps.goreleaser.outputs.version }}
+      tag: ${{ steps.goreleaser.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Wait for test-matrix workflow
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+
+            console.log(`Checking test-matrix workflow status for SHA: ${sha}`);
+
+            // Get workflow runs for this commit
+            const { data: workflowRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner,
+              repo,
+              head_sha: sha,
+              per_page: 100
+            });
+
+            const testMatrixRun = workflowRuns.workflow_runs.find(
+              run => run.name === 'Go Test Matrix' && run.head_sha === sha
+            );
+
+            if (!testMatrixRun) {
+              core.setFailed('No test-matrix workflow run found for this commit');
+              return;
+            }
+
+            console.log(`Found test-matrix run: ${testMatrixRun.id}`);
+            console.log(`Status: ${testMatrixRun.status}, Conclusion: ${testMatrixRun.conclusion}`);
+
+            if (testMatrixRun.status !== 'completed') {
+              core.setFailed('test-matrix workflow has not completed yet. Please wait for tests to finish.');
+              return;
+            }
+
+            if (testMatrixRun.conclusion !== 'success') {
+              core.setFailed(`test-matrix workflow failed with conclusion: ${testMatrixRun.conclusion}`);
+              return;
+            }
+
+            console.log('✅ test-matrix workflow passed successfully');
+            core.info('All tests passed - proceeding with release');
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version: "1.25.3"
+          cache: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Verify Cosign installation
+        run: cosign version
+
+      - name: Run GoReleaser
+        id: goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # Note: COSIGN_EXPERIMENTAL removed - OIDC not supported on self-hosted runners
+
+      - name: Verify signatures were created
+        run: |
+          echo "Checking for signature files in dist/..."
+          ls -la dist/*.sig dist/*.pem 2>/dev/null || echo "No signature files found"
+
+          if [ -f dist/contextd_linux_amd64.tar.gz.sig ]; then
+            echo "✅ Signatures created successfully"
+            echo "Sample signature info:"
+            cat dist/contextd_linux_amd64.tar.gz.pem | head -n 5
+          else
+            echo "⚠️ Warning: No signature files found"
+          fi
+
+  # Notify on successful release
+  notify:
+    if: >
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-ready'))
+    needs: [release]
+    runs-on: axyzlabs-runners
+
+    steps:
+      - name: Get release info
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ needs.release.outputs.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post release notification
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const tag = '${{ steps.release_info.outputs.tag }}';
+
+            // Comment on PR if this was a labeled PR release
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## Release ${tag} Published
+
+                The release has been successfully published!
+
+                ### Download
+                - [GitHub Release](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag})
+                - Homebrew: \`brew install axyzlabs/tap/contextd\`
+                - Go: \`go install github.com/axyzlabs/contextd/cmd/contextd@${tag}\`
+
+                ### What's New
+                Check the [release notes](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}) for the complete changelog.
+
+                ---
+                *This release was automatically created from this PR.*`
+              });
+            }
+
+            // Create announcement issue
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release ${tag}`,
+              body: `## New Release: ${tag}
+
+              A new version of contextd has been released!
+
+              ### Download
+              - [GitHub Release](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag})
+              - Homebrew: \`brew install axyzlabs/tap/contextd\`
+              - Go: \`go install github.com/axyzlabs/contextd/cmd/contextd@${tag}\`
+
+              ### What's New
+              Check the [release notes](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}) for the complete changelog.
+
+              ### Installation
+              See the [Getting Started guide](https://github.com/axyzlabs/contextd/blob/main/GETTING-STARTED.md) for installation instructions.
+
+              ---
+              *This notification was automatically generated by the release workflow.*`,
+              labels: ['release', 'announcement']
+            });

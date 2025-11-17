@@ -1,0 +1,162 @@
+name: Test OIDC on Self-Hosted Runners
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: "Test type"
+        required: true
+        type: choice
+        options:
+          - "with-id-token"
+          - "without-id-token"
+
+# Test 1: With id-token permission
+permissions:
+  contents: read
+  id-token: write # Test if this works on self-hosted
+
+jobs:
+  test-oidc-enabled:
+    name: Test OIDC (${{ github.event.inputs.test_type }})
+    runs-on: axyzlabs-runners
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Check OIDC Environment Variables
+        run: |
+          echo "=== OIDC Environment Check ==="
+          echo ""
+          echo "Test Type: ${{ github.event.inputs.test_type }}"
+          echo ""
+
+          # Check for OIDC-related environment variables
+          echo "Checking for OIDC environment variables:"
+          echo ""
+
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "✅ ACTIONS_ID_TOKEN_REQUEST_URL is set"
+            echo "   Value: $ACTIONS_ID_TOKEN_REQUEST_URL"
+          else
+            echo "❌ ACTIONS_ID_TOKEN_REQUEST_URL is NOT set"
+          fi
+          echo ""
+
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "✅ ACTIONS_ID_TOKEN_REQUEST_TOKEN is set"
+            echo "   Value: [REDACTED - length: ${#ACTIONS_ID_TOKEN_REQUEST_TOKEN}]"
+          else
+            echo "❌ ACTIONS_ID_TOKEN_REQUEST_TOKEN is NOT set"
+          fi
+          echo ""
+
+          # Check GitHub token availability
+          if [ -n "${GITHUB_TOKEN:-}" ]; then
+            echo "✅ GITHUB_TOKEN is available"
+            echo "   Value: [REDACTED - length: ${#GITHUB_TOKEN}]"
+          else
+            echo "❌ GITHUB_TOKEN is NOT available"
+          fi
+          echo ""
+
+      - name: Try to Get OIDC Token (using core.getIDToken)
+        id: get-oidc
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              const token = await core.getIDToken();
+              core.info('✅ Successfully obtained OIDC token');
+              core.info(`Token length: ${token.length}`);
+              core.setOutput('oidc_available', 'true');
+              core.setOutput('token_length', token.length);
+            } catch (error) {
+              core.error('❌ Failed to get OIDC token');
+              core.error(`Error: ${error.message}`);
+              core.setOutput('oidc_available', 'false');
+              core.setOutput('error_message', error.message);
+            }
+
+      - name: Summary Report
+        run: |
+          echo "=== Test Summary ==="
+          echo ""
+          echo "**Runner Type:** self-hosted"
+          echo "**Permission Setting:** ${{ github.event.inputs.test_type }}"
+          echo ""
+          echo "**OIDC Token Available:** ${{ steps.get-oidc.outputs.oidc_available }}"
+
+          if [ "${{ steps.get-oidc.outputs.oidc_available }}" == "true" ]; then
+            echo "**Token Length:** ${{ steps.get-oidc.outputs.token_length }}"
+            echo ""
+            echo "🎉 **Result:** OIDC is SUPPORTED on self-hosted runners!"
+          else
+            echo "**Error Message:** ${{ steps.get-oidc.outputs.error_message }}"
+            echo ""
+            echo "⚠️  **Result:** OIDC is NOT SUPPORTED on self-hosted runners"
+            echo ""
+            echo "**Conclusion:**"
+            echo "- Self-hosted runners (including ARC) do not support OIDC by default"
+            echo "- claude-code-action needs github_token parameter for authentication"
+            echo "- id-token: write permission has no effect on self-hosted runners"
+          fi
+
+      - name: Test Standard GitHub Token API Call
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Testing Standard GitHub Token ==="
+          echo ""
+
+          # Test API call with standard token
+          if gh api user --silent; then
+            echo "✅ Standard GITHUB_TOKEN works correctly"
+            echo "   User: $(gh api user -q .login)"
+          else
+            echo "❌ Standard GITHUB_TOKEN failed"
+            exit 1
+          fi
+
+      - name: Create Test Summary Artifact
+        run: |
+          cat > test-results.txt <<EOF
+          OIDC Test Results for Self-Hosted Runners
+          ==========================================
+
+          Test Type: ${{ github.event.inputs.test_type }}
+          Runner: self-hosted
+          Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          Environment Variables:
+          - ACTIONS_ID_TOKEN_REQUEST_URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:-NOT SET}
+          - ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-NOT SET}
+          - GITHUB_TOKEN: ${GITHUB_TOKEN:+SET (length: ${#GITHUB_TOKEN})}
+
+          OIDC Token Test:
+          - Available: ${{ steps.get-oidc.outputs.oidc_available }}
+          - Error: ${{ steps.get-oidc.outputs.error_message }}
+
+          Conclusion:
+          $(if [ "${{ steps.get-oidc.outputs.oidc_available }}" == "true" ]; then
+              echo "OIDC IS supported on self-hosted runners"
+            else
+              echo "OIDC is NOT supported on self-hosted runners"
+              echo "Use github_token parameter for claude-code-action instead"
+            fi)
+          EOF
+
+          cat test-results.txt
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: oidc-test-results-${{ github.run_number }}
+          path: test-results.txt
+          retention-days: 7

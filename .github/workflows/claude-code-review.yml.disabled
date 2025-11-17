@@ -1,0 +1,111 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      # Only run on code changes, not docs/configs
+      - "**.go" # Go source files
+      - "go.mod" # Go dependencies
+      - "go.sum" # Go dependency checksums
+      - "pkg/**" # Package changes
+      - "cmd/**" # Command changes
+      - "internal/**" # Internal code
+      - "api/**" # API definitions
+      - ".github/workflows/**" # Workflow changes (review the reviewer)
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true # Cancel outdated reviews
+
+jobs:
+  claude-review:
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+
+    runs-on: axyzlabs-runners
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Setup Dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup-gh-cli: 'true'
+
+      - name: Prepare code review prompt
+        id: prompt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          PROMPT=$(cat .claude/prompts/code-review.md)
+          PROMPT="${PROMPT//\{\{ repository \}\}/$REPOSITORY}"
+          PROMPT="${PROMPT//\{\{ pr_number \}\}/$PR_NUMBER}"
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.prompt.outputs.content }}
+
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr review:*),Bash(gh pr merge:*),Bash(gh pr checks:*)"'
+
+      - name: Check PR approval and merge if ready
+        if: success()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking PR #$PR_NUMBER status..."
+
+          # Get PR review state
+          REVIEW_STATE=$(gh pr view $PR_NUMBER --repo $REPOSITORY --json reviewDecision -q '.reviewDecision')
+          echo "Review state: $REVIEW_STATE"
+
+          # Get check status using simpler API query (avoids GraphQL permission issues)
+          # Use the commits API to get check runs for the PR head
+          HEAD_SHA=$(gh pr view $PR_NUMBER --repo $REPOSITORY --json headRefOid -q '.headRefOid')
+          echo "Head SHA: $HEAD_SHA"
+
+          # Get check runs and count failures/pending
+          CHECK_RUNS=$(gh api "/repos/$REPOSITORY/commits/$HEAD_SHA/check-runs" --jq '[.check_runs[] | select(.status != "completed" or .conclusion != "success")] | length')
+          echo "Failing or pending checks: $CHECK_RUNS"
+
+          # Check if PR is approved and all checks pass
+          if [ "$REVIEW_STATE" = "APPROVED" ] && [ "$CHECK_RUNS" = "0" ]; then
+            echo "✅ PR approved and all checks passing - proceeding with merge"
+
+            # Merge PR (squash by default)
+            gh pr merge $PR_NUMBER --repo $REPOSITORY --squash --auto --delete-branch
+
+            echo "🎉 PR merged and branch deleted successfully"
+          else
+            echo "⏳ PR not ready for merge:"
+            echo "  - Review: $REVIEW_STATE (need: APPROVED)"
+            echo "  - Failing/pending checks: $CHECK_RUNS (need: 0)"
+            echo "Skipping auto-merge"
+          fi

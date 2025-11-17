@@ -1,0 +1,226 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for contextd
+title: "[Feature]: "
+labels: ["type:feature", "status:needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide as much detail as possible to help us understand your request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What pain point does it address?
+      placeholder: |
+        I'm frustrated when...
+        Currently, I have to...
+        This would help me...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see
+      placeholder: Describe your proposed solution...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: Describe alternatives you've considered...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component would this feature enhance?
+      options:
+        - MCP Server
+        - API Server
+        - Checkpoint System
+        - Remediation System
+        - Troubleshooting Service
+        - Skills Management
+        - Vector Database (Qdrant)
+        - Authentication
+        - Configuration
+        - Observability
+        - Multi-Tenant
+        - Migration Tools
+        - CLI Tool (ctxd)
+        - Documentation
+        - Testing
+        - New Component
+        - Other (please specify in description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - "High: Blocking my workflow, critical need"
+        - "Medium: Important improvement, would significantly help"
+        - "Low: Nice to have, minor improvement"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Roadmap Alignment
+      description: Which roadmap phase does this align with? (See docs/PRODUCT-ROADMAP-V3-AGENT-PATTERNS.md)
+      options:
+        - "Phase 1: Foundation (Context Folding, Memory Bank)"
+        - "Phase 2: ReasoningBank Core (Pattern Library)"
+        - "Phase 3: Tool Orchestration (Workflows)"
+        - "Phase 4: Advanced Integration (Cross-project)"
+        - "Phase 5: Ecosystem & Scale (Plugins)"
+        - "Not sure / Doesn't align with current roadmap"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: feature-type
+    attributes:
+      label: Feature Type
+      description: What type of feature is this?
+      options:
+        - label: Core functionality enhancement
+        - label: Performance optimization
+        - label: Developer experience improvement
+        - label: New MCP tool
+        - label: API enhancement
+        - label: CLI enhancement
+        - label: Documentation improvement
+        - label: Testing/Quality improvement
+        - label: Security enhancement
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe specific use cases for this feature
+      placeholder: |
+        1. As a developer, I want to...
+        2. When working on large projects, I need to...
+        3. For debugging purposes, it would help to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How would we know this feature is complete? What should it do?
+      placeholder: |
+        - [ ] Feature should...
+        - [ ] User can...
+        - [ ] System should...
+    validations:
+      required: false
+
+  - type: textarea
+    id: technical-notes
+    attributes:
+      label: Technical Considerations
+      description: Any technical details, constraints, or implementation ideas?
+      placeholder: |
+        - Implementation approach ideas
+        - Potential challenges
+        - Dependencies on other features
+        - Performance considerations
+        - Security implications
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: breaking-changes
+    attributes:
+      label: Breaking Changes
+      description: Would this feature require breaking changes?
+      options:
+        - label: This would require breaking changes to the API
+        - label: This would require breaking changes to the MCP protocol
+        - label: This would require database schema changes
+        - label: This would require configuration changes
+        - label: No breaking changes expected
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups/Examples
+      description: Include any mockups, code examples, or visualizations
+      placeholder: |
+        ```go
+        // Example API usage
+        result, err := contextd.NewFeature(options)
+        ```
+
+        Or drag and drop images here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the feature request
+      placeholder: |
+        - Related issues or PRs
+        - External references
+        - Similar features in other tools
+        - User feedback or requests
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Are you interested in contributing this feature?
+      options:
+        - label: I'm willing to submit a PR for this feature
+        - label: I'm willing to help test this feature
+        - label: I'm willing to help with documentation
+        - label: I need help implementing this
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following
+      options:
+        - label: I have searched existing issues/PRs for similar requests
+          required: true
+        - label: I have described the problem and proposed solution clearly
+          required: true
+        - label: I have included use cases
+          required: true
+        - label: I have reviewed the product roadmap for alignment
+          required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **What happens next?**
+        1. Maintainers will review and triage the request
+        2. If aligned with roadmap, we'll add to appropriate phase milestone
+        3. If spec is needed, we'll add `ai:needs-spec` label to trigger spec creation
+        4. Community feedback will be gathered
+        5. Implementation will be prioritized based on impact and alignment
+
+        Thank you for helping shape contextd's future! 🚀

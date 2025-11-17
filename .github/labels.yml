@@ -1,0 +1,242 @@
+# GitHub Issue Labels Configuration
+# Managed labels for dahendel/contextd repository
+#
+# Use with: https://github.com/marketplace/actions/github-labeler
+# or gh CLI: gh label create --repo dahendel/contextd --file .github/labels.yml
+
+# Default GitHub Labels
+- name: bug
+  description: "Something isn't working"
+  color: "d73a4a"
+
+- name: documentation
+  description: "Improvements or additions to documentation"
+  color: "0075ca"
+
+- name: duplicate
+  description: "Duplicate issue"
+  color: "cfd3d7"
+
+- name: enhancement
+  description: "New feature or request"
+  color: "a2eeef"
+
+- name: "good first issue"
+  description: "Good for newcomers"
+  color: "7057ff"
+
+- name: "help wanted"
+  description: "Extra attention is needed"
+  color: "008672"
+
+- name: invalid
+  description: "Invalid issue"
+  color: "e4e669"
+
+- name: question
+  description: "Questions/help requests"
+  color: "d876e3"
+
+- name: wontfix
+  description: "Will not be fixed"
+  color: "ffffff"
+
+# Epic and Priority Labels
+- name: epic
+  description: "Epic tracking issue"
+  color: "8B5CF6"
+
+- name: P0
+  description: "Critical priority"
+  color: "DC2626"
+
+- name: P1
+  description: "High priority"
+  color: "F59E0B"
+
+- name: P2
+  description: "Medium priority"
+  color: "10B981"
+
+- name: P3
+  description: "Low priority"
+  color: "6B7280"
+
+# Phase Labels (Product Roadmap)
+- name: phase-1
+  description: "Foundation (Months 1-2)"
+  color: "d4c5f9"
+
+- name: phase-2
+  description: "Context Folding (Months 3-4)"
+  color: "c5def5"
+
+- name: phase-3
+  description: "ReasoningBank (Months 5-6)"
+  color: "bfdadc"
+
+# Workflow and Status Labels
+- name: quick-win
+  description: "Quick win - high impact, low effort"
+  color: "22C55E"
+
+- name: testing
+  description: "Testing related"
+  color: "0E7490"
+
+- name: ci-cd
+  description: "CI/CD pipeline"
+  color: "0891B2"
+
+- name: observability
+  description: "Monitoring and observability"
+  color: "7C3AED"
+
+- name: reliability
+  description: "Reliability improvements"
+  color: "059669"
+
+- name: automation
+  description: "Automation and workflow tasks"
+  color: "0E8A16"
+
+- name: infrastructure
+  description: "Infrastructure and deployment tasks"
+  color: "0052CC"
+
+- name: security
+  description: "Security-related tasks"
+  color: "D93F0B"
+
+- name: quality
+  description: "Code quality improvements"
+  color: "BFD4F2"
+
+- name: critical
+  description: "Critical issue requiring immediate attention"
+  color: "B60205"
+
+- name: production-ready
+  description: "Ready for production deployment"
+  color: "0E8A16"
+
+# AI/Agent Labels
+- name: ai
+  description: "AI and machine learning tasks"
+  color: "7057FF"
+
+- name: "ai:needs-spec"
+  description: "Trigger spec-writer agent"
+  color: "7057ff"
+
+- name: "ai:spec-complete"
+  description: "Specification completed"
+  color: "0E8A16"
+
+- name: "ai:opencode"
+  description: "Trigger OpenCode workflow"
+  color: "7057ff"
+
+# Type Labels
+- name: "type:feature"
+  description: "New features"
+  color: "0075ca"
+
+- name: "type:bug"
+  description: "Bug reports"
+  color: "d73a4a"
+
+- name: "type:docs"
+  description: "Documentation improvements"
+  color: "0075ca"
+
+- name: "type:refactor"
+  description: "Code refactoring"
+  color: "fbca04"
+
+- name: "type:test"
+  description: "Test improvements"
+  color: "0E7490"
+
+# Priority Labels (alternative naming)
+- name: "priority:critical"
+  description: "Drop everything (24h SLA)"
+  color: "B60205"
+
+- name: "priority:high"
+  description: "High priority (7d SLA)"
+  color: "d93f0b"
+
+- name: "priority:medium"
+  description: "Medium priority (30d SLA)"
+  color: "fbca04"
+
+- name: "priority:low"
+  description: "Low priority (90d SLA)"
+  color: "0e8a16"
+
+# Area Labels
+- name: "area:mcp"
+  description: "MCP server implementation"
+  color: "d4c5f9"
+
+- name: "area:api"
+  description: "API endpoints"
+  color: "d4c5f9"
+
+- name: "area:cli"
+  description: "CLI tools"
+  color: "d4c5f9"
+
+- name: "area:checkpoint"
+  description: "Checkpoint management"
+  color: "d4c5f9"
+
+- name: "area:remediation"
+  description: "Error remediation"
+  color: "d4c5f9"
+
+- name: "area:troubleshooting"
+  description: "AI troubleshooting"
+  color: "d4c5f9"
+
+- name: "area:skills"
+  description: "Skills management"
+  color: "d4c5f9"
+
+- name: "area:analytics"
+  description: "Analytics and metrics"
+  color: "d4c5f9"
+
+- name: "area:backup"
+  description: "Backup and restore"
+  color: "d4c5f9"
+
+- name: "area:monitoring"
+  description: "Monitoring and observability"
+  color: "d4c5f9"
+
+- name: "area:performance"
+  description: "Performance optimization"
+  color: "d4c5f9"
+
+# Status Labels
+- name: "status:needs-triage"
+  description: "Needs initial review"
+  color: "ededed"
+
+- name: "status:in-progress"
+  description: "Work in progress"
+  color: "0052CC"
+
+- name: "status:blocked"
+  description: "Blocked by dependencies"
+  color: "d93f0b"
+
+- name: "status:needs-review"
+  description: "Awaiting code review"
+  color: "fbca04"
+
+- name: "status:ready"
+  description: "Ready to merge"
+  color: "0E8A16"
