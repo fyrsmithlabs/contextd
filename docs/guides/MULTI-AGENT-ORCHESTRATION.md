@@ -41,20 +41,73 @@
 
 ## Agent Delegation
 
-| Task Type | Agent | Command Pattern |
-|-----------|-------|-----------------|
-| **Task Coordination** | **taskmaster:task-orchestrator** | **Deploy at start to analyze dependencies** |
-| **Task Execution** | **taskmaster:task-executor** | **Implement specific tasks** |
-| **Task Verification** | **taskmaster:task-checker** | **Verify implementation quality** |
-| Overall coordination | orchestrator | See `.claude/agents/orchestrator.md` |
-| Spec creation | spec-writer | "Have spec-writer agent create..." |
-| Architecture | go-architect | "Have go-architect agent design..." |
-| **Go Implementation** | **golang-pro** | **"Use golang-pro skill to implement..."** |
-| Testing | test-engineer | "Have test-engineer agent verify..." |
-| Code review | superpowers:code-reviewer | "Use superpowers:requesting-code-review" |
-| Error research | research-analyst | "@agent-research-analyst search..." |
-| MCP features | mcp-developer | "Use mcp-developer for..." |
-| QA testing | qa-engineer | "Have qa-engineer execute test skill..." |
+| Task Type | Agent | Command Pattern | Notes |
+|-----------|-------|-----------------|-------|
+| **Task Coordination** | **taskmaster:task-orchestrator** | **Deploy at start to analyze dependencies** | Plans parallel/sequential work |
+| **Task Execution** | **taskmaster:task-executor** | **Implement specific tasks** | Autonomous implementation |
+| **Task Verification** | **taskmaster:task-checker** | **Verify implementation quality** | Quality gates |
+| Overall coordination | orchestrator | See `.claude/agents/orchestrator.md` | Session-level orchestration |
+| Spec creation | spec-writer | "Have spec-writer agent create..." | Write specifications |
+| Architecture | go-architect | "Have go-architect agent design..." | System design |
+| **Go Implementation** | **golang-pro** | **"Use golang-pro skill to implement..."** | **TDD, ≥80% coverage, security** |
+| Testing strategy | test-strategist | "Use test-strategist to design..." | Test plan design |
+| Code review | superpowers:code-reviewer | "Use superpowers:requesting-code-review" | Post-implementation review |
+| Error research | research-analyst | "@agent-research-analyst search..." | Root cause research |
+| **MCP Protocol Design** | **mcp-developer** | **"Use mcp-developer to research/design..."** | **Protocol spec, gap analysis** |
+| QA testing | qa-engineer | "Have qa-engineer execute test skill..." | End-to-end testing |
+
+### Multi-Agent Coordination Patterns
+
+#### MCP Implementation Pattern (MANDATORY)
+
+**For ANY MCP-related work:**
+
+```
+Phase 1: Design (mcp-developer agent)
+└─> Research MCP spec, analyze gaps, design solution
+    Output: Gap analysis + implementation requirements
+
+Phase 2: Implementation (golang-pro skill)
+└─> Implement Go code following mcp-developer's design
+    Output: Production-ready code with tests (≥80% coverage)
+
+Phase 3: Verification (code-reviewer)
+└─> Validate against requirements and protocol compliance
+    Output: Approval or revision requests
+```
+
+**Example**:
+```
+Step 1: "Use mcp-developer agent to research MCP Streamable HTTP
+        specification and design /mcp endpoint implementation"
+
+Step 2: "Use golang-pro skill to implement /mcp endpoint with:
+        - Protocol requirements from mcp-developer
+        - Security requirements from CLAUDE.md Section 1
+        - TDD with ≥80% test coverage"
+
+Step 3: "Use superpowers:requesting-code-review to verify implementation"
+```
+
+#### Other Common Patterns
+
+**Security-Critical Feature**:
+```
+security-auditor → golang-pro → code-reviewer
+(audit) → (implement with mitigations) → (verify)
+```
+
+**Performance Optimization**:
+```
+performance-engineer → golang-pro → test-strategist
+(profile/analyze) → (implement fixes) → (benchmark tests)
+```
+
+**Documentation Generation**:
+```
+documentation-engineer → task-executor → code-reviewer
+(design docs structure) → (generate content) → (review accuracy)
+```
 
 ## Available Slash Commands
 

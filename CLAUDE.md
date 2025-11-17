@@ -139,6 +139,64 @@ Use the golang-pro skill to [implement/fix/refactor] [description]
 
 **CRITICAL**: When delegating to golang-pro, ALWAYS include security requirements from Section 1.
 
+### 5a. Multi-Agent Coordination (CRITICAL)
+
+**Specialized agents must work together on complex tasks.** Each agent has domain expertise that must be coordinated.
+
+#### MCP Implementation Pattern (MANDATORY)
+
+**For ANY MCP-related work, use this exact pattern:**
+
+1. **Design Phase**: Use `mcp-developer` agent for protocol research and design
+   - Research MCP specification and latest standards
+   - Analyze protocol requirements and gaps
+   - Design endpoint structure and request/response formats
+   - Create implementation plan with protocol details
+   - Output: Gap analysis, protocol spec, implementation requirements
+
+2. **Implementation Phase**: Use `golang-pro` skill for Go code
+   - Takes mcp-developer's design and requirements
+   - Implements Go code following TDD (≥80% coverage)
+   - Enforces security requirements from Section 1
+   - Creates proper commits with tests
+   - Output: Production-ready Go implementation
+
+**Example Coordination Flow**:
+```
+Step 1: Deploy mcp-developer agent
+"Research the MCP Streamable HTTP specification and design
+the /mcp endpoint implementation for our contextd server.
+Output: Implementation plan with protocol details."
+
+Step 2: Use golang-pro skill (after mcp-developer completes)
+"Use golang-pro skill to implement the /mcp endpoint following
+the design from mcp-developer. Include:
+- Protocol requirements: [from mcp-developer output]
+- Security requirements: [from Section 1]
+- Endpoint signature: POST/GET/DELETE /mcp
+- Session management with Mcp-Session-Id header"
+```
+
+#### General Agent Coordination Rules
+
+**Sequential Pattern** (when agents have dependencies):
+1. **Specialist agent** (research, design, analysis) completes first
+2. **Implementation agent** (golang-pro, task-executor) uses specialist output
+3. **Review agent** (code-reviewer, task-checker) validates result
+
+**Parallel Pattern** (when agents work independently):
+- Deploy multiple agents in single message with Task tool
+- Each agent works on independent subtask
+- Coordinate results after all complete
+
+**Key Principles**:
+- **Never skip specialist agents** - Their domain expertise prevents costly mistakes
+- **Always pass context forward** - Include specialist output when delegating to implementers
+- **One agent per domain** - Don't ask golang-pro to research MCP specs or mcp-developer to write Go
+- **Maintain security context** - ALWAYS include Section 1 security requirements when delegating
+
+**See**: [docs/guides/MULTI-AGENT-ORCHESTRATION.md](docs/guides/MULTI-AGENT-ORCHESTRATION.md) for complete delegation table
+
 ### 6. GitHub Integration
 
 **ALWAYS prefer GitHub MCP tools over gh CLI** when available.
