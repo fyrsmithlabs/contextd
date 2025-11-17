@@ -70,7 +70,9 @@ help:
 
 # Build targets
 build:
-	@./scripts/build.sh
+	@echo "🔨 Building contextd..."
+	@go build -o contextd ./cmd/contextd/
+	@echo "✓ Built contextd"
 
 build-all: build
 
