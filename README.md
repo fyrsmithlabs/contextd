@@ -14,6 +14,85 @@
 
 **contextd** is a production-grade service that supercharges Claude Code with persistent memory, semantic search across past work, and intelligent error remediation. Built with security and performance as primary goals, it uses Unix domain sockets for local-only access and vector databases for blazing-fast semantic search.
 
+## Quick Start
+
+Get contextd running in under 5 minutes with Docker Compose.
+
+### Prerequisites
+- Docker and Docker Compose installed
+- Go 1.24+ (for building contextd)
+- 2GB available disk space for embeddings model
+
+### One-Command Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/fyrsmithlabs/contextd.git
+cd contextd
+
+# 2. Start infrastructure services (TEI embeddings + Qdrant vector DB)
+docker-compose up -d
+
+# 3. Verify services are running
+docker-compose ps
+
+# 4. Build and run contextd
+go build -o contextd ./cmd/contextd/
+./contextd --config .config/contextd/config.yaml
+
+# 5. Verify contextd is running
+curl http://localhost:8080/health
+# Expected: {"status":"ok","version":"0.9.0-rc-1"}
+```
+
+### Service URLs
+
+- **contextd API**: http://localhost:8080
+- **TEI Embeddings**: http://localhost:8080 (container port 80)
+- **Qdrant HTTP API**: http://localhost:6333
+- **Qdrant gRPC API**: http://localhost:6334
+
+### Shutdown
+
+```bash
+# Stop contextd (Ctrl+C in terminal)
+
+# Stop infrastructure services
+docker-compose down
+
+# Stop and remove volumes (WARNING: deletes all data)
+docker-compose down -v
+```
+
+### Troubleshooting
+
+**Services won't start:**
+```bash
+# Check logs
+docker-compose logs tei
+docker-compose logs qdrant
+
+# Restart services
+docker-compose restart
+```
+
+**TEI model download slow:**
+- First startup downloads BAAI/bge-small-en-v1.5 model (~150MB)
+- Model is cached in `tei-data` volume for subsequent starts
+- Check download progress: `docker-compose logs -f tei`
+
+**Port conflicts:**
+- If ports 8080, 6333, or 6334 are in use, edit `docker-compose.yml`
+- Example: Change `"8080:80"` to `"8081:80"` for TEI
+- Update contextd config to match new ports
+
+**Qdrant data persistence:**
+- Vector data stored in `qdrant-data` volume
+- Survives container restarts
+- To reset: `docker-compose down -v` (WARNING: deletes all indexed data)
+
+---
+
 ## Features
 
 ### Core Features

@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Docker Compose Setup**: One-command local development environment
+  - TEI (Text Embeddings Inference) service with BAAI/bge-small-en-v1.5 model (384 dimensions)
+  - Qdrant vector database with HTTP (6333) and gRPC (6334) APIs
+  - Named volumes for data persistence (`tei-data`, `qdrant-data`)
+  - Health checks for both services with automatic restart
+  - Environment variable support for model configuration
+  - `.env.example` with comprehensive configuration documentation
+  - Updated README.md with Quick Start guide and troubleshooting section
+
+- **MCP Protocol Discovery Endpoints**: Complete MCP protocol compliance with tool and resource discovery
+  - `GET /mcp/tools/list`: Returns all available MCP tools with input schemas
+  - `GET /mcp/resources/list`: Lists available resources (collections) for authenticated owner
+  - `POST /mcp/resources/read`: Reads specific resource (collection) metadata by URI
+  - Full JSON-RPC 2.0 message format compliance for all discovery endpoints
+
+- **Collection Lifecycle Management**: Full CRUD operations for Qdrant collections
+  - `CreateCollection(ctx, name, vectorSize)`: Create new collections with specified vector dimensions
+  - `DeleteCollection(ctx, name)`: Delete existing collections
+  - `ListCollections(ctx)`: List all collections
+  - `CollectionExists(ctx, name)`: Check collection existence
+  - `GetCollectionInfo(ctx, name)`: Retrieve collection metadata (vector size, point count)
+  - Direct Qdrant HTTP API integration (bypasses langchaingo limitations)
+  - Comprehensive error handling with sentinel errors (ErrCollectionExists, ErrCollectionNotFound, ErrInvalidVectorSize)
+
+### Changed
+
+- **MCP Server Routes**: Extended RegisterRoutes() to include discovery endpoints
+  - Added tool discovery at `/mcp/tools/list`
+  - Added resource listing at `/mcp/resources/list`
+  - Added resource reading at `/mcp/resources/read`
+
+- **Vectorstore Service**: Enhanced with collection management capabilities
+  - Uses Qdrant HTTP API directly for collection operations
+  - Supports Cosine distance metric for vector similarity
+  - Validates collection names and vector sizes before operations
+
+### Fixed
+
+- **Test Coverage**: Added comprehensive test suite for MCP discovery endpoints
+  - TestHandleToolsList: Validates tool discovery with input schemas
+  - TestHandleResourcesList: Validates resource listing with owner-scoped filtering
+  - TestHandleResourceRead: Validates resource metadata retrieval
+  - TestCreateCollection: Validates collection creation
+  - TestDeleteCollection: Validates collection deletion
+  - TestListCollections: Validates collection listing
+  - TestCollectionExists: Validates collection existence checking
+
+### Technical Debt
+
+- TODO: Wire vectorstore service to MCP resource endpoints for live collection data
+- TODO: Implement URI parsing and owner validation for resource read endpoint
+- TODO: Add collection management MCP tools (collection_create, collection_delete, collection_list)
+
 ## [0.9.0-rc-1] - 2025-01-15 - **MVP Release Candidate**
 
 **This is the initial MVP (Minimum Viable Product) release of contextd.**
