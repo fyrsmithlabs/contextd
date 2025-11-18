@@ -749,10 +749,10 @@ Example: "ImportError: No module named 'requests'"
 
 ### Authentication
 
-**Bearer Token Required:**
-- All API calls require valid Bearer token
-- Token validated via constant-time comparison
-- Unauthorized requests rejected with 401
+**HTTP Transport:**
+- Service uses HTTP transport on port 8080
+- No authentication required (localhost-only access)
+- Intended for local development and single-user environments
 
 ### Input Sanitization
 
