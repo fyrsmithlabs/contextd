@@ -40,10 +40,9 @@ When invoked for code review:
 ### Security (CRITICAL - Primary Goal)
 
 **Authentication & Authorization:**
-- [ ] Bearer token uses constant-time comparison (`subtle.ConstantTimeCompare`)
-- [ ] No timing attack vulnerabilities in authentication
-- [ ] Unix socket permissions verified (0600)
-- [ ] Token file permissions enforced (0600)
+- [ ] HTTP server configured correctly (port, host binding)
+- [ ] CORS policy appropriate for deployment (disabled by default)
+- [ ] Rate limiting considered for production (not required for MVP)
 - [ ] No secrets in code or logs
 
 **Input Validation:**
@@ -211,11 +210,11 @@ cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin"}
 
 ### Architecture Compliance
 
-**Unix Socket Security:**
-- [ ] Socket created with correct permissions (0600)
-- [ ] Socket removed before creation (os.Remove)
-- [ ] Socket cleaned up on shutdown
-- [ ] No TCP listeners exposed
+**HTTP Transport Security:**
+- [ ] HTTP server binds to appropriate interface (0.0.0.0 for remote, 127.0.0.1 for local)
+- [ ] Standard security headers present (if applicable)
+- [ ] Reverse proxy recommended for production (document in deployment guide)
+- [ ] HTTP server exposes only intended endpoints (/health, /mcp)
 
 **OpenTelemetry:**
 - [ ] HTTP handlers use otelecho middleware
