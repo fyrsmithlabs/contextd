@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: Documentation updated to reflect HTTP transport architecture (not Unix sockets)
+  - MCP server uses HTTP on port 8080 (configurable)
+  - Remote connections supported (0.0.0.0 binding)
+  - Multiple concurrent Claude Code sessions supported
+  - MVP: No authentication required (trusted network model)
+  - Production: Add reverse proxy with TLS + auth post-MVP
+  - See `docs/standards/architecture.md` for updated architecture
+  - Migration guide: `docs/plans/2025-11-18-fix-mcp-architecture-docs.md`
+
 - **MCP Server Routes**: Extended RegisterRoutes() to include discovery endpoints
   - Added tool discovery at `/mcp/tools/list`
   - Added resource listing at `/mcp/resources/list`
@@ -54,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Uses Qdrant HTTP API directly for collection operations
   - Supports Cosine distance metric for vector similarity
   - Validates collection names and vector sizes before operations
+
+### Removed
+
+- **BREAKING**: Unix socket transport documentation removed
+  - All references to `~/.config/contextd/api.sock` replaced with `http://localhost:8080`
+  - `CONTEXTD_SOCKET` environment variable replaced with `CONTEXTD_HTTP_PORT`
+  - Bearer token authentication documentation marked as post-MVP
 
 ### Fixed
 
