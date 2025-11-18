@@ -15,7 +15,7 @@ contextd/
 │   ├── contextd/       # Main server (API + MCP modes)
 │   └── ctxd/          # CLI client
 ├── pkg/               # Public packages
-│   ├── auth/          # Bearer token authentication
+│   ├── auth/          # Authentication (post-MVP)
 │   ├── checkpoint/    # Checkpoint service
 │   ├── remediation/   # Error remediation
 │   ├── embedding/     # Embedding generation (OpenAI/TEI)
@@ -30,47 +30,42 @@ contextd/
 
 ## Communication Architecture
 
-### Unix Socket
+### HTTP Transport
 
-**Location:** `~/.config/contextd/api.sock`
-**Permissions:** 0600 (owner only)
-**Protocol:** HTTP over Unix socket
+**Port:** 8080 (configurable via CONTEXTD_HTTP_PORT)
+**Host:** 0.0.0.0 (accepts remote connections)
 
-```go
-// Server setup
-listener, err := net.Listen("unix", socketPath)
-os.Chmod(socketPath, 0600)
+**Protocol:** HTTP/1.1 with JSON-RPC 2.0
 
-e := echo.New()
-e.Listener = listener
-e.Start("")
-```
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /mcp` - MCP JSON-RPC 2.0 endpoint
+- `GET /mcp/sse` - SSE streaming (notifications, tool updates)
 
-**Why Unix Socket:**
-- No network exposure
-- Filesystem-based access control
-- 35% faster than TCP localhost
-- Immune to network-based attacks
+**Why HTTP:**
+- Remote access for distributed teams
+- Multiple concurrent sessions
+- Standard protocol (firewall/proxy friendly)
+- SSE streaming for real-time updates
 
 ### Authentication
 
-**Mechanism:** Bearer token
-**Storage:** `~/.config/contextd/token`
-**Permissions:** 0600
-**Generation:** 32 bytes random → hex (64 chars)
+**MVP Status:** No authentication required (trusted network model)
 
-```go
-// Validation (constant-time to prevent timing attacks)
-if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
-    return ErrUnauthorized
-}
-```
+**Post-MVP Plans:**
+- Bearer token or JWT authentication
+- Configurable auth providers (OAuth, OIDC)
+- TLS via reverse proxy (nginx/Caddy)
+
+**Current Security:**
+- Deploy on trusted network only (VPN, internal network)
+- Use SSH tunnel for remote access: `ssh -L 8080:localhost:8080 user@server`
+- Reverse proxy recommended for production deployments
 
 **Never:**
-- Log tokens
-- Include in error messages
-- Transmit over network
-- Store in plaintext config files
+- Log API keys or credentials
+- Include secrets in error messages
+- Commit credentials to repository
 
 ## Data Flow
 
@@ -78,7 +73,7 @@ if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
 
 ```
 1. User → Claude Code → MCP tool call
-2. MCP → contextd (Unix socket + bearer token)
+2. MCP → contextd (HTTP POST /mcp, no auth for MVP)
 3. contextd → Input validation
 4. contextd → Security redaction
 5. contextd → OpenAI/TEI (generate embedding)
@@ -114,15 +109,15 @@ OTEL_SERVICE_NAME=contextd
 OTEL_ENVIRONMENT=production
 
 # Server
-CONTEXTD_SOCKET=~/.config/contextd/api.sock
-CONTEXTD_TOKEN_PATH=~/.config/contextd/token
+CONTEXTD_HTTP_PORT=8080
+CONTEXTD_HTTP_HOST=0.0.0.0
+CONTEXTD_BASE_URL=http://localhost:8080
 ```
 
 ### File-Based Secrets
 
 ```
 ~/.config/contextd/
-├── token              # Bearer token (0600)
 ├── openai_api_key     # OpenAI key (0600)
 └── config.yaml        # Non-sensitive config (0644)
 ```
@@ -241,7 +236,7 @@ embedding, err := embeddingClient.Generate(ctx, sanitized)
 
 **Patterns detected (20+):**
 - API keys (sk-*, openai_api_key, etc.)
-- Bearer tokens
+- Authentication tokens
 - Passwords
 - Database URLs
 - AWS credentials
@@ -413,7 +408,6 @@ CPUQuota=50%
 ```
 /usr/local/bin/contextd          # Binary
 ~/.config/contextd/
-├── token                        # Auth token
 ├── openai_api_key              # OpenAI key
 └── config.yaml                 # Config
 /var/log/contextd/              # Logs (systemd)
@@ -446,8 +440,8 @@ make build
 
 ### ✅ DO
 
-1. Use Unix socket (not TCP)
-2. Constant-time auth comparison
+1. Use HTTP transport on configurable port
+2. Deploy on trusted network (VPN/SSH tunnel)
 3. Validate ALL inputs
 4. Redact secrets before external APIs
 5. Wrap errors with context
@@ -458,12 +452,12 @@ make build
 
 ### ❌ DON'T
 
-1. Expose Unix socket over network
+1. Expose HTTP port without network security
 2. Log tokens or API keys
 3. Skip input validation
 4. Return detailed errors to clients
 5. Commit secrets to git
-6. Use TCP for local communication
+6. Skip reverse proxy for production
 7. Insert items one at a time
 8. Forget to defer span.End()
 9. Skip security tests
