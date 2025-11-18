@@ -1,8 +1,21 @@
 # Authentication System Specification
 
+> **STATUS**: ⚠️ NOT APPLICABLE TO MVP
+>
+> This specification documents the Bearer token authentication system.
+> **MVP does not implement authentication** (trusted network assumption).
+>
+> **Use this spec only if implementing post-MVP authentication.**
+>
+> For MVP architecture, see `docs/standards/architecture.md`.
+
+---
+
 **Version:** 1.0.0
-**Status:** Implemented
-**Last Updated:** 2025-11-04
+**Status:** ⏸ Deferred (Post-MVP)
+**MVP Status:** Not Implemented (No Authentication)
+**Reason:** MVP uses trusted network model, authentication added post-MVP
+**Last Updated:** 2025-11-18
 **Package:** `pkg/auth`
 
 ## Table of Contents
@@ -27,6 +40,8 @@
 ---
 
 ## Overview
+
+> **Note**: This section describes Unix socket transport. MVP uses HTTP transport on port 8080 with no authentication.
 
 ### Purpose
 
@@ -126,6 +141,8 @@ The authentication system (`pkg/auth`) provides secure, lightweight bearer token
 ---
 
 ## Architecture and Design
+
+> **Note**: This section describes Unix socket transport. MVP uses HTTP transport on port 8080 with no authentication.
 
 ### System Architecture
 
@@ -427,6 +444,8 @@ stat -c "%a %n" ~/.config/contextd/token
 ---
 
 ## Authentication Protocol
+
+> **Note**: This section describes Unix socket transport. MVP uses HTTP transport on port 8080 with no authentication.
 
 ### HTTP Bearer Token Authentication
 
@@ -1257,6 +1276,8 @@ go test -cover ./pkg/auth/ | grep "coverage: [0-9]*\.[0-9]*%" | awk '{if ($2 < 9
 ---
 
 ## Usage Examples
+
+> **Note**: These examples describe Unix socket transport. MVP uses HTTP transport on port 8080 with no authentication.
 
 ### Example 1: Basic Server Setup
 
