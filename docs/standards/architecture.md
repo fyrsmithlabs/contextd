@@ -8,16 +8,21 @@ This document defines the architectural patterns and design principles for conte
 
 **Every architectural decision MUST prioritize security:**
 
-- **Unix Socket Only**: No TCP exposure, ever
-  - Socket path: `~/.config/contextd/api.sock`
-  - Permissions: 0600 (owner-only access)
-  - No network exposure, local-only communication
+- **MCP Streamable HTTP Transport** (spec 2025-03-26)
+  - Default port: 8080 (configurable via CONTEXTD_HTTP_PORT)
+  - Listen address: 0.0.0.0 (accepts remote connections)
+  - Endpoint: POST/GET `/mcp` (single endpoint, JSON-RPC routing)
+  - Session management: `Mcp-Session-Id` header
 
-- **Bearer Token Authentication**: Constant-time comparison
-  - Auto-generated secure tokens (32 bytes random → hex)
-  - Token path: `~/.config/contextd/token` (0600 permissions)
-  - Bearer format: `Authorization: Bearer <token>`
-  - Middleware validates with constant-time comparison (prevents timing attacks)
+- **Security Requirements** (per MCP spec)
+  - **REQUIRED**: Origin header validation (prevent DNS rebinding attacks)
+  - **RECOMMENDED**: Localhost binding for local servers (127.0.0.1)
+  - **STRONGLY RECOMMENDED**: Authentication (Bearer token, JWT, OAuth)
+
+- **MVP Security Posture**
+  - No authentication (trusted network assumption)
+  - Deploy behind VPN or use SSH tunneling for remote access
+  - Production: Add TLS via reverse proxy (nginx/Caddy) + authentication
 
 - **Credential Management**: Never in code or configs
   - API keys in separate files with 0600 permissions
@@ -78,34 +83,39 @@ contextd/
 
 ### 1. Communication Layer
 
-**Transport: Unix Domain Socket**
+**Transport: HTTP Server**
 
 ```
-Client → Unix Socket (0600) → Echo Server → Handler → Service → Vector Store
+Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector Store
 ```
 
-**Why Unix Sockets:**
-- 35% better performance vs TCP
-- Complete network isolation
-- OS-level permission enforcement
-- No port management required
+**Why HTTP Server:**
+- MCP Streamable HTTP transport (spec 2025-03-26)
+- Remote access for distributed teams
+- Multiple concurrent connections (multi-session support)
+- Easy integration with firewalls/proxies
+- Standard JSON-RPC 2.0 protocol
 
-**Protocol: HTTP over Unix Socket**
+**Protocol: MCP Streamable HTTP (JSON-RPC 2.0)**
+- **Version**: 2025-03-26
+- **Endpoint**: POST/GET `/mcp` (single endpoint for all methods)
+- **Session Management**: `Mcp-Session-Id` header
+- **Security**: Origin header validation, localhost binding recommended
+
+**Note:** MCP spec 2025-03-26 requires single `/mcp` endpoint with JSON-RPC method routing. Current implementation uses multiple REST endpoints (`/mcp/checkpoint/save`, etc.); code refactoring to compliant architecture tracked separately.
+
 - Framework: Echo (clean API, OTEL support, middleware ecosystem)
-- Routes: Public (no auth) + Protected (Bearer token)
 - Middleware stack order matters (see below)
 
 ### 2. Security Layer
 
-**Authentication via pkg/auth:**
+**MVP Security Model:**
 
-```go
-// Token generation (first run)
-GenerateToken() → 32 bytes random → hex → write ~/.config/contextd/token (0600)
-
-// Request validation
-Request → AuthMiddleware → Extract Bearer token → Constant-time compare → Accept/Reject
-```
+- No authentication required (trusted network assumption)
+- Origin header validation (REQUIRED per MCP spec)
+- CORS disabled by default
+- Deploy behind VPN or SSH tunnel for remote access
+- Post-MVP: Add authentication middleware (Bearer token, JWT, OAuth)
 
 **Middleware Order (DO NOT CHANGE):**
 1. Logger - Must be first to log everything
@@ -125,9 +135,15 @@ pkg/config:
 
 **Key Environment Variables:**
 ```bash
-# Service
-CONTEXTD_SOCKET=~/.config/contextd/api.sock
-CONTEXTD_TOKEN_PATH=~/.config/contextd/token
+# MCP Streamable HTTP Transport
+CONTEXTD_HTTP_PORT=8080
+CONTEXTD_HTTP_HOST=0.0.0.0
+CONTEXTD_BASE_URL=http://localhost:8080
+MCP_PROTOCOL_VERSION=2025-03-26
+
+# MCP Security (optional for MVP, recommended for production)
+MCP_ORIGIN_VALIDATION=true
+MCP_ALLOWED_ORIGINS=https://claude.ai,https://app.anthropic.com
 
 # Embeddings (TEI or OpenAI)
 EMBEDDING_BASE_URL=http://localhost:8080/v1  # TEI
@@ -216,9 +232,9 @@ Handler → Service (business logic) → VectorStore → Embedding Service
 
 ```
 ./contextd
-  → Unix Socket Server
+  → HTTP Server (Port 8080)
   → REST API
-  → Bearer Token Auth
+  → No Auth (MVP)
   → For automation hooks
 ```
 
@@ -270,31 +286,31 @@ contextd → HTTPS → OpenAI API → text-embedding-3-small
 
 ```
 1. Load config from environment
-2. Generate/load auth token (0600 permissions)
-3. Initialize OpenTelemetry (traces + metrics)
-4. Create Echo server with middleware stack
-5. Setup routes (public + authenticated)
-6. Create Unix socket listener with 0600 permissions
-7. Start server in goroutine
-8. Wait for SIGINT/SIGTERM
-9. Graceful shutdown (10s timeout)
-10. Cleanup socket file
+2. Initialize OpenTelemetry (traces + metrics)
+3. Create Echo server with middleware stack
+4. Setup routes (public endpoints, no auth for MVP)
+5. Start HTTP server on configured port (default: 8080)
+6. Start server in goroutine
+7. Wait for SIGINT/SIGTERM
+8. Graceful shutdown (10s timeout)
+9. Exit cleanly
 ```
 
 **Graceful Shutdown:**
 - Wait up to 10 seconds for in-flight requests
 - OTEL gets 5 seconds to flush data
-- Cleanup socket file
 - Exit cleanly
 
 ## Route Structure
 
 ```
-Public (no auth):
+Public (no auth for MVP):
   GET  /health          - Health check with version
   GET  /ready           - Readiness probe
 
-Protected (Bearer token required):
+  POST /mcp             - MCP JSON-RPC endpoint (single endpoint per spec 2025-03-26)
+  GET  /mcp             - MCP SSE streaming endpoint
+
   GET    /api/v1/checkpoints        - List checkpoints
   POST   /api/v1/checkpoints        - Create checkpoint
   GET    /api/v1/checkpoints/:id    - Get checkpoint
@@ -310,19 +326,24 @@ Protected (Bearer token required):
   GET    /api/v1/patterns           - List patterns
 
   POST   /api/v1/index              - Index repository
+
+Note: MCP spec 2025-03-26 requires single /mcp endpoint. Current multiple REST endpoints
+(/mcp/checkpoint/save, etc.) will be refactored to compliant architecture.
 ```
 
 ## Key Design Decisions
 
-### Unix Socket vs TCP
-- **Chosen**: Unix sockets
-- **Why**: 35% better performance, complete network isolation
-- **Result**: No TCP port exposed, no network attack surface
+### HTTP Server vs Unix Socket
+- **Chosen**: HTTP server on configurable port
+- **Why**: Remote access for distributed teams, standard protocol, multiple sessions
+- **Result**: Standard HTTP/1.1 transport, SSE streaming, reverse proxy compatible
+- **MVP Decision**: No auth (trusted network), add auth post-MVP for production
 
-### Bearer Token vs JWT
-- **Chosen**: Simple bearer tokens
-- **Why**: Single-user localhost service, filesystem-protected
-- **Result**: Simpler, constant-time validation, auto-generated
+### Authentication Strategy
+- **Chosen**: No authentication for MVP
+- **Why**: Trusted network assumption, faster development
+- **Result**: Deploy behind VPN/SSH tunnel for security
+- **Post-MVP**: Add Bearer token, JWT, or OAuth for production
 
 ### Echo vs chi/gorilla
 - **Chosen**: Echo framework
@@ -459,7 +480,7 @@ func (h *Handler) HandleRequest(c echo.Context) error {
 
 - **Auth**: Move to JWT with user claims
 - **Database**: User-specific databases (extend multi-tenant)
-- **Transport**: Add TCP with TLS (in addition to Unix socket)
+- **Transport**: Add TLS via reverse proxy (nginx/Caddy)
 - **Rate Limiting**: Per-user rate limits
 
 ## Security Considerations
@@ -472,17 +493,23 @@ func (h *Handler) HandleRequest(c echo.Context) error {
 - Timing attacks on auth
 - Log injection
 
+**Out of Scope (MVP only - add post-MVP):**
+- Authentication/authorization (MVP uses trusted network)
+- Rate limiting (add for production)
+- DDoS protection (use reverse proxy for production)
+
 **Out of Scope (by design):**
-- Network attacks (no network exposure)
 - SQL injection (no SQL)
 - XSS (no web UI)
 - CSRF (no web sessions)
 
 ### Security Checklist
 
-- ✅ Unix socket with 0600 permissions
-- ✅ Token file with 0600 permissions
-- ✅ Constant-time token comparison
+- ✅ HTTP server with configurable port and host
+- ✅ CORS disabled by default (same-origin only)
+- ✅ Rate limiting recommended for production
+- ⚠️  MVP: No authentication (use VPN/SSH tunnel for security)
+- ⚠️  Production: Add auth layer (Bearer token, JWT, OAuth)
 - ✅ No credentials in code/config
 - ✅ No credential logging
 - ✅ Graceful error handling (no stack traces in responses)
