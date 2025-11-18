@@ -62,7 +62,8 @@ When invoked:
 ### Integration Tests
 - Echo API endpoints (request/response)
 - MCP protocol compliance
-- Unix socket communication
+- HTTP transport and multi-session handling
+- Concurrent request processing
 - OpenTelemetry instrumentation
 
 ### Benchmark Tests
