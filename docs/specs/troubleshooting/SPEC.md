@@ -1334,12 +1334,8 @@ From Claude Code:
 
 ```bash
 # Diagnose via API
-TOKEN=$(cat ~/.config/contextd/token)
-
-curl --unix-socket ~/.config/contextd/api.sock \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST http://localhost:8080/api/v1/troubleshoot \
   -H "Content-Type: application/json" \
-  -X POST http://localhost/api/v1/troubleshoot \
   -d '{
     "error_message": "panic: runtime error: invalid memory address",
     "context": {"file": "main.go", "line": "42"},
@@ -1347,9 +1343,7 @@ curl --unix-socket ~/.config/contextd/api.sock \
   }'
 
 # List patterns
-curl --unix-socket ~/.config/contextd/api.sock \
-  -H "Authorization: Bearer $TOKEN" \
-  "http://localhost/api/v1/troubleshoot/patterns?category=network&severity=high"
+curl "http://localhost:8080/api/v1/troubleshoot/patterns?category=network&severity=high"
 ```
 
 ## Integration Points
