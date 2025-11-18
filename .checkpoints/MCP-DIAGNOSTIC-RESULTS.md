@@ -1,3 +1,11 @@
+> **⚠️ OUTDATED CHECKPOINT**
+>
+> This checkpoint documents port 9090 / owner-based authentication architecture.
+> Current architecture uses HTTP transport on port 8080 with no authentication.
+> See `docs/standards/architecture.md` for current architecture.
+
+---
+
 # MCP Connection Diagnostic Results
 
 **Date**: 2025-11-17 15:17

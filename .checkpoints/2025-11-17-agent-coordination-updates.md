@@ -1,3 +1,11 @@
+> **⚠️ OUTDATED CHECKPOINT**
+>
+> This checkpoint documents agent coordination patterns for port 9090 architecture.
+> Current architecture uses HTTP transport on port 8080 with no authentication.
+> See `docs/standards/architecture.md` for current architecture.
+
+---
+
 # Agent Coordination Documentation Updates - 2025-11-17
 
 ## Summary
