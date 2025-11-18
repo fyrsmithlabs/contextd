@@ -1064,9 +1064,9 @@ func sanitizeFilterValue(value string) string {
 ### Access Control
 
 **Authentication**:
-- Bearer token required for all API endpoints
-- Token validation with constant-time comparison
-- Token stored with 0600 permissions
+- HTTP transport on port 8080
+- No authentication required (localhost-only access)
+- Intended for local development and single-user environments
 
 **Authorization**:
 - All users can access global troubleshooting knowledge
@@ -1369,7 +1369,7 @@ curl "http://localhost:8080/api/v1/troubleshoot/patterns?category=network&severi
 
 **HTTP Handlers**:
 - Exposes REST API for troubleshooting operations
-- Handles authentication via Bearer token
+- HTTP transport on port 8080 (no authentication)
 - Returns standardized JSON responses
 
 **Observability**:
