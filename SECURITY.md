@@ -73,10 +73,11 @@ go install github.com/fyrsmithlabs/contextd/cmd/contextd@latest
 
 ### Authentication and Authorization
 
-- contextd uses Unix domain sockets with filesystem permissions (0600)
-- Bearer token authentication with constant-time comparison
-- Tokens are auto-generated (32 bytes random) and stored with 0600 permissions
-- No network exposure by default (localhost Unix socket only)
+- HTTP transport on configurable port (default: 8080)
+- Remote access supported (0.0.0.0 binding)
+- MVP: No authentication (trusted network assumption)
+- Production: Use reverse proxy with TLS + auth (Bearer/JWT/OAuth)
+- Recommendation: Deploy behind VPN or SSH tunnel for MVP security
 
 ### Multi-Tenant Isolation
 
@@ -108,10 +109,35 @@ go install github.com/fyrsmithlabs/contextd/cmd/contextd@latest
 
 ### Network Security
 
-- Unix domain socket (no network exposure)
+- HTTP server with standard security headers
+- CORS disabled by default (same-origin only)
+- Reverse proxy recommended for production (TLS, auth, rate limiting)
 - HTTPS for external OTEL endpoint (optional)
 - TEI embedding service can run locally (recommended)
 - No external dependencies for core functionality
+
+## MVP vs Production Security Posture
+
+### MVP (Current - Trusted Network)
+- ✅ HTTP server on port 8080
+- ✅ No authentication required
+- ⚠️  Deploy on trusted network only (VPN, internal network, or localhost)
+- ⚠️  Use SSH tunnel for remote access: `ssh -L 8080:localhost:8080 user@server`
+
+### Production (Post-MVP)
+- ✅ All MVP features
+- ✅ Bearer token or JWT authentication
+- ✅ TLS via reverse proxy (nginx/Caddy)
+- ✅ Rate limiting and DDoS protection
+- ✅ OAuth/SSO for team environments
+- ✅ Audit logging
+
+### Migration Path
+1. Start with MVP on trusted network
+2. Add reverse proxy with TLS
+3. Implement authentication (Bearer token → JWT → OAuth)
+4. Add rate limiting and monitoring
+5. Enable audit logging
 
 ## Recent Security Fixes
 
@@ -150,9 +176,12 @@ go install github.com/fyrsmithlabs/contextd/cmd/contextd@latest
 
 ### For Deployers
 
-1. **Filesystem Permissions**: Verify socket and token files are 0600
+1. **Filesystem Permissions**: Verify API key files are 0600
 2. **User Isolation**: Run contextd as dedicated user (not root)
-3. **Firewall Rules**: No external access needed (Unix socket only)
+3. **Firewall Rules**:
+   - MVP: Restrict port 8080 to trusted networks only
+   - Production: Use reverse proxy (nginx/Caddy) with TLS
+   - Option: SSH tunnel for remote access without exposing port
 4. **Log Monitoring**: Enable systemd logging or equivalent
 5. **Backup Security**: Encrypt backups if storing sensitive checkpoints
 
