@@ -67,8 +67,9 @@ func ExpandPath(path string) string
 cfg := config.Load()
 
 // Access server configuration
-fmt.Println("Socket:", cfg.Server.SocketPath)
-fmt.Println("Token:", cfg.Auth.TokenPath)
+fmt.Println("HTTP Port:", cfg.Server.HTTPPort)
+fmt.Println("HTTP Host:", cfg.Server.HTTPHost)
+fmt.Println("Base URL:", cfg.Server.BaseURL)
 
 // Check vector database selection
 } else {
@@ -100,7 +101,9 @@ go test -race ./pkg/config/
 **Environment Variables**:
 
 ### Server Configuration
-- `CONTEXTD_SOCKET` - Unix socket path (default: `~/.config/contextd/api.sock`)
+- `CONTEXTD_HTTP_PORT` - HTTP server port (default: `8080`)
+- `CONTEXTD_HTTP_HOST` - Bind address (default: `0.0.0.0` for remote access)
+- `CONTEXTD_BASE_URL` - Base URL for MCP clients (default: `http://localhost:8080`)
 
 ### Authentication
 - `CONTEXTD_TOKEN_PATH` - Token file path (default: `~/.config/contextd/token`)
@@ -138,9 +141,10 @@ go test -race ./pkg/config/
    - NEVER hardcode API keys
    - NEVER log API keys
 
-3. **Socket Permissions**:
-   - Unix socket defaults to 0600 permissions
-   - Socket path MUST be in user-writable directory
+3. **HTTP Configuration**:
+   - HTTP port MUST be valid (1-65535)
+   - Host binding: 0.0.0.0 for remote, 127.0.0.1 for localhost only
+   - Base URL MUST match actual deployment for MCP client config
 
 4. **Configuration Validation**:
    - Invalid configuration should fail fast at startup
