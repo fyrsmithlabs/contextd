@@ -9,7 +9,7 @@
 
 ## Overview
 
-The MCP (Model Context Protocol) integration provides a standardized interface for Claude Code and other AI assistants to interact with contextd services. It implements the MCP specification using stdio transport, enabling seamless integration with Claude Desktop and other MCP-compliant clients.
+The MCP (Model Context Protocol) integration provides a standardized interface for Claude Code and other AI assistants to interact with contextd services. It implements the MCP Streamable HTTP transport (specification version 2025-03-26), enabling remote access and multiple concurrent sessions for distributed teams.
 
 ### Purpose
 
@@ -25,7 +25,9 @@ The MCP integration serves as a bridge between AI assistants and contextd's core
 ### Key Features
 
 - **16 MCP Tools**: Complete coverage of contextd functionality
-- **Stdio Transport**: Direct integration with Claude Desktop
+- **HTTP/SSE Transport**: Remote access with multiple concurrent sessions
+- **MCP Streamable HTTP**: Specification version 2025-03-26 compliant
+- **Multi-Session Support**: Multiple Claude Code instances simultaneously
 - **OpenTelemetry**: Full observability with traces and metrics
 - **Rate Limiting**: Per-connection, per-tool rate limiting
 - **Structured Errors**: Categorized error responses for better error handling
@@ -36,10 +38,13 @@ The MCP integration serves as a bridge between AI assistants and contextd's core
 
 ### Protocol Version
 
-- **MCP Version**: 1.0
-- **Transport**: stdio (stdin/stdout)
+- **MCP Version**: 2025-03-26 (Streamable HTTP)
+- **Transport**: HTTP/1.1 with Server-Sent Events (SSE)
+- **Endpoint**: POST/GET `/mcp` (single endpoint for all MCP operations)
 - **Format**: JSON-RPC 2.0
 - **Schema**: JSON Schema for tool inputs/outputs
+- **Session Management**: `Mcp-Session-Id` header for multi-client support
+- **Port**: 8080 (configurable via CONTEXTD_HTTP_PORT)
 
 ### Implementation
 
@@ -752,8 +757,8 @@ type MCPError struct {
 ┌─────────────────────────────────────────────────────────┐
 │                    Claude Code (Client)                  │
 └─────────────────┬───────────────────────────────────────┘
-                  │ stdio (JSON-RPC 2.0)
-                  │
+                  │ HTTP/SSE (JSON-RPC 2.0)
+                  │ POST/GET /mcp
 ┌─────────────────▼───────────────────────────────────────┐
 │                    MCP Server (pkg/mcp)                  │
 │  ┌────────────────────────────────────────────────────┐ │
@@ -812,7 +817,7 @@ func safeTimestamp(ts int64) time.Time
 3. **Initialize Services**: Vector store, embedding, checkpoint, remediation, skills, troubleshooting
 4. **Initialize OpenTelemetry**: Traces and metrics
 5. **Create MCP Server**: Register all 16 tools
-6. **Start stdio Transport**: Begin accepting requests
+6. **Start HTTP Server**: Begin accepting requests on `/mcp` endpoint (port 8080)
 
 **Initialization Code**:
 ```go
@@ -871,14 +876,17 @@ Health status is available via the `status` tool during runtime.
 
 ## Transport Layer
 
-### Stdio Transport
+### HTTP/SSE Transport
 
-The MCP server uses stdio (stdin/stdout) for communication with Claude Code:
+The MCP server uses HTTP/SSE for communication with Claude Code:
 
-- **Input**: JSON-RPC 2.0 requests on stdin
-- **Output**: JSON-RPC 2.0 responses on stdout
-- **Errors**: JSON-RPC error objects on stdout
-- **Logs**: Sent to stderr (not mixed with protocol messages)
+- **Input**: JSON-RPC 2.0 requests via POST `/mcp`
+- **Output**: JSON-RPC 2.0 responses via HTTP response body
+- **Streaming**: Server-Sent Events (SSE) via GET `/mcp` for real-time notifications
+- **Errors**: JSON-RPC error objects in HTTP response
+- **Session Management**: `Mcp-Session-Id` header identifies client sessions
+- **Port**: 8080 (configurable via CONTEXTD_HTTP_PORT)
+- **Remote Access**: Supports remote connections (0.0.0.0 binding)
 
 ### Message Format
 
@@ -916,10 +924,12 @@ The MCP server uses stdio (stdin/stdout) for communication with Claude Code:
 
 ### Connection Management
 
-- **Single Connection**: One stdio connection per server instance
+- **Multiple Connections**: HTTP server handles multiple concurrent connections (multi-session support)
+- **Session Identification**: `Mcp-Session-Id` header tracks individual client sessions
 - **Rate Limiting**: Per-connection, per-tool rate limiting
 - **Context Propagation**: Request context flows through all operations
 - **Timeout Handling**: Operation-specific timeouts enforced
+- **Remote Access**: Supports remote connections from distributed teams
 
 ## API Specifications
 
@@ -1106,7 +1116,7 @@ The MCP integration enforces type safety at multiple levels:
 | troubleshoot | 2.5s | 4.5s | 6.0s |
 | skill_search | 90ms | 160ms | 220ms |
 
-**Concurrent Requests**: MCP server handles 1 connection (stdio), but internal operations are concurrent.
+**Concurrent Requests**: MCP server handles multiple HTTP connections concurrently, supporting multiple Claude Code sessions simultaneously.
 
 ## Error Handling
 
@@ -1196,9 +1206,15 @@ func (rl *MCPRateLimiter) Allow(connectionID, toolName string) bool {
 
 ### Transport Security
 
-- **Stdio Only**: No network exposure
-- **Single Connection**: One client connection per server
-- **No Authentication**: Stdio transport inherits process security
+- **HTTP Transport**: Remote access supported (0.0.0.0 binding)
+- **Multiple Connections**: Supports concurrent client sessions via HTTP
+- **Session Management**: `Mcp-Session-Id` header for session tracking
+- **No Authentication (MVP)**: Trusted network assumption, add auth post-MVP
+- **Production Recommendations**:
+  - Deploy behind reverse proxy with TLS (nginx/Caddy)
+  - Add authentication (Bearer token, JWT, OAuth)
+  - Use VPN or SSH tunnel for remote access without exposing port
+  - Implement rate limiting and DDoS protection
 
 ## Testing Requirements
 
