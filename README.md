@@ -12,7 +12,7 @@
 
 > Context Daemon for Claude Code - Semantic search, session management, and AI-powered troubleshooting
 
-**contextd** is a production-grade service that supercharges Claude Code with persistent memory, semantic search across past work, and intelligent error remediation. Built with security and performance as primary goals, it uses Unix domain sockets for local-only access and vector databases for blazing-fast semantic search.
+**contextd** is a production-grade service that supercharges Claude Code with persistent memory, semantic search across past work, and intelligent error remediation. Built with context efficiency and performance as primary goals, it uses HTTP transport for remote access and vector databases for blazing-fast semantic search. MVP uses trusted network model (no auth); add authentication post-MVP for production.
 
 ## Quick Start
 
@@ -111,10 +111,11 @@ docker-compose restart
 - **YAML Configuration** - Clean, hierarchical configuration with environment overrides
 
 ### Production Features
-- **HTTP Server** - Echo router with graceful shutdown and health checks
+- **HTTP Server** - Echo router with graceful shutdown and health checks on port 8080 (remote access supported)
 - **systemd/launchd Integration** - Native service management on Linux and macOS
 - **Comprehensive Observability** - Traces, metrics, and structured logging
 - **Developer Experience** - Beautiful TUI monitor, comprehensive CLI, extensive documentation
+- **Multi-Session Support** - Multiple concurrent Claude Code sessions supported
 
 ## Quick Start
 
@@ -384,14 +385,14 @@ contextd 0.9.0-rc-1 uses a modular, layered architecture optimized for context e
 - Secret scrubbing at 5 layers
 
 **Authentication**:
-- Bearer token authentication
-- Constant-time comparison
-- Token stored with 0600 permissions
+- MVP: No authentication required (trusted network model)
+- Production: Add Bearer token, JWT, or OAuth post-MVP
+- Deploy behind VPN or use SSH tunneling for MVP security
 
 **Network Security**:
-- HTTP server (local-only by default)
+- HTTP server on port 8080 (remote access supported)
 - Health checks without authentication
-- MCP endpoints require bearer token (future)
+- MCP endpoints: No authentication for MVP (add post-MVP)
 
 ### Performance Characteristics
 
