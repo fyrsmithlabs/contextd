@@ -115,10 +115,8 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
 PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // env.CLAUDE_PROJECT_DIR')
 
 # Call contextd to register session start
-curl -s --unix-socket ~/.config/contextd/api.sock \
+curl -s -X POST http://localhost:8080/api/v1/analytics/sessions/start \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat ~/.config/contextd/token)" \
-  -X POST http://localhost/api/v1/analytics/sessions/start \
   -d "{
     \"session_id\": \"$SESSION_ID\",
     \"project_path\": \"$PROJECT_DIR\",
@@ -164,10 +162,8 @@ if [ -f "$TRANSCRIPT_PATH" ]; then
 fi
 
 # Call contextd to register session end
-curl -s --unix-socket ~/.config/contextd/api.sock \
+curl -s -X POST http://localhost:8080/api/v1/analytics/sessions/end \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat ~/.config/contextd/token)" \
-  -X POST http://localhost/api/v1/analytics/sessions/end \
   -d "{
     \"session_id\": \"$SESSION_ID\",
     \"end_time\": \"$(date -Iseconds)\",
