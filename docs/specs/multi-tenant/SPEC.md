@@ -361,9 +361,10 @@ dbName := GetDatabaseName(DatabaseTypeProject, projectPath)
 ### Access Control
 
 **Current** (v2.0):
-- Bearer token authentication (single user)
-- All databases accessible by authenticated user
-- Unix socket isolation (no network exposure)
+- No authentication (MVP trusted network, post-MVP: Bearer/JWT/OAuth)
+- All databases accessible by any client (trusted network assumption)
+- HTTP transport with reverse proxy recommended for production
+- Multi-session support (multiple concurrent Claude instances)
 
 **Future** (Multi-User):
 - Per-database access control lists (ACLs)
