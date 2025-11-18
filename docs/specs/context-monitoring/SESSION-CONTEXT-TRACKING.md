@@ -140,8 +140,8 @@ type MCPRequest struct {
 
 **Option 3: Connection-Based Tracking**
 ```go
-// Track by Unix socket connection (each Claude Code instance = unique socket)
-// This works because Claude Code maintains persistent connections
+// Track by HTTP connection (each Claude Code instance = unique connection)
+// This works because Claude Code maintains persistent HTTP connections
 sessionID := fmt.Sprintf("session_%d", c.Request().RemoteAddr)
 ```
 
@@ -384,8 +384,8 @@ func extractSessionID(c echo.Context) string {
         return id
     }
 
-    // Fallback: connection-based (Unix socket peer)
-    // Each Claude Code instance maintains a persistent connection
+    // Fallback: connection-based (remote address)
+    // Each Claude Code instance maintains a persistent HTTP connection
     if addr := c.Request().RemoteAddr; addr != "" {
         return fmt.Sprintf("conn_%s", addr)
     }
