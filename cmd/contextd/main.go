@@ -162,6 +162,7 @@ func run(ctx context.Context) error {
 		deps.natsConn,
 		services.checkpointSvc,
 		services.remediationSvc,
+		deps.vectorStore,
 		logger,
 	)
 

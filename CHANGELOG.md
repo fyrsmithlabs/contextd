@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Authentication Middleware**: Owner-based authentication for all MCP endpoints
+  - `OwnerAuthMiddleware()`: Echo middleware that derives owner ID from system username
+  - Owner ID derived from `os/user.Current().Username` using SHA256 hashing
+  - Sets authenticated owner ID in context for downstream handlers
+  - Returns 401 Unauthorized if authentication fails
+  - Enforces multi-tenant isolation at HTTP layer
+  - Applied to all `/mcp/*` endpoints (public endpoints `/health` and `/metrics` remain unauthenticated)
+
 - **Docker Compose Setup**: One-command local development environment
   - TEI (Text Embeddings Inference) service with BAAI/bge-small-en-v1.5 model (384 dimensions)
   - Qdrant vector database with HTTP (6333) and gRPC (6334) APIs

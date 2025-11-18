@@ -47,14 +47,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 6. **Team Boundary Enforcement**: NEVER leak data across teams without explicit permission (shared projects only)
 
 **Architecture Roadmap**:
-- **v2.1** (Current Target): Owner-scoped isolation - [ADR-003](docs/architecture/adr/003-single-developer-multi-repo-isolation.md)
-- **v2.2** (Enterprise): Team-aware with org-level sharing - [TEAM-AWARE-ARCHITECTURE-V2.2.md](docs/architecture/TEAM-AWARE-ARCHITECTURE-V2.2.md)
-- **0.9.0-rc-1** (Future): Multi-org, OAuth/SSO, fine-grained ACLs
+- **v1.0.0-beta** (Next): Stable multi-tenant implementation with comprehensive testing
+- **v1.0.0** (Target): Production-ready single-developer deployment
+- **v1.1.0** (Future): Context-folding integration (see docs/specs/context-folding/)
+- **v2.0.0** (Future): Enterprise team features with org-level sharing
 
 **See**:
 - [docs/security/SECURITY-AUDIT-SHARED-DATABASE-2025-01-07.md](docs/security/SECURITY-AUDIT-SHARED-DATABASE-2025-01-07.md) - Known vulnerabilities
-- [docs/architecture/adr/003-single-developer-multi-repo-isolation.md](docs/architecture/adr/003-single-developer-multi-repo-isolation.md) - v2.1 owner-scoping
-- [docs/architecture/TEAM-AWARE-ARCHITECTURE-V2.2.md](docs/architecture/TEAM-AWARE-ARCHITECTURE-V2.2.md) - v2.2 team/org model
+- [docs/architecture/adr/003-single-developer-multi-repo-isolation.md](docs/architecture/adr/003-single-developer-multi-repo-isolation.md) - Owner-scoped isolation design
 
 ### 2. Superpowers & TaskMaster (MANDATORY)
 
@@ -209,12 +209,15 @@ the design from mcp-developer. Include:
 
 ## Project Overview
 
-`contextd` is a Go-based API service for Claude Code user-level management, built with **security and context optimization as the primary goal**. The system uses Unix domain sockets for security, Qdrant for vector storage, and OpenTelemetry for observability.
+**Version**: v1.0.0-alpha (Pre-release)
+**Status**: Fresh architecture, actively developed prototype
+
+`contextd` is a Go-based API service for Claude Code user-level management, built with **security and context optimization as the primary goal**. The system uses HTTP/MCP protocol for communication, Qdrant for vector storage, and OpenTelemetry for observability.
 
 **Core Philosophy**: **Minimize context bloat, maximize token efficiency**, local-first operations with background sync.
 
 **PRIMARY GOALS** (in order):
-1. **Context Optimization**: Minimize token usage (target: <3K tokens per search vs 12K in v2.0)
+1. **Context Optimization**: Minimize token usage (target: <3K tokens per search)
 2. **Security**: Multi-tenant isolation, no data leakage
 3. **Performance**: <100ms search latency
 
@@ -222,7 +225,6 @@ the design from mcp-developer. Include:
 - Every feature MUST reduce context usage or maintain neutrality
 - Search results MUST be scoped (no irrelevant cross-project pollution)
 - Track context metrics: tokens per operation, relevance ratio, deduplication rate
-- Target: 5x context reduction (v2.0 → v2.1)
 
 **See**: [docs/architecture/CONTEXT-USAGE-ESTIMATES.md](docs/architecture/CONTEXT-USAGE-ESTIMATES.md) for detailed context optimization strategies
 
@@ -258,10 +260,6 @@ the design from mcp-developer. Include:
 - Superpowers & TaskMaster integration
 - Agent delegation table
 - Available slash commands
-
-**Product Roadmap**: [docs/PRODUCT-ROADMAP-V3-AGENT-PATTERNS.md](docs/PRODUCT-ROADMAP-V3-AGENT-PATTERNS.md)
-- Complete 10-month roadmap
-- Current Phase: Phase 1 - Foundation for Pattern Integration (Months 1-2)
 
 **Build & Run**: [docs/guides/GETTING-STARTED.md](docs/guides/GETTING-STARTED.md)
 - Installation and setup
@@ -400,7 +398,7 @@ tail -f /tmp/contextd.log  # macOS
 
 ### MCP Integration
 
-contextd provides 9 MCP tools for Claude Code. See [docs/guides/GETTING-STARTED.md](docs/guides/GETTING-STARTED.md) for setup.
+contextd provides 12 MCP tools for Claude Code. See [docs/guides/GETTING-STARTED.md](docs/guides/GETTING-STARTED.md) for setup.
 
 **IMPORTANT**: MCP tools connect directly to Qdrant, NOT to the contextd service.
 - **DO NOT troubleshoot contextd systemd service** when MCP tools fail
@@ -413,7 +411,7 @@ contextd provides 9 MCP tools for Claude Code. See [docs/guides/GETTING-STARTED.
 
 ### Multi-Tenant Architecture
 
-**Status**: Complete - Multi-tenant mode is now the ONLY supported mode (v2.0.0+)
+**Status**: Implemented - Multi-tenant mode is the ONLY supported mode
 
 - Database-per-project physical isolation
 - Project databases: `project_<hash>` (SHA256 of project_path)

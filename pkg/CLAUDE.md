@@ -443,16 +443,19 @@ type Server struct {
 }
 ```
 
-**MCP Tools** (9 total):
+**MCP Tools** (12 total):
 1. `checkpoint_save` - Save session checkpoint
 2. `checkpoint_search` - Semantic search checkpoints
 3. `checkpoint_list` - List recent checkpoints
 4. `remediation_save` - Store error solution
 5. `remediation_search` - Find similar fixes
-6. `troubleshoot` - AI error diagnosis
-7. `list_patterns` - Browse error patterns
-8. `index_repository` - Index repository
-9. `status` - Service health
+6. `skill_save` - Save reusable skill
+7. `skill_search` - Search skills
+8. `collection_create` - Create vector collection
+9. `collection_delete` - Delete collection
+10. `collection_list` - List collections
+11. `index_repository` - Index repository
+12. `status` - Service health
 
 **Protocol**:
 - Transport: stdio (stdin/stdout)

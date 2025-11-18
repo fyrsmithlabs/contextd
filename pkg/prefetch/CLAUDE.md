@@ -251,7 +251,6 @@ Hit Rate = prefetch_cache_hits / (prefetch_cache_hits + prefetch_cache_misses)
 
 - **Design**: [docs/plans/2025-01-15-prefetch-engine-design.md](../../docs/plans/2025-01-15-prefetch-engine-design.md)
 - **Spec**: [docs/specs/mcp-prefetch/SPEC.md](../../docs/specs/mcp-prefetch/SPEC.md)
-- **V3 Rebuild**: [docs/specs/v3-rebuild/SPEC.md](../../docs/specs/v3-rebuild/SPEC.md)
 - **12-Factor Agents**: https://github.com/humanlayer/12-factor-agents
 
 ---

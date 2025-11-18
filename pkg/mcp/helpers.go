@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -103,4 +104,49 @@ func ExtractOwnerID(c echo.Context) (string, error) {
 	}
 
 	return ownerID, nil
+}
+
+// ParseCollectionURI parses a collection URI into its components.
+//
+// Expected format: collection://owner_<hash>/project_<hash>/<branch>
+//
+// Returns:
+//   - ownerID: The owner hash (without "owner_" prefix)
+//   - collectionName: The full collection name (owner_<hash>/project_<hash>/<branch>)
+//   - error: If URI format is invalid
+//
+// Example:
+//
+//	ownerID, collectionName, err := ParseCollectionURI("collection://owner_abc123/project_def456/main")
+//	// Returns: "abc123", "owner_abc123/project_def456/main", nil
+func ParseCollectionURI(uri string) (string, string, error) {
+	// Validate URI scheme
+	if !strings.HasPrefix(uri, "collection://") {
+		return "", "", fmt.Errorf("invalid URI scheme: expected 'collection://', got '%s'", uri)
+	}
+
+	// Extract collection name (everything after scheme)
+	collectionName := strings.TrimPrefix(uri, "collection://")
+	if collectionName == "" {
+		return "", "", fmt.Errorf("empty collection name")
+	}
+
+	// Parse collection name format: owner_<hash>/project_<hash>/<branch>
+	parts := strings.SplitN(collectionName, "/", 2)
+	if len(parts) < 1 {
+		return "", "", fmt.Errorf("invalid collection name format: expected 'owner_<hash>/...', got '%s'", collectionName)
+	}
+
+	// Extract owner ID from owner_<hash> prefix
+	ownerPart := parts[0]
+	if !strings.HasPrefix(ownerPart, "owner_") {
+		return "", "", fmt.Errorf("invalid owner prefix: expected 'owner_<hash>', got '%s'", ownerPart)
+	}
+
+	ownerID := strings.TrimPrefix(ownerPart, "owner_")
+	if ownerID == "" {
+		return "", "", fmt.Errorf("empty owner ID")
+	}
+
+	return ownerID, collectionName, nil
 }

@@ -11,11 +11,24 @@ import (
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 
+	"github.com/fyrsmithlabs/contextd/pkg/auth"
 	"github.com/fyrsmithlabs/contextd/pkg/checkpoint"
 	"github.com/fyrsmithlabs/contextd/pkg/config"
 	"github.com/fyrsmithlabs/contextd/pkg/prefetch"
 	"github.com/fyrsmithlabs/contextd/pkg/remediation"
+	"github.com/fyrsmithlabs/contextd/pkg/vectorstore"
 )
+
+// VectorStoreInterface defines the collection management methods needed by MCP handlers.
+//
+// This interface is implemented by vectorstore.Service and allows for testing
+// with mock implementations.
+type VectorStoreInterface interface {
+	CreateCollection(ctx context.Context, collectionName string, vectorSize int) error
+	DeleteCollection(ctx context.Context, collectionName string) error
+	ListCollections(ctx context.Context) ([]string, error)
+	GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error)
+}
 
 // Server implements MCP protocol over HTTP with Echo router.
 //
@@ -38,6 +51,7 @@ type Server struct {
 	// Services
 	checkpointService  *checkpoint.Service
 	remediationService *remediation.Service
+	vectorStore        VectorStoreInterface
 	logger             *zap.Logger
 
 	// Pre-fetch support (optional)
@@ -61,6 +75,7 @@ func NewServer(
 	nc *nats.Conn,
 	checkpointSvc *checkpoint.Service,
 	remediationSvc *remediation.Service,
+	vectorStoreSvc VectorStoreInterface,
 	logger *zap.Logger,
 ) *Server {
 	if logger == nil {
@@ -72,16 +87,21 @@ func NewServer(
 		nats:               nc,
 		checkpointService:  checkpointSvc,
 		remediationService: remediationSvc,
+		vectorStore:        vectorStoreSvc,
 		logger:             logger,
 		prefetchLogger:     logger,
 	}
 }
 
-// RegisterRoutes registers all MCP tool endpoints.
+// RegisterRoutes registers all MCP tool endpoints with authentication middleware.
 //
 // This method should be called after server creation to set up routing.
 //
-// Registered endpoints:
+// Authentication:
+//   - ALL /mcp/* endpoints require authentication (owner-based auth from system username)
+//   - Public endpoints (/health, /metrics) do NOT have auth middleware
+//
+// Registered protected endpoints:
 //   - POST /mcp/checkpoint/save
 //   - POST /mcp/checkpoint/search
 //   - POST /mcp/checkpoint/list
@@ -89,33 +109,52 @@ func NewServer(
 //   - POST /mcp/remediation/search
 //   - POST /mcp/skill/save
 //   - POST /mcp/skill/search
+//   - POST /mcp/collection/create
+//   - POST /mcp/collection/delete
+//   - POST /mcp/collection/list
 //   - POST /mcp/index/repository
 //   - POST /mcp/status
 //   - GET  /mcp/sse/:operation_id
+//   - GET  /mcp/tools/list
+//   - GET  /mcp/resources/list
+//   - POST /mcp/resources/read
 func (s *Server) RegisterRoutes() {
-	// Checkpoint endpoints
-	s.echo.POST("/mcp/checkpoint/save", s.handleCheckpointSave)
-	s.echo.POST("/mcp/checkpoint/search", s.handleCheckpointSearch)
-	s.echo.POST("/mcp/checkpoint/list", s.handleCheckpointList)
+	// Create MCP group with authentication middleware
+	mcp := s.echo.Group("/mcp", auth.OwnerAuthMiddleware())
 
-	// Remediation endpoints
-	s.echo.POST("/mcp/remediation/save", s.handleRemediationSave)
-	s.echo.POST("/mcp/remediation/search", s.handleRemediationSearch)
+	// Checkpoint endpoints (authenticated)
+	mcp.POST("/checkpoint/save", s.handleCheckpointSave)
+	mcp.POST("/checkpoint/search", s.handleCheckpointSearch)
+	mcp.POST("/checkpoint/list", s.handleCheckpointList)
 
-	// Skill endpoints
-	s.echo.POST("/mcp/skill/save", s.handleSkillSave)
-	s.echo.POST("/mcp/skill/search", s.handleSkillSearch)
+	// Remediation endpoints (authenticated)
+	mcp.POST("/remediation/save", s.handleRemediationSave)
+	mcp.POST("/remediation/search", s.handleRemediationSearch)
 
-	// Index endpoint
-	s.echo.POST("/mcp/index/repository", s.handleIndexRepository)
+	// Skill endpoints (authenticated)
+	mcp.POST("/skill/save", s.handleSkillSave)
+	mcp.POST("/skill/search", s.handleSkillSearch)
 
-	// Status endpoint
-	s.echo.POST("/mcp/status", s.handleStatus)
+	// Collection endpoints (authenticated)
+	mcp.POST("/collection/create", s.handleCollectionCreate)
+	mcp.POST("/collection/delete", s.handleCollectionDelete)
+	mcp.POST("/collection/list", s.handleCollectionList)
 
-	// SSE streaming endpoint
-	s.echo.GET("/mcp/sse/:operation_id", func(c echo.Context) error {
+	// Index endpoint (authenticated)
+	mcp.POST("/index/repository", s.handleIndexRepository)
+
+	// Status endpoint (authenticated)
+	mcp.POST("/status", s.handleStatus)
+
+	// SSE streaming endpoint (authenticated)
+	mcp.GET("/sse/:operation_id", func(c echo.Context) error {
 		return HandleSSE(c, s.operations, s.nats)
 	})
+
+	// MCP protocol discovery endpoints (authenticated)
+	mcp.GET("/tools/list", s.handleToolsList)
+	mcp.GET("/resources/list", s.handleResourcesList)
+	mcp.POST("/resources/read", s.handleResourceRead)
 }
 
 // handleCheckpointSave handles POST /mcp/checkpoint/save.

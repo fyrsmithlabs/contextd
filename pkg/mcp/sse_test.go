@@ -38,7 +38,7 @@ func TestHandleSSE_HappyPath(t *testing.T) {
 
 	// Setup Echo server and SSE handler
 	e := echo.New()
-	server := NewServer(e, registry, nc, nil, nil, nil)
+	server := NewServer(e, registry, nc, nil, nil, nil, nil)
 	server.RegisterRoutes()
 
 	// Create HTTP test request
@@ -308,7 +308,7 @@ func TestHandleSSE_ErrorEvent(t *testing.T) {
 
 	// Setup Echo server
 	e := echo.New()
-	server := NewServer(e, registry, nc, nil, nil, nil)
+	server := NewServer(e, registry, nc, nil, nil, nil, nil)
 	server.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodGet, "/mcp/sse/"+opID, nil)

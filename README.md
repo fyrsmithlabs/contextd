@@ -215,7 +215,7 @@ Update your Claude Code configuration (`~/.claude.json`):
 {
   "mcpServers": {
     "contextd": {
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:9090/mcp",
       "transport": {
         "type": "http"
       }
@@ -223,6 +223,8 @@ Update your Claude Code configuration (`~/.claude.json`):
   }
 }
 ```
+
+**Note:** contextd runs on port 9090 (not 8080) to avoid conflict with TEI service.
 
 **5. Restart Claude Code**
 

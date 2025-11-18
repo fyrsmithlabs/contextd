@@ -21,7 +21,7 @@ func TestNewServer(t *testing.T) {
 	defer nc.Close()
 
 	registry := NewOperationRegistry(nc)
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
 
 	assert.NotNil(t, mcpServer)
 	assert.NotNil(t, mcpServer.echo)
@@ -38,17 +38,9 @@ func TestMCPServer_CheckpointSave(t *testing.T) {
 	defer nc.Close()
 
 	registry := NewOperationRegistry(nc)
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
 
-	// Add test middleware to set authenticated owner ID (simulates auth middleware)
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			// Set valid 64-character hex owner ID for testing
-			c.Set(string(authenticatedOwnerIDKey), "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678")
-			return next(c)
-		}
-	})
-
+	// Register routes (includes auth middleware)
 	mcpServer.RegisterRoutes()
 
 	// Valid request
@@ -82,7 +74,7 @@ func TestMCPServer_CheckpointSave_InvalidParams(t *testing.T) {
 	defer nc.Close()
 
 	registry := NewOperationRegistry(nc)
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
 	mcpServer.RegisterRoutes()
 
 	// Missing required field
@@ -115,7 +107,7 @@ func TestMCPServer_Status(t *testing.T) {
 	defer nc.Close()
 
 	registry := NewOperationRegistry(nc)
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
 	mcpServer.RegisterRoutes()
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp/status", nil)
@@ -137,7 +129,7 @@ func TestMCPServer_AllEndpoints(t *testing.T) {
 	defer nc.Close()
 
 	registry := NewOperationRegistry(nc)
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
 	mcpServer.RegisterRoutes()
 
 	endpoints := []struct {

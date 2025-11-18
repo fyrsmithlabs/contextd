@@ -29,12 +29,8 @@ services:
       - "6334:6334"  # gRPC API
     volumes:
       - qdrant-data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+    # Health check disabled - Qdrant image doesn't include curl/wget
+    # Service is monitored via application-level health checks instead
     restart: unless-stopped
 
 volumes:

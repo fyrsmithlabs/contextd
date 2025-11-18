@@ -129,3 +129,78 @@ func TestJSONRPCErrorWithContext(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"code":-32602`)
 	assert.Contains(t, rec.Body.String(), `"trace-789"`)
 }
+
+// TestParseCollectionURI tests collection URI parsing.
+func TestParseCollectionURI(t *testing.T) {
+	tests := []struct {
+		name                string
+		uri                 string
+		wantOwnerID         string
+		wantCollectionName  string
+		wantErr             bool
+		errContains         string
+	}{
+		{
+			name:                "valid collection URI",
+			uri:                 "collection://owner_a1b2c3d4/project_def456/main",
+			wantOwnerID:         "a1b2c3d4",
+			wantCollectionName:  "owner_a1b2c3d4/project_def456/main",
+			wantErr:             false,
+		},
+		{
+			name:                "valid collection URI with 64-char owner ID",
+			uri:                 "collection://owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
+			wantOwnerID:         "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678",
+			wantCollectionName:  "owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
+			wantErr:             false,
+		},
+		{
+			name:        "invalid scheme - http",
+			uri:         "http://owner_abc/project_def/main",
+			wantErr:     true,
+			errContains: "invalid URI scheme",
+		},
+		{
+			name:        "invalid scheme - missing scheme",
+			uri:         "owner_abc/project_def/main",
+			wantErr:     true,
+			errContains: "invalid URI scheme",
+		},
+		{
+			name:        "empty collection name",
+			uri:         "collection://",
+			wantErr:     true,
+			errContains: "empty collection name",
+		},
+		{
+			name:        "missing owner prefix",
+			uri:         "collection://project_def/main",
+			wantErr:     true,
+			errContains: "invalid owner prefix",
+		},
+		{
+			name:        "empty owner ID",
+			uri:         "collection://owner_/project_def/main",
+			wantErr:     true,
+			errContains: "empty owner ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ownerID, collectionName, err := ParseCollectionURI(tt.uri)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOwnerID, ownerID)
+			assert.Equal(t, tt.wantCollectionName, collectionName)
+		})
+	}
+}
