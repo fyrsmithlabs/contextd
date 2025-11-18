@@ -115,3 +115,5 @@ dev-debug.log
 # Checkpoints (runtime artifacts)
 docs/checkpoints/
 .contextd/checkpoints/
+docs/plans
+NEXT-SESSION-PROMPT.md

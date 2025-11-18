@@ -41,8 +41,8 @@
 
 ## Agent Delegation
 
-| Task Type | Agent | Command Pattern | Notes |
-|-----------|-------|-----------------|-------|
+| Task Type | Agent/Skill | Command Pattern | Notes |
+|-----------|-------------|-----------------|-------|
 | **Task Coordination** | **taskmaster:task-orchestrator** | **Deploy at start to analyze dependencies** | Plans parallel/sequential work |
 | **Task Execution** | **taskmaster:task-executor** | **Implement specific tasks** | Autonomous implementation |
 | **Task Verification** | **taskmaster:task-checker** | **Verify implementation quality** | Quality gates |
@@ -55,6 +55,34 @@
 | Error research | research-analyst | "@agent-research-analyst search..." | Root cause research |
 | **MCP Protocol Design** | **mcp-developer** | **"Use mcp-developer to research/design..."** | **Protocol spec, gap analysis** |
 | QA testing | qa-engineer | "Have qa-engineer execute test skill..." | End-to-end testing |
+
+### Contextd Project Skills (MANDATORY)
+
+| Skill | When to Use | Purpose |
+|-------|-------------|---------|
+| **contextd:completing-major-task** | Before marking major tasks complete | Enforces comprehensive verification template (build, tests, security, functionality) |
+| **contextd:completing-minor-task** | Before marking minor tasks complete | Enforces self-interrogation checklist (what changed, how verified, what breaks) |
+| **contextd:code-review** | Before creating PR | Comprehensive code review with structured output (APPROVED/CHANGES REQUIRED/BLOCKED) |
+| **contextd:creating-package** | Before creating new package | Package creation workflow + updates pkg/CLAUDE.md + updates category skill |
+| **contextd:creating-spec** | Before implementing feature without spec | Creates SPEC.md with approval workflow, blocks implementation until Status: Approved |
+| **contextd:pkg-security** | Working on auth, session, isolation, rbac packages | Multi-tenant isolation, input validation, security testing patterns |
+| **contextd:pkg-storage** | Working on checkpoint, remediation, cache packages | Qdrant patterns, database-per-project, query security |
+| **contextd:pkg-core** | Working on config, telemetry, logging packages | Standard patterns, error handling, initialization |
+| **contextd:pkg-api** | Working on mcp, handlers, middleware packages | Request/response, validation, MCP tools |
+| **contextd:pkg-ai** | Working on embedding, search, semantic packages | Embeddings, vector operations, AI integrations |
+| **contextd:planning-with-verification** | Creating todos for major work | Adds verification subtasks automatically to TodoWrite |
+| **contextd:security-check** | For security-critical changes | Deep security validation (multi-tenant, input validation) |
+| **contextd:pre-pr-verification** | Before requesting code review | Pre-PR comprehensive check |
+| **kinney-documentation** | Writing ANY documentation | Enforces scannable (~150 lines), modular (@imports), noun-heavy approach |
+
+**Mandatory Usage Rules**:
+- ❌ **NO task completion without verification skill** - Must use completing-major-task or completing-minor-task
+- ❌ **NO code without spec** - Must use creating-spec if spec missing, ensure Status: Approved before coding
+- ❌ **NO PR without code review** - Must use code-review before creating PR
+- ❌ **NO package creation without workflow** - Must use creating-package before creating packages
+- ❌ **NO documentation without kinney-documentation** - Must use for all CLAUDE.md, specs, guides, READMEs
+
+**See**: [VERIFICATION-POLICY.md](VERIFICATION-POLICY.md) for complete verification requirements
 
 ### Multi-Agent Coordination Patterns
 

@@ -336,12 +336,10 @@ OPENAI_TIMEOUT=100ms ./contextd --mcp
 Run the same operation in both modes and compare:
 
 ```bash
-# API mode trace
-curl --unix-socket ~/.config/contextd/api.sock \
-  -H "Authorization: Bearer $TOKEN" \
+# API mode trace (HTTP transport)
+curl http://localhost:8080/api/v1/checkpoints \
   -H "Content-Type: application/json" \
-  -d '{"summary":"test","description":"test","project_path":"/tmp"}' \
-  http://localhost/api/v1/checkpoints
+  -d '{"summary":"test","description":"test","project_path":"/tmp"}'
 
 # MCP mode trace (via Claude Code)
 # Ask Claude: "Save checkpoint: test"

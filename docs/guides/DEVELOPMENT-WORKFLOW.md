@@ -257,20 +257,33 @@ See [DEVELOPMENT-SETUP.md](DEVELOPMENT-SETUP.md) for detailed pre-commit documen
 
 ---
 
-## Code Review Checklist
+## Verification & Completion Policy
 
-**CRITICAL: Before submitting a PR, verify in this order:**
+**See**: [VERIFICATION-POLICY.md](VERIFICATION-POLICY.md) for complete policy.
+
+**Quick Reference**:
+- **Major tasks** (features, bugs, refactoring, multi-file) → Use `contextd:completing-major-task` skill
+- **Minor tasks** (typos, comments, single-file cosmetic) → Use `contextd:completing-minor-task` skill
+- **Before PR** → Use `contextd:code-review` skill
+
+**Key Rule**: No task marked complete without verification evidence.
+
+---
+
+## Pre-PR Checklist (For Developers)
+
+**CRITICAL: Complete these checks BEFORE requesting code review.**
 
 ### 0. Pre-commit Verification (FIRST!)
 - [ ] Pre-commit hooks installed: `pre-commit --version`
 - [ ] All pre-commit checks pass: `pre-commit run --all-files`
 - [ ] No `--no-verify` used in commit history
 
-### 1. Pre-PR Build & Test Verification
+### 1. Build & Test Verification
 - [ ] Code builds: `go build ./...`
 - [ ] All tests pass: `go test ./...`
 - [ ] No race conditions: `go test -race ./...`
-- [ ] Test coverage ≥ 80%
+- [ ] Test coverage ≥ 80%: `go test -coverprofile=coverage.out ./...`
 
 ### 2. Code Quality Verification
 - [ ] Code formatted: `gofmt -w .`
@@ -278,15 +291,20 @@ See [DEVELOPMENT-SETUP.md](DEVELOPMENT-SETUP.md) for detailed pre-commit documen
 - [ ] Vet passes: `go vet ./...`
 - [ ] Static analysis: `staticcheck ./...`
 
-### 3. Code Standards
-- [ ] Read relevant specs from `docs/specs/<feature>/SPEC.md`
+### 3. Documentation & Standards
+- [ ] CHANGELOG.md updated (Added/Fixed/Changed section)
+- [ ] Relevant specs read from `docs/specs/<feature>/SPEC.md`
 - [ ] Code follows naming conventions
 - [ ] Tests written first (TDD)
 - [ ] Errors properly handled and wrapped
 - [ ] No credentials in code
-- [ ] Documentation updated
 
-### Quick Pre-PR Verification
+### 4. Completion Verification
+- [ ] **Major tasks**: Invoked `contextd:completing-major-task` with complete template
+- [ ] **Minor tasks**: Invoked `contextd:completing-minor-task` with checklist
+- [ ] All verification evidence provided
+
+### Quick Pre-PR Verification Script
 
 ```bash
 go build ./... && \
@@ -296,7 +314,19 @@ gofmt -w . && \
 golint ./... && \
 go vet ./... && \
 staticcheck ./... && \
-echo "All checks passed! Ready for PR."
+echo "All checks passed! Ready for code review."
 ```
 
-Or use: `.scripts/pre-pr.sh`
+Or use: `./scripts/pre-pr.sh`
+
+---
+
+## Code Review
+
+**See**: [CODE-REVIEW-CHECKLIST.md](CODE-REVIEW-CHECKLIST.md) for complete reviewer checklist.
+
+**When to Request Code Review**:
+1. After completing pre-PR checklist above
+2. Invoke `contextd:code-review` skill
+3. Code-reviewer validates all work using comprehensive checklist
+4. Address findings and repeat until APPROVED

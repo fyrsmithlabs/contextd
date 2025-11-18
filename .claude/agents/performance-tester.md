@@ -154,8 +154,7 @@ wait
 ```bash
 # Simulate sudden spike (CI/CD trigger)
 for i in {1..100}; do
-  curl --unix-socket ~/.config/contextd/api.sock \
-       http://localhost/health &
+  curl http://localhost:8080/health &
 done
 wait
 ```

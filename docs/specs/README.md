@@ -94,6 +94,19 @@ Related ADRs, research docs, standards.
 - `agent-templates.md` - Reusable agent configuration templates
 - `repository-indexing-v2.md` - Enhanced code indexing with AST parsing
 
+### Security
+
+**MVP Security Posture** (Trusted Network):
+- No authentication required
+- HTTP transport on port 8080
+- Deploy on trusted network (VPN, internal, or localhost)
+- Use SSH tunnel for remote access: `ssh -L 8080:localhost:8080 user@server`
+
+**POST-MVP Security** (Production):
+- Bearer token authentication
+- TLS via reverse proxy
+- Rate limiting and OAuth/SSO
+
 ### Resolutions
 
 Error resolution specifications go in `resolutions/` subdirectory:
