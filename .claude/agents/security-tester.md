@@ -60,7 +60,9 @@ Test:
 #### 2. Cryptographic Failures
 ```
 Test:
-- Verify bearer token security
+- Verify HTTP transport security (headers, CORS)
+- Test reverse proxy integration (if applicable)
+- Validate no sensitive data in HTTP responses
 - Check credential storage
 - Test data encryption at rest
 - Validate TLS configuration
@@ -194,6 +196,7 @@ Test:
 - Session fixation
 - Session hijacking
 - Concurrent sessions
+- Multiple Claude Code instances connecting simultaneously
 - Session timeout bypass
 ```
 
