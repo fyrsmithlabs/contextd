@@ -887,15 +887,14 @@ Results:
 
 **Storage Security**:
 - No encryption at rest (rely on filesystem encryption)
-- No encryption in transit (Unix socket only, no network)
-- Token stored with 0600 permissions
+- No encryption in transit (MVP uses HTTP, add TLS via reverse proxy for production)
 - Vector database credentials in environment variables
 
 **Access Control**:
-- Bearer token authentication required
-- Single-user mode (no multi-user auth)
-- No RBAC (all operations allowed for authenticated user)
-- Future: Project-level access control
+- No authentication required (MVP trusted network model)
+- Multi-session support (multiple Claude Code instances)
+- No RBAC (all operations allowed for all sessions)
+- Future: Project-level access control with authentication
 
 ### Rate Limiting
 
