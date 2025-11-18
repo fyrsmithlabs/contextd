@@ -268,7 +268,7 @@ We use [Keep a Changelog](https://keepachangelog.com/) format for tracking chang
 
 ### Fixed
 - Prevent null pointer dereference in remediation search (#160)
-- Correct file permissions on Unix socket creation (#161)
+- HTTP server starts on correct port (#161)
 
 ### Security
 - Fix filter injection vulnerability by removing legacy mode (#60)
@@ -411,13 +411,10 @@ func TestTokenGeneration(t *testing.T) {
 
 ```bash
 # Health check (no auth required)
-curl --unix-socket ~/.config/contextd/api.sock http://localhost/health
+curl http://localhost:8080/health
 
 # Authenticated endpoint
-TOKEN=$(cat ~/.config/contextd/token)
-curl --unix-socket ~/.config/contextd/api.sock \
-  -H "Authorization: Bearer $TOKEN" \
-  http://localhost/api/v1/checkpoints
+curl http://localhost:8080/api/v1/checkpoints
 ```
 
 ### Testing MCP Tools
