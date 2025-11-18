@@ -16,13 +16,15 @@ This skill enforces defense-in-depth security validation for contextd. All chang
 ## When to Use This Skill
 
 **MANDATORY for changes to:**
-- Authentication or authorization (pkg/auth, pkg/session, pkg/rbac)
 - Multi-tenant boundaries (project/team/org scoping)
 - Database queries or filters (pkg/vectorstore, pkg/adapter)
 - Input validation or sanitization (any user input)
-- Sensitive data (tokens, passwords, API keys, PII)
+- Sensitive data (API keys, embedding service credentials, PII)
 - MCP tools accessing protected resources
-- Middleware handling security concerns
+- HTTP handlers and middleware
+
+**POST-MVP authentication/authorization (pkg/auth, pkg/session, pkg/rbac):**
+- When authentication is added, apply all security checks including timing attack tests
 
 **When NOT to use:**
 - Pure documentation changes (markdown files ONLY, no .go files)
@@ -106,38 +108,46 @@ func (r *Repository) Get(ctx context.Context, path string) {
 
 ### 3. Sensitive Data Handling
 
-**Credentials, tokens, passwords MUST be protected.** No logging, no leaking.
+**Credentials, API keys, secrets MUST be protected.** No logging, no leaking.
 
 ```
 ☐ No credentials in code (use environment variables)
-☐ No credentials in logs (use [REDACTED] for token values)
-☐ Constant-time comparison for tokens (crypto/subtle)
-☐ File permissions 0600 for credential files
+☐ No credentials in logs (use [REDACTED] for sensitive values)
+☐ File permissions 0600 for credential files (embedding API keys, etc.)
 ☐ No secrets in error messages
 ☐ No secrets in OpenTelemetry trace spans
 ☐ Test: Verify credentials not in logs/errors
 ```
 
+**POST-MVP (when authentication added):**
+```
+☐ Constant-time comparison for tokens (crypto/subtle)
+☐ Timing attack tests for authentication
+```
+
 **Evidence Required:**
 - Show credential loading (environment variables, not hardcoded)
 - Show logging code with redaction
-- Show constant-time comparison (if auth/crypto)
 - Show file permission check (if credential files)
+- POST-MVP: Show constant-time comparison (when auth added)
 
 **Common Failures:**
 ```go
-// ❌ WRONG: Token in logs
-log.Printf("Validating token: %s", token)
+// ❌ WRONG: API key in logs
+log.Printf("Using API key: %s", apiKey)
 
 // ✅ RIGHT: Redacted
-log.Printf("Validating token: [REDACTED]")
+log.Printf("Using API key: [REDACTED]")
+```
 
-// ❌ WRONG: Timing attack vulnerable
+**POST-MVP authentication failures:**
+```go
+// ❌ WRONG: Timing attack vulnerable (when auth added)
 if provided == expected {
     return true
 }
 
-// ✅ RIGHT: Constant-time
+// ✅ RIGHT: Constant-time (when auth added)
 return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 ```
 
@@ -149,9 +159,13 @@ return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 ☐ gosec ./... passes with NO new findings
 ☐ Multi-tenant isolation test exists and passes
 ☐ Input validation test with malicious inputs exists and passes
-☐ Timing attack test (if auth/crypto code)
-☐ Privilege escalation test (if RBAC code)
 ☐ All security tests in CI/CD pipeline
+```
+
+**POST-MVP (when authentication/authorization added):**
+```
+☐ Timing attack test (when auth added)
+☐ Privilege escalation test (when RBAC added)
 ```
 
 **Evidence Required:**
@@ -171,7 +185,6 @@ return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 **Security-first coding patterns MUST be followed.**
 
 ```
-☐ Uses crypto/subtle for token comparison (not ==)
 ☐ Wraps all errors with context (fmt.Errorf with %w)
 ☐ Validates before processing (fail fast)
 ☐ No panics for runtime errors (return errors)
@@ -179,10 +192,16 @@ return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 ☐ No TODO comments for security items
 ```
 
+**POST-MVP (when authentication added):**
+```
+☐ Uses crypto/subtle for token comparison (not ==)
+```
+
 **Evidence Required:**
 - Show error wrapping: `fmt.Errorf("operation failed: %w", err)`
 - Show validation before processing (not during/after)
 - Confirm no panic() for runtime errors
+- POST-MVP: Show crypto/subtle usage (when auth added)
 
 ## Output Template (MANDATORY)
 
@@ -238,7 +257,7 @@ return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 [Show logging code with [REDACTED]]
 
 **Constant-Time Comparison:**
-[Show crypto/subtle usage if applicable]
+[POST-MVP: Show crypto/subtle usage when authentication added]
 
 **Findings:**
 - [Specific findings or "No issues found"]
@@ -273,11 +292,13 @@ return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 **Status**: ✅ PASS / 🚫 FAIL
 
 **Checks:**
-- crypto/subtle for tokens: [Yes/No/N/A]
 - Error wrapping with %w: [Yes/No]
 - Validation before processing: [Yes/No]
 - No panics: [Yes/No]
 - Context propagation: [Yes/No]
+
+**POST-MVP Checks (when authentication added):**
+- crypto/subtle for tokens: [Yes/No/N/A]
 
 **Findings:**
 - [Specific findings or "No issues found"]

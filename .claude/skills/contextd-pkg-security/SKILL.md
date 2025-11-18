@@ -14,17 +14,18 @@ description: Use when working on auth, session, isolation, or RBAC packages in c
 ## When to Use This Skill
 
 Use when working on:
-- `pkg/auth` - Authentication (bearer tokens, JWT)
-- `pkg/session` - Session management
+- `pkg/auth` - Authentication (future: JWT, OAuth) - POST-MVP
+- `pkg/session` - Session management - POST-MVP
 - `pkg/isolation` - Multi-tenant isolation
-- `pkg/rbac` - Role-based access control
+- `pkg/rbac` - Role-based access control - POST-MVP
 - Any code handling credentials, tokens, or access control
 
 **Trigger symptoms:**
 - Code accepts user input (file paths, team names, search queries)
-- Code validates credentials or tokens
 - Code enforces team/project/org boundaries
 - Code handles secrets (API keys, passwords)
+
+**NOTE**: MVP uses HTTP transport on port 8080 without authentication. Authentication (JWT, session management, bearer tokens) is POST-MVP.
 
 ## The Iron Law of Security-First Development
 
@@ -129,11 +130,11 @@ func isValidTeamName(name string) bool {
 }
 ```
 
-### 3. Constant-Time Comparison (REQUIRED)
+### 3. Constant-Time Comparison (POST-MVP)
 
-**ALWAYS use `crypto/subtle` for token/password comparison.** String comparison leaks timing information.
+**POST-MVP**: When adding authentication, ALWAYS use `crypto/subtle` for token/password comparison. String comparison leaks timing information.
 
-**Code Pattern:**
+**Code Pattern for future authentication:**
 
 ```go
 import "crypto/subtle"
@@ -152,15 +153,19 @@ func ValidateToken(provided, expected string) bool {
 }
 ```
 
+**NOTE**: MVP does not have authentication. This requirement applies when adding auth in POST-MVP phase.
+
 ### 4. Sensitive Data Handling
 
 **Never log, expose, or store credentials insecurely.**
 
 **Rules:**
 - Credentials from environment variables ONLY
-- File permissions 0600 for token/key files
-- Redact in logs: `zap.String("token", "[REDACTED]")`
+- API keys and secrets stored in separate files with 0600 permissions (when needed)
+- Redact in logs: `zap.String("api_key", "[REDACTED]")`
 - Never in error messages or stack traces
+
+**NOTE**: MVP does not have user authentication tokens. Applies to embedding service API keys and future authentication tokens.
 
 **Code Pattern:**
 
@@ -223,7 +228,9 @@ func TestValidateProjectPath_RejectsTraversal(t *testing.T) {
 }
 ```
 
-### Timing Attack Tests
+### Timing Attack Tests (POST-MVP)
+
+**POST-MVP**: When authentication is added, implement timing attack tests.
 
 ```go
 func TestValidateToken_ConstantTime(t *testing.T) {
@@ -250,6 +257,8 @@ func TestValidateToken_ConstantTime(t *testing.T) {
     }
 }
 ```
+
+**NOTE**: MVP does not have authentication, so timing attack tests are not applicable yet.
 
 ### gosec Validation
 
@@ -282,17 +291,15 @@ gosec ./pkg/rbac/...
 |--------|---------|
 | "Input is from our own code, it's safe" | WRONG. Validate at EVERY entry point. Defense in depth. |
 | "Validation hurts performance" | WRONG. Validation is microseconds. Security is non-negotiable. |
-| "Localhost-only = no timing attacks" | WRONG. Local attackers exist. Always use constant-time. |
-| "Timing attacks are theoretical" | WRONG. They're practical and well-documented. Use `crypto/subtle`. |
+| "MVP has no auth, security doesn't matter" | WRONG. Multi-tenant isolation and input validation still critical. |
+| "No authentication = no security concerns" | WRONG. Data isolation, input validation, API key protection still apply. |
 | "Multi-tenant checks are too complex" | WRONG. Complexity is necessary. Use database-per-project pattern. |
 | "This is an internal API" | WRONG. Internal APIs need validation. Never trust input. |
-| "Authentication means trusted" | WRONG. Authenticated ≠ validated. Check EVERY input. |
 | "Security slows down development" | WRONG. Security bugs slow down EVERYTHING. Do it right first. |
 | "Disable validation in prod for performance" | WRONG. Production needs MORE security, not less. |
 | "Fix writes first, reads later" | WRONG. Reads leak data too. Fix ALL operations at once. |
 | "Add security tests in follow-up PR" | WRONG. Security tests REQUIRED before merge. Blocker. |
 | "Security expert approved this exception" | WRONG. Rules apply to everyone, including experts. |
-| "Math proves attack impractical" | WRONG. Use constant-time anyway. No exceptions. |
 | "Document exception in ADR" | WRONG. No exceptions to document. Follow the rules. |
 
 **All of these mean: Stop. Follow security requirements. No shortcuts.**
@@ -302,10 +309,9 @@ gosec ./pkg/rbac/...
 **If you catch yourself saying or thinking:**
 - "We can skip validation here"
 - "This input is trusted"
-- "Constant-time is overkill"
+- "MVP has no auth, security doesn't matter"
 - "Performance matters more"
 - "Attack is unlikely"
-- "Localhost is safe"
 - "Too complicated for this use case"
 - "We can disable this in production"
 - "Let's fix the critical path first, then come back"
@@ -316,6 +322,8 @@ gosec ./pkg/rbac/...
 - "We'll document the exception in an ADR"
 
 **STOP. You are about to introduce a security vulnerability.**
+
+**NOTE**: Even without authentication, multi-tenant isolation and input validation are MANDATORY.
 
 ## Integration with Verification Skills
 
@@ -341,13 +349,16 @@ Before marking security package work complete:
 
 - [ ] ALL user inputs validated (file paths, URLs, team names, queries)
 - [ ] Multi-tenant isolation enforced (database-per-project pattern)
-- [ ] Constant-time comparison for ALL credential checks
 - [ ] No credentials in code (environment variables only)
 - [ ] No sensitive data in logs (use `[REDACTED]`)
-- [ ] File permissions 0600 for credential files
-- [ ] Security tests written (isolation + validation + timing)
+- [ ] API keys stored in files with 0600 permissions (when applicable)
+- [ ] Security tests written (isolation + validation)
 - [ ] `gosec ./...` passes with no new findings
 - [ ] Code review completed with security focus
+
+**POST-MVP additions**:
+- [ ] Constant-time comparison for ALL credential checks (when auth added)
+- [ ] Timing attack tests (when auth added)
 
 ## The Bottom Line
 
@@ -355,9 +366,12 @@ Before marking security package work complete:
 
 1. Validate ALL inputs (no "trusted source" exception)
 2. Enforce multi-tenant isolation (database-per-project)
-3. Use constant-time comparison (always `crypto/subtle`)
-4. Pass gosec with no new findings
-5. Include security-specific tests
+3. Pass gosec with no new findings
+4. Include security-specific tests
+
+**POST-MVP additions when authentication is added:**
+5. Use constant-time comparison (always `crypto/subtle`)
+6. Include timing attack tests
 
 **No performance, complexity, or deadline justification overrides these requirements.**
 
