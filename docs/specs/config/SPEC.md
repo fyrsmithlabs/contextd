@@ -71,7 +71,7 @@ Based on comprehensive research (see [research-findings.md](research-findings.md
 #
 # All settings can be overridden with environment variables:
 # Format: CONTEXTD_SECTION_SUBSECTION_KEY
-# Example: CONTEXTD_SERVER_SOCKET_PATH
+# Example: CONTEXTD_HTTP_PORT
 
 # Service identification
 service:
@@ -82,12 +82,10 @@ service:
 
 # Server configuration
 server:
-  socket:
-    path: ~/.config/contextd/api.sock
-    permissions: 0600
-    cleanup_on_start: true
-
   http:
+    port: 8080
+    host: 0.0.0.0
+    base_url: http://localhost:8080
     read_timeout: 30s
     write_timeout: 30s
     idle_timeout: 120s
@@ -256,9 +254,9 @@ export CONTEXTD_SERVICE_LOG_LEVEL=warn
 
 | Option | Type | Default | Env Variable | Range/Format | Description |
 |--------|------|---------|--------------|--------------|-------------|
-| `server.socket.path` | string | `~/.config/contextd/api.sock` | `CONTEXTD_SERVER_SOCKET_PATH` | absolute path | Unix socket location |
-| `server.socket.permissions` | octal | `0600` | `CONTEXTD_SERVER_SOCKET_PERMISSIONS` | `0600` | Socket permissions (REQUIRED) |
-| `server.socket.cleanup_on_start` | bool | `true` | `CONTEXTD_SERVER_SOCKET_CLEANUP_ON_START` | true/false | Remove stale socket |
+| `server.http.port` | int | `8080` | `CONTEXTD_HTTP_PORT` | 1-65535 | HTTP server port |
+| `server.http.host` | string | `0.0.0.0` | `CONTEXTD_HTTP_HOST` | IP/hostname | Bind address (0.0.0.0=all, 127.0.0.1=localhost) |
+| `server.http.base_url` | string | `http://localhost:8080` | `CONTEXTD_BASE_URL` | URL | Base URL for MCP client configuration |
 | `server.http.read_timeout` | duration | `30s` | `CONTEXTD_SERVER_HTTP_READ_TIMEOUT` | 1s-300s | Read timeout |
 | `server.http.write_timeout` | duration | `30s` | `CONTEXTD_SERVER_HTTP_WRITE_TIMEOUT` | 1s-300s | Write timeout |
 | `server.http.idle_timeout` | duration | `120s` | `CONTEXTD_SERVER_HTTP_IDLE_TIMEOUT` | 1s-600s | Keep-alive timeout |
@@ -271,7 +269,9 @@ export CONTEXTD_SERVICE_LOG_LEVEL=warn
 
 **Examples:**
 ```bash
-export CONTEXTD_SERVER_SOCKET_PATH=/tmp/contextd.sock
+export CONTEXTD_HTTP_PORT=8080
+export CONTEXTD_HTTP_HOST=0.0.0.0
+export CONTEXTD_BASE_URL=http://localhost:8080
 export CONTEXTD_SERVER_HTTP_READ_TIMEOUT=60s
 ```
 
@@ -349,7 +349,7 @@ Pattern: `CONTEXTD_SECTION_SUBSECTION_KEY`
 YAML Path                     Environment Variable
 ───────────────────────────────────────────────────────
 service.log_level             CONTEXTD_SERVICE_LOG_LEVEL
-server.socket.path            CONTEXTD_SERVER_SOCKET_PATH
+server.http.port              CONTEXTD_HTTP_PORT
 database.qdrant.host          CONTEXTD_DATABASE_QDRANT_HOST
 embedding.tei.base_url        CONTEXTD_EMBEDDING_TEI_BASE_URL
 observability.traces.enabled  CONTEXTD_OBSERVABILITY_TRACES_ENABLED
@@ -373,9 +373,8 @@ Configuration loaded in order (highest to lowest priority):
 ```yaml
 # config.yaml
 server:
-  socket:
-    path: /custom/path.sock
   http:
+    port: 8080
     read_timeout: 30s
 ```
 
@@ -383,7 +382,7 @@ server:
 # Override only read_timeout
 export CONTEXTD_SERVER_HTTP_READ_TIMEOUT=60s
 
-# Result: path=/custom/path.sock (from YAML)
+# Result: port=8080 (from YAML)
 #         read_timeout=60s (from env)
 ```
 
@@ -445,9 +444,7 @@ export CONTEXTD_FEATURES_REMEDIATIONS_SEMANTIC_WEIGHT=0.8
 
 3. **API Endpoint**
    ```bash
-   curl --unix-socket ~/.config/contextd/api.sock \
-        -H "Authorization: Bearer $TOKEN" \
-        -X POST http://localhost/admin/reload
+   curl -X POST http://localhost:8080/admin/reload
    ```
 
 ### Reload Process
@@ -520,7 +517,7 @@ func (c *ConfigManager) Reload() error {
 - ✅ Backup settings
 
 **Cannot Reload (Requires Restart):**
-- ❌ Socket path
+- ❌ HTTP server port
 - ❌ Database host/port
 - ❌ Embedding provider
 - ❌ Multi-tenant mode
@@ -549,7 +546,7 @@ func (c *ConfigManager) Reload() error {
 
 **Must be present** (or have defaults):
 - `service.name`
-- `server.socket.path`
+- `server.http.port`
 - `server.security.token_file`
 - `database.qdrant.host`
 - `database.qdrant.port`
@@ -585,15 +582,15 @@ func (c *ConfigManager) Reload() error {
 - No API keys inline in config
 - Token file has 0600 permissions
 - API key files have 0600 permissions
-- Socket has 0600 permissions
+- Config file has 0600 permissions
 
 ### Error Messages
 
 **Format:**
 ```
 Configuration validation failed with N error(s):
-  1. server.socket.permissions must be 0600 (got: 0644)
-     Fix with: chmod 0600 ~/.config/contextd/api.sock
+  1. server.http.port must be 1-65535 (got: 70000)
+     Fix with: Set CONTEXTD_HTTP_PORT to valid port (1-65535)
 
   2. database.qdrant.port must be 1-65535 (got: 70000)
 
@@ -705,7 +702,6 @@ All contextd files MUST have 0600 permissions:
 chmod 0600 ~/.config/contextd/config.yaml
 chmod 0600 ~/.config/contextd/token
 chmod 0600 ~/.config/contextd/openai_api_key
-chmod 0600 ~/.config/contextd/api.sock
 ```
 
 **Verification:**
@@ -714,7 +710,6 @@ ls -la ~/.config/contextd/
 # -rw------- 1 user user  config.yaml
 # -rw------- 1 user user  token
 # -rw------- 1 user user  openai_api_key
-# srw------- 1 user user  api.sock
 ```
 
 ### Security Checklist
@@ -730,7 +725,6 @@ ls -la ~/.config/contextd/
 - [ ] config.yaml has 0600
 - [ ] token file has 0600
 - [ ] api_key files have 0600
-- [ ] socket has 0600
 - [ ] No secrets in environment
 
 **Operations:**
