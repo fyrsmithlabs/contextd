@@ -9,7 +9,7 @@
 
 ## Overview
 
-The MCP (Model Context Protocol) integration provides a standardized interface for Claude Code and other AI assistants to interact with contextd services. It implements the MCP Streamable HTTP transport (specification version 2025-03-26), enabling remote access and multiple concurrent sessions for distributed teams.
+The MCP (Model Context Protocol) integration provides a standardized interface for Claude Code and other AI assistants to interact with contextd services. It implements the MCP Streamable HTTP transport (specification version 2025-06-18), enabling remote access and multiple concurrent sessions for distributed teams.
 
 **Purpose**: Bridge between AI assistants and contextd's core functionality.
 
@@ -26,7 +26,7 @@ The MCP (Model Context Protocol) integration provides a standardized interface f
 ## Quick Reference
 
 **Key Facts**:
-- **Technology**: MCP Streamable HTTP (spec 2025-03-26), JSON-RPC 2.0, Go SDK
+- **Technology**: MCP Streamable HTTP (spec 2025-06-18), JSON-RPC 2.0, Go SDK
 - **Transport**: HTTP/1.1
 - **Location**: `pkg/mcp/`, endpoint POST/GET `/mcp`
 - **Port**: 8080 (configurable via CONTEXTD_HTTP_PORT)
@@ -82,7 +82,7 @@ The MCP (Model Context Protocol) integration provides a standardized interface f
 
 ## Protocol Compliance
 
-**MCP Version**: 2025-03-26 (Streamable HTTP)
+**MCP Version**: 2025-06-18 (Streamable HTTP)
 
 **Compliance Points**:
 - ✅ Tool Discovery: Server advertises all 16 tools with complete schemas
@@ -180,7 +180,7 @@ The MCP integration provides a **partially implemented** interface for AI assist
 **Current Status**: ⚠️ In Progress (~50% Complete, v2.0.0-alpha)
 
 **What Works** ✅:
-- Core MCP Streamable HTTP protocol (spec 2025-03-26)
+- Core MCP Streamable HTTP protocol (spec 2025-06-18)
 - Session management (checkpoint save/search/list)
 - Error resolution (remediation save/search)
 - Collection management (create/delete/list)

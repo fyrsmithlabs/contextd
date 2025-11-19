@@ -158,7 +158,7 @@ func NewServer(
 //   - GET  /mcp/resources/list
 //   - POST /mcp/resources/read
 func (s *Server) RegisterRoutes() {
-	// MCP Protocol Endpoint (MCP Streamable HTTP spec 2025-03-26)
+	// MCP Protocol Endpoint (MCP Streamable HTTP spec 2025-06-18)
 	// Single endpoint with JSON-RPC method routing
 	// MVP: No authentication (trusted network assumption)
 	// TODO: Add OAuth 2.0 implementation for production

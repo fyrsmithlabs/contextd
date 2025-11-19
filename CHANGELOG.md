@@ -24,10 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **MCP Protocol Version**: Updated to MCP spec 2025-03-26 (from 2024-11-05)
-  - Updated protocol version negotiation to default to 2025-03-26
-  - Maintained backward compatibility with 2024-11-05 for legacy clients
+- **MCP Protocol Version**: Updated to MCP spec 2025-06-18 (from 2024-11-05)
+  - Updated protocol version negotiation to default to 2025-06-18 (June 2025)
+  - Maintained backward compatibility with 2025-03-26 and 2024-11-05
   - Updated all test cases to use current spec version
+  - Key improvements in 2025-06-18:
+    - Removed JSON-RPC batching (simplification)
+    - Added structured tool output support
+    - OAuth Resource Server classification (RFC 9728)
+    - MCP-Protocol-Version header now mandatory
+    - Enhanced security best practices
   - Aligns with official MCP Streamable HTTP specification
 
 ### Fixed

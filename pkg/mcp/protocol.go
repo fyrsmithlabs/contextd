@@ -72,13 +72,22 @@ func (s *SessionStore) Delete(sessionID string) {
 // negotiateProtocolVersion negotiates the protocol version between client and server.
 //
 // Currently supports:
-//   - 2025-03-26 (MCP Streamable HTTP spec - current)
+//   - 2025-06-18 (MCP Streamable HTTP spec - current, adds OAuth, structured output, elicitation)
+//   - 2025-03-26 (MCP Streamable HTTP spec - deprecated, backward compatibility)
 //   - 2024-11-05 (MCP Streamable HTTP spec - deprecated, backward compatibility)
 //
-// Defaults to 2025-03-26 if client requests unsupported version.
+// Defaults to 2025-06-18 if client requests unsupported version.
+//
+// Key changes in 2025-06-18:
+//   - Removed JSON-RPC batching
+//   - Added structured tool output
+//   - OAuth Resource Server classification (RFC 9728)
+//   - Resource Indicators required (RFC 8707)
+//   - MCP-Protocol-Version header mandatory
 func negotiateProtocolVersion(requested string) string {
 	supportedVersions := []string{
-		"2025-03-26", // Current spec
+		"2025-06-18", // Current spec (June 2025)
+		"2025-03-26", // Deprecated, backward compatibility
 		"2024-11-05", // Deprecated, backward compatibility
 	}
 
@@ -89,7 +98,7 @@ func negotiateProtocolVersion(requested string) string {
 	}
 
 	// Default to latest supported version
-	return "2025-03-26"
+	return "2025-06-18"
 }
 
 // handleMCPRequest handles POST /mcp with JSON-RPC 2.0 method routing.
