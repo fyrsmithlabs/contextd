@@ -33,7 +33,177 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] Discovering performance bottlenecks
 - [ ] Making security changes
 
-**Last Updated:** 2025-01-18 | **Version:** 1.0.0-alpha
+**Last Updated:** 2025-11-19 | **Version:** 1.0.0-alpha
+
+---
+
+## ⚡ ABSOLUTE RULES: Context Efficiency & Concurrent Operations
+
+**CRITICAL**: These rules are NON-NEGOTIABLE for all development work.
+
+### Golden Rule: "1 MESSAGE = ALL RELATED OPERATIONS"
+
+**ALL operations MUST be concurrent/parallel in a single message.**
+
+**MANDATORY Batching Patterns**:
+
+1. **TodoWrite**: ALWAYS batch ALL todos in ONE call (5-10+ todos minimum)
+   ```javascript
+   // ✅ CORRECT: Single TodoWrite with all related tasks
+   TodoWrite([
+     {content: "Research authentication patterns", status: "pending", activeForm: "Researching..."},
+     {content: "Design JWT middleware", status: "pending", activeForm: "Designing..."},
+     {content: "Implement auth service", status: "pending", activeForm: "Implementing..."},
+     {content: "Write unit tests (≥80% coverage)", status: "pending", activeForm: "Writing tests..."},
+     {content: "Add integration tests", status: "pending", activeForm: "Adding integration tests..."},
+     {content: "Update documentation", status: "pending", activeForm: "Updating docs..."},
+     {content: "Code review", status: "pending", activeForm: "Reviewing code..."}
+   ])
+
+   // ❌ WRONG: Multiple TodoWrite calls across messages
+   TodoWrite([{content: "Research", status: "pending", activeForm: "Researching..."}])
+   // ... later message ...
+   TodoWrite([{content: "Implement", status: "pending", activeForm: "Implementing..."}])
+   ```
+
+2. **Task Tool (Claude Code)**: ALWAYS spawn ALL agents in ONE message
+   ```javascript
+   // ✅ CORRECT: Single message with multiple parallel agents
+   [Single Message]:
+     Task("Research MCP specification", "Analyze MCP spec 2025-03-26...", "mcp-developer")
+     Task("Design system architecture", "Create architecture for...", "go-architect")
+     Task("Plan test strategy", "Design comprehensive test plan...", "test-strategist")
+     Task("Security analysis", "Audit security requirements...", "security-auditor")
+
+   // ❌ WRONG: Multiple messages spawning agents sequentially
+   Task("Research MCP", "...", "mcp-developer")
+   // ... wait for response, then new message ...
+   Task("Design architecture", "...", "go-architect")
+   ```
+
+3. **File Operations**: ALWAYS batch ALL reads/writes/edits in ONE message
+   ```javascript
+   // ✅ CORRECT: Batch all file operations
+   [Single Message]:
+     Read("/path/to/file1.go")
+     Read("/path/to/file2.go")
+     Read("/path/to/file3.go")
+     Edit("file1.go", old, new)
+     Edit("file2.go", old, new)
+     Write("/docs/guide.md", content)
+
+   // ❌ WRONG: Sequential file operations across messages
+   Read("file1.go")
+   // ... wait for response ...
+   Read("file2.go")
+   ```
+
+4. **Bash Commands**: ALWAYS batch ALL terminal operations in ONE message
+   ```bash
+   # ✅ CORRECT: Single message with chained commands
+   go build ./... && go test ./... && go test -race ./... && gofmt -w . && golangci-lint run
+
+   # ❌ WRONG: Multiple messages for independent commands
+   # Message 1: go build ./...
+   # Message 2: go test ./...
+   # Message 3: gofmt -w .
+   ```
+
+### File Organization Rules (MANDATORY)
+
+**NEVER save working files, text/markdown files, or tests to the root folder.**
+
+**ALWAYS organize files in appropriate subdirectories**:
+
+```
+✅ CORRECT File Placement:
+/docs/              ← Documentation, guides, markdown files
+/docs/specs/        ← Feature specifications
+/docs/guides/       ← How-to documentation
+/docs/research/     ← Research documents
+/config/            ← Configuration files
+/scripts/           ← Utility scripts
+/examples/          ← Example code
+/pkg/               ← Go packages
+/cmd/               ← Go executables
+/test/              ← Test fixtures and test data
+/internal/          ← Private application code
+
+❌ WRONG File Placement:
+/                   ← Root folder (DO NOT save working files here!)
+/test.md            ← Should be in /docs/
+/config.yaml        ← Should be in /config/
+/script.sh          ← Should be in /scripts/
+/example.go         ← Should be in /examples/
+```
+
+**Exceptions** (files that MUST be in root):
+- `README.md` (project root only)
+- `CLAUDE.md` (root and pkg/ directories)
+- `Makefile`
+- `go.mod`, `go.sum`
+- `LICENSE`
+- `.gitignore`, `.dockerignore`
+- `CHANGELOG.md`
+
+### Claude Code Task Tool for Parallel Execution
+
+**USE CLAUDE CODE'S TASK TOOL as the PRIMARY method for spawning agents concurrently.**
+
+**Pattern**: Single message with multiple Task calls
+
+```javascript
+// ✅ CORRECT: Deploy 4 agents in parallel (single message)
+Task("Implement authentication system", `
+  Requirements:
+  - JWT-based auth with refresh tokens
+  - Constant-time token comparison
+  - Multi-tenant isolation
+  - ≥80% test coverage
+
+  Follow:
+  - TDD (red → green → refactor)
+  - Security-first coding (docs/standards/coding-standards.md)
+  - Input validation at all boundaries
+`, "golang-pro")
+
+Task("Design test strategy", `
+  Create comprehensive test plan:
+  - Unit tests (table-driven)
+  - Integration tests
+  - Security tests (timing attacks, injection)
+  - Performance benchmarks
+
+  Target: ≥80% coverage, 100% for auth paths
+`, "test-strategist")
+
+Task("Security audit", `
+  Audit authentication implementation:
+  - Multi-tenant isolation verification
+  - Input validation coverage
+  - Timing attack prevention
+  - Credential handling
+`, "security-auditor")
+
+Task("Documentation", `
+  Create documentation:
+  - API documentation (godoc)
+  - Usage examples
+  - Security considerations
+  - Migration guide
+`, "documentation-engineer")
+```
+
+**Benefits of Parallel Agent Execution**:
+- ⚡ 4x faster (4 agents in parallel vs sequential)
+- 🎯 Each agent gets full context and instructions upfront
+- 🔄 Agents work autonomously without blocking each other
+- 💰 More efficient token usage (single prompt, multiple outputs)
+
+**When NOT to parallelize**:
+- ❌ Agents have dependencies (Agent B needs Agent A's output)
+- ❌ Shared file modifications (race conditions)
+- ✅ Use sequential workflow instead: Agent A → Agent B → Agent C
 
 ---
 
@@ -61,6 +231,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 9. **Skill Maintenance** - Skills evolve with codebase, must stay current
 10. **Spec-Driven Development** - NO CODE WITHOUT SPEC (non-negotiable)
 11. **Modular Documentation** - Scannable main files (~150 lines), @imports for details (Kinney approach)
+12. **Environment-First Config** - Use environment variables for all configuration (never hardcode)
+13. **Connection Pooling** - Reuse database connections via pooling (never create per-request)
+14. **API Rate Limiting** - Implement rate limiting for all public APIs (prevent abuse)
 
 **Version**: v1.0.0-alpha (Pre-release) | **Status**: Actively developed prototype
 
@@ -344,6 +517,15 @@ docs/
 ---
 
 ## Summary
+
+**⚡ ALWAYS FOLLOW ABSOLUTE RULES (Non-Negotiable):**
+
+1. **Golden Rule**: "1 MESSAGE = ALL RELATED OPERATIONS"
+2. **TodoWrite**: Batch ALL todos in ONE call (5-10+ minimum)
+3. **Task Tool**: Spawn ALL agents in ONE message (parallel execution)
+4. **File Operations**: Batch ALL reads/writes/edits in ONE message
+5. **Bash Commands**: Chain ALL terminal operations in ONE command
+6. **File Organization**: NEVER save working files to root folder (use /docs, /config, /scripts, etc.)
 
 **Before writing any code:**
 

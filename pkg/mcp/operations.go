@@ -26,7 +26,7 @@ const (
 // OperationRegistry manages operation lifecycle with NATS JetStream persistence.
 //
 // The registry tracks operations in memory for fast lookups and publishes
-// all operation events to NATS for persistence and SSE streaming.
+// all operation events to NATS for persistence.
 //
 // Operation events are published to subjects:
 //   - operations.{owner_id}.{operation_id}.started

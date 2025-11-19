@@ -280,6 +280,101 @@ func TestFunction_Condition_ExpectedBehavior(t *testing.T) {
 - Simple getters/setters
 - Third-party library wrappers (test integration instead)
 
+### Integration Tests (MANDATORY)
+
+**CRITICAL**: Unit tests alone are insufficient. Integration tests are **REQUIRED** for all service implementations.
+
+**Integration Test Requirements**:
+1. **Real Dependencies**: Use actual Qdrant, databases, or external services (not mocks)
+2. **Separate File**: Create `*_integration_test.go` files
+3. **Skip Guard**: Use `testing.Short()` to allow skipping in CI
+4. **Full Cycle**: Test complete request → service → database → response flow
+5. **Cleanup**: Properly cleanup test data after tests
+
+**Example Integration Test**:
+```go
+// service_integration_test.go
+package mypackage
+
+import (
+    "context"
+    "os"
+    "testing"
+    "time"
+)
+
+func TestIntegration_MyService(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping integration test in short mode")
+    }
+
+    // Connect to real Qdrant
+    qdrantURL := os.Getenv("QDRANT_URL")
+    if qdrantURL == "" {
+        qdrantURL = "http://localhost:6333"
+    }
+
+    store, err := vectorstore.NewQdrantVectorStore(qdrantURL, "test_collection")
+    if err != nil {
+        t.Fatalf("Failed to connect to Qdrant: %v. Is it running?", err)
+    }
+
+    ctx := context.Background()
+
+    // Cleanup test collection
+    defer store.DeleteCollection(ctx, "test_collection")
+
+    // Create test collection
+    err = store.CreateCollection(ctx, "test_collection", 384)
+    if err != nil {
+        t.Fatalf("Failed to create collection: %v", err)
+    }
+
+    // Initialize service with real dependencies
+    service := NewService(store)
+
+    // Test actual operations
+    result, err := service.DoSomething(ctx, input)
+    if err != nil {
+        t.Fatalf("DoSomething() error = %v", err)
+    }
+
+    // Verify real database state
+    retrieved, err := service.Get(ctx, result.ID)
+    if err != nil {
+        t.Fatalf("Get() error = %v", err)
+    }
+
+    // Assert on real data
+    if retrieved.Field != expected {
+        t.Errorf("Expected %v, got %v", expected, retrieved.Field)
+    }
+}
+```
+
+**Running Integration Tests**:
+```bash
+# Run unit tests only (skips integration)
+go test -short ./...
+
+# Run ALL tests including integration (requires Qdrant running)
+go test ./...
+
+# Run only integration tests
+go test -v -run TestIntegration ./...
+```
+
+**When to Write Integration Tests**:
+- ✅ **ALWAYS** for services that interact with databases (Qdrant, Postgres, etc.)
+- ✅ **ALWAYS** for HTTP handlers (full request/response cycle)
+- ✅ **ALWAYS** for anything that uses external dependencies
+- ❌ Skip for pure business logic with no external dependencies
+
+**Integration vs Unit Tests**:
+- **Unit Tests**: Use mocks, test logic in isolation, fast (<10ms)
+- **Integration Tests**: Use real services, test actual integration, slower (100ms-2s)
+- **Both are REQUIRED**: Unit tests prove logic works, integration tests prove it works in reality
+
 ## Common Patterns
 
 ### Table-Driven Tests

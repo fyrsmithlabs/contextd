@@ -1,8 +1,9 @@
 # Feature: MCP Integration
 
-**Version**: 2.0.0
-**Status**: Complete
-**Last Updated**: 2025-11-04
+**Version**: 2.0.0-alpha
+**Status**: In Progress (~50% Complete)
+**Last Updated**: 2025-01-19
+**Implementation Plan**: @./IMPLEMENTATION-PLAN.md
 
 ---
 
@@ -26,12 +27,12 @@ The MCP (Model Context Protocol) integration provides a standardized interface f
 
 **Key Facts**:
 - **Technology**: MCP Streamable HTTP (spec 2025-03-26), JSON-RPC 2.0, Go SDK
-- **Transport**: HTTP/1.1 with Server-Sent Events (SSE)
+- **Transport**: HTTP/1.1
 - **Location**: `pkg/mcp/`, endpoint POST/GET `/mcp`
 - **Port**: 8080 (configurable via CONTEXTD_HTTP_PORT)
 - **SDK**: `github.com/modelcontextprotocol/go-sdk/mcp`
-- **Tools**: 16 MCP tools covering all contextd functionality
-- **Status**: Production-ready (add auth for production deployments)
+- **Tools**: 8/16 tools fully implemented, 4 stubbed, 4 missing (see Implementation Status below)
+- **Status**: ⚠️ **NOT Production-Ready** - Multiple tools incomplete or missing
 
 **Components**:
 - MCP Server: Tool registry, validation, rate limiting, telemetry
@@ -95,29 +96,48 @@ The MCP (Model Context Protocol) integration provides a standardized interface f
 
 ---
 
-## Tool Catalog Summary
+## Implementation Status
 
-**16 Tools Total**:
+⚠️ **CRITICAL**: This specification originally claimed "Status: Complete" but audit (2025-01-19) revealed significant implementation gaps. See @./IMPLEMENTATION-PLAN.md for remediation plan.
 
-1. **Session Management** (3):
-   - checkpoint_save, checkpoint_search, checkpoint_list
+### Tool Implementation Status (16 Tools)
 
-2. **Error Resolution** (2):
-   - remediation_save, remediation_search
+| Tool | Status | Notes |
+|------|--------|-------|
+| **Session Management** |
+| checkpoint_save | ✅ Complete | Fully functional with async operation tracking |
+| checkpoint_search | ✅ Complete | Semantic search with prefetch support |
+| checkpoint_list | ✅ Complete | Recent checkpoints listing |
+| **Error Resolution** |
+| remediation_save | ✅ Complete | Error solution storage |
+| remediation_search | ✅ Complete | Hybrid matching (semantic + string) |
+| **AI Diagnosis** |
+| troubleshoot | ❌ Missing | Service doesn't exist (pkg/troubleshoot/) |
+| list_patterns | ❌ Missing | Service doesn't exist |
+| **Repository Indexing** |
+| index_repository | ⚠️ Stubbed | Returns fake operation_id, no actual indexing |
+| **Skills Management** |
+| skill_save | ⚠️ Stubbed | Returns hardcoded "skill-placeholder" |
+| skill_search | ⚠️ Stubbed | Returns empty array (pkg/skills/ is empty) |
+| skill_create | ❌ Missing | Not in discovery or handlers |
+| skill_list | ❌ Missing | Not in discovery or handlers |
+| skill_update | ❌ Missing | Not in discovery or handlers |
+| skill_delete | ❌ Missing | Not in discovery or handlers |
+| skill_apply | ❌ Missing | Not in discovery or handlers |
+| **System Operations** |
+| status | ⚠️ Wrong | Returns server health instead of operation status |
+| analytics_get | ❌ Missing | Service doesn't exist (pkg/analytics/) |
 
-3. **AI Diagnosis** (2):
-   - troubleshoot, list_patterns
+**Legend**:
+- ✅ Complete: Fully functional with tests
+- ⚠️ Stubbed: Handler exists but returns placeholder data
+- ❌ Missing: No handler or service implementation
 
-4. **Repository Indexing** (1):
-   - index_repository
+**Summary**: 8 working, 4 stubbed, 4 missing
 
-5. **Skills Management** (6):
-   - skill_create, skill_search, skill_list, skill_update, skill_delete, skill_apply
-
-6. **System Operations** (2):
-   - status, analytics_get
-
-**See**: @./mcp/tools.md for complete tool specifications.
+**See**:
+- @./IMPLEMENTATION-PLAN.md for remediation plan
+- @./mcp/tools.md for tool specifications (planned, not all implemented)
 
 ---
 
@@ -155,19 +175,39 @@ The MCP (Model Context Protocol) integration provides a standardized interface f
 
 ## Summary
 
-The MCP integration provides a complete, production-ready interface for AI assistants to interact with contextd services. With 16 tools covering session management, error resolution, AI diagnosis, skills management, and analytics, it enables powerful context-aware workflows for developers.
+The MCP integration provides a **partially implemented** interface for AI assistants to interact with contextd services. Core infrastructure is solid (MCP protocol, session management), but only **8 out of 16 tools are fully functional**.
 
-**Current Status**: Complete (v2.0.0)
-**Production Readiness**:
-- ✅ Core functionality ready
-- ⚠️ Add authentication for production
-- ⚠️ Add TLS via reverse proxy for production
+**Current Status**: ⚠️ In Progress (~50% Complete, v2.0.0-alpha)
 
-**Next Steps**:
-- Add authentication (Bearer token, JWT, OAuth)
-- Deploy behind reverse proxy with TLS
-- Implement advanced rate limiting for scale
-- Add caching and batching optimizations
+**What Works** ✅:
+- Core MCP Streamable HTTP protocol (spec 2025-03-26)
+- Session management (checkpoint save/search/list)
+- Error resolution (remediation save/search)
+- Collection management (create/delete/list)
+- Async operation tracking
+
+**What Doesn't Work** ❌:
+- Skills management (pkg/skills/ is empty, handlers return placeholders)
+- AI diagnosis (pkg/troubleshoot/ doesn't exist)
+- Analytics (pkg/analytics/ doesn't exist)
+- Repository indexing (stubbed, returns fake operation IDs)
+- Operation status querying (returns server health instead)
+
+**Production Readiness**: 🚫 **NOT PRODUCTION-READY**
+- ❌ 50% of tools incomplete or missing
+- ❌ No authentication (MVP mode only)
+- ❌ No TLS (add via reverse proxy)
+- ❌ Rate limiting not verified
+- ⚠️ Tests pass but don't validate stubbed tools
+
+**Next Steps** (see @./IMPLEMENTATION-PLAN.md):
+1. **Phase 1 (P0)**: Implement missing services (skills, troubleshoot, analytics)
+2. **Phase 1 (P0)**: Fix stubbed handlers to use real services
+3. **Phase 2 (P1)**: Complete skills CRUD operations
+4. **Phase 2 (P1)**: Remove legacy REST endpoints
+5. **Phase 3 (P2)**: Add authentication (OAuth 2.0)
+6. **Phase 3 (P2)**: Verify rate limiting implementation
+7. **Continuous**: Integration tests for all tools
 
 **Related Documentation**:
 - Project: [/CLAUDE.md](/home/dahendel/projects/contextd/CLAUDE.md)

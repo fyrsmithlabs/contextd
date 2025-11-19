@@ -24,7 +24,7 @@ func TestServer_PrefetchLifecycle(t *testing.T) {
 	defer nc.Close()
 
 	operations := NewOperationRegistry(nc)
-	server := NewServer(e, operations, nc, nil, nil, nil, nil)
+	server := NewServer(e, operations, nc, nil, nil, nil, nil, nil, nil, nil)
 
 	// Enable prefetch in config
 	cfg := &config.PreFetchConfig{
@@ -118,7 +118,7 @@ func TestServer_PrefetchDisabled(t *testing.T) {
 	defer nc.Close()
 
 	operations := NewOperationRegistry(nc)
-	server := NewServer(e, operations, nc, nil, nil, nil, nil)
+	server := NewServer(e, operations, nc, nil, nil, nil, nil, nil, nil, nil)
 
 	// Disable prefetch in config
 	cfg := &config.PreFetchConfig{
@@ -166,7 +166,7 @@ func TestServer_ResponseInjection(t *testing.T) {
 	defer nc.Close()
 
 	operations := NewOperationRegistry(nc)
-	server := NewServer(e, operations, nc, nil, nil, nil, nil)
+	server := NewServer(e, operations, nc, nil, nil, nil, nil, nil, nil, nil)
 
 	cfg := &config.PreFetchConfig{
 		Enabled:         true,

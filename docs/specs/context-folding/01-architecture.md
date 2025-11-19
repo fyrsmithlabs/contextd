@@ -153,7 +153,7 @@ All independent, no cross-talk.
 
 ## Integration Points
 
-**MCP Protocol** (HTTP, not SSE):
+**MCP Protocol** (HTTP):
 - Base URL: `http://localhost:9090/mcp`
 - Transport: `{"type": "http"}`
 - Tools: `context_branch`, `context_return`, `context_branch_status`, etc.
@@ -211,10 +211,8 @@ Final main thread: 5K + 150 + 100 + 120 = 5.4K tokens (not 23K!)
 - We use heuristics instead (unfolded token penalty, out-of-scope detection)
 - Simpler implementation, still effective
 
-**HTTP Transport** (not SSE for MCP):
-- SSE transport deprecated by MCP protocol
+**HTTP Transport**:
 - HTTP recommended for cloud services
-- SSE still used for progress streaming (long-running operations)
 
 **Hybrid State Management**:
 - Active state in NATS (real-time, ephemeral)

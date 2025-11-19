@@ -1,7 +1,7 @@
-// Package mcp provides Model Context Protocol server implementation over HTTP with SSE streaming.
+// Package mcp provides Model Context Protocol server implementation over HTTP.
 //
 // This package implements JSON-RPC 2.0 protocol for tool invocation, NATS-based
-// operation tracking, and Server-Sent Events (SSE) for long-running operations.
+// operation tracking for long-running operations.
 //
 // Example usage:
 //
@@ -93,7 +93,7 @@ var (
 // Operation represents a tracked operation with NATS persistence.
 //
 // Operations are created for long-running tasks (e.g., index_repository)
-// and provide progress streaming via SSE. Each operation publishes events
+// and provide progress tracking. Each operation publishes events
 // to NATS subjects: operations.{owner_id}.{operation_id}.{event_type}
 //
 // Operation lifecycle states:
@@ -169,4 +169,33 @@ type ServerInfo struct {
 type ToolsCallParams struct {
 	Name      string                 `json:"name"`      // Tool name (e.g., "checkpoint_save")
 	Arguments map[string]interface{} `json:"arguments"` // Tool-specific arguments
+}
+
+// StatusRequest represents a request to query operation status.
+//
+// This is used by the status tool to query the state of asynchronous
+// operations created by tools like checkpoint_save, skill_save, etc.
+type StatusRequest struct {
+	OperationID string `json:"operation_id" validate:"required"` // Operation UUID
+}
+
+// StatusResponse represents operation status.
+//
+// This contains the current state of an operation, including its result
+// (if completed) or error (if failed).
+type StatusResponse struct {
+	OperationID string                 `json:"operation_id"`     // Operation UUID
+	Status      string                 `json:"status"`           // pending|running|completed|failed
+	Result      map[string]interface{} `json:"result,omitempty"` // Tool result (when completed)
+	Error       string                 `json:"error,omitempty"`  // Error message (when failed)
+	CreatedAt   time.Time              `json:"created_at"`       // Operation creation time
+	UpdatedAt   time.Time              `json:"updated_at"`       // Last update time
+}
+
+// TroubleshootRequest represents a troubleshoot tool request.
+//
+// This is used to request AI-powered error diagnosis with optional context.
+type TroubleshootRequest struct {
+	ErrorMessage string `json:"error_message" validate:"required"` // Error message to diagnose
+	Context      string `json:"context"`                           // Additional context about when/where error occurred
 }

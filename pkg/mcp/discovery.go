@@ -275,6 +275,32 @@ func (s *Server) handleToolsList(c echo.Context) error {
 				"properties": map[string]interface{}{},
 			},
 		},
+		{
+			Name:        "troubleshoot",
+			Description: "AI-powered error diagnosis with pattern matching and hypothesis generation",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"error_message": map[string]interface{}{
+						"type":        "string",
+						"description": "Error message to diagnose",
+					},
+					"context": map[string]interface{}{
+						"type":        "string",
+						"description": "Additional context about when/where the error occurred",
+					},
+				},
+				"required": []string{"error_message"},
+			},
+		},
+		{
+			Name:        "list_patterns",
+			Description: "List all known error patterns with solutions",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
 	}
 
 	// Return JSON-RPC success response

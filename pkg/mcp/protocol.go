@@ -101,13 +101,13 @@ func negotiateProtocolVersion(requested string) string {
 //   - resources/read: Read a resource
 //
 // Per MCP spec 2025-03-26, this endpoint MUST:
-//   - Validate Accept header includes both application/json AND text/event-stream
+//   - Validate Accept header includes application/json
 //   - Return Mcp-Session-Id header after successful initialize
 //   - Require Mcp-Session-Id header for all non-initialize requests
 //   - Return JSON-RPC 2.0 formatted responses
 func (s *Server) handleMCPRequest(c echo.Context) error {
 	// SECURITY: Validate Accept header per MCP spec
-	// Client must accept BOTH application/json AND text/event-stream
+	// Client must accept application/json
 	accept := c.Request().Header.Get("Accept")
 	if !validateAcceptHeader(accept) {
 		return c.JSON(http.StatusNotAcceptable, JSONRPCError{
@@ -115,10 +115,10 @@ func (s *Server) handleMCPRequest(c echo.Context) error {
 			ID:      "",
 			Error: &ErrorDetail{
 				Code:    -32000,
-				Message: "Not Acceptable: Client must accept both application/json and text/event-stream",
+				Message: "Not Acceptable: Client must accept application/json",
 				Data: map[string]interface{}{
 					"accept_header": accept,
-					"required":      "application/json, text/event-stream",
+					"required":      "application/json",
 				},
 			},
 		})
@@ -165,18 +165,16 @@ func (s *Server) handleMCPRequest(c echo.Context) error {
 
 // validateAcceptHeader checks if Accept header includes required media types.
 //
-// Per MCP spec, client MUST accept both:
+// Per MCP spec, client MUST accept:
 //   - application/json (for JSON-RPC responses)
-//   - text/event-stream (for SSE streaming)
 func validateAcceptHeader(accept string) bool {
 	if accept == "" {
 		return false
 	}
 
 	hasJSON := strings.Contains(accept, "application/json")
-	hasSSE := strings.Contains(accept, "text/event-stream")
 
-	return hasJSON && hasSSE
+	return hasJSON
 }
 
 // handleInitialize handles the initialize method.
@@ -327,7 +325,7 @@ func (s *Server) handleToolsCallMethod(c echo.Context, req JSONRPCRequest) error
 				fmt.Errorf("tool %s routing not implemented", params.Name))
 		}
 
-	case "skill_save", "skill_search":
+	case "skill_save", "skill_search", "skill_create":
 		wrappedReq := JSONRPCRequest{
 			JSONRPC: req.JSONRPC,
 			ID:      req.ID,
@@ -341,6 +339,9 @@ func (s *Server) handleToolsCallMethod(c echo.Context, req JSONRPCRequest) error
 			return s.handleSkillSave(c)
 		case "skill_search":
 			return s.handleSkillSearch(c)
+		case "skill_create":
+			// skill_create is an alias for skill_save
+			return s.handleSkillSave(c)
 		default:
 			return JSONRPCErrorWithContext(c, req.ID, InternalError,
 				fmt.Errorf("tool %s routing not implemented", params.Name))

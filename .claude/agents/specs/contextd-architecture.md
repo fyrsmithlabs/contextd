@@ -40,13 +40,11 @@ contextd/
 **Endpoints:**
 - `GET /health` - Health check
 - `POST /mcp` - MCP JSON-RPC 2.0 endpoint
-- `GET /mcp/sse` - SSE streaming (notifications, tool updates)
 
 **Why HTTP:**
 - Remote access for distributed teams
 - Multiple concurrent sessions
 - Standard protocol (firewall/proxy friendly)
-- SSE streaming for real-time updates
 
 ### Authentication
 

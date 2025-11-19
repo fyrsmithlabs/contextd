@@ -17,7 +17,7 @@
 ```bash
 curl -i -X POST http://localhost:9090/mcp \
   -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
+  -H "Accept: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,

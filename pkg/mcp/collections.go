@@ -19,8 +19,6 @@ import (
 //  4. Starts async worker to create collection
 //  5. Returns operation_id immediately
 //
-// The client can monitor progress via SSE streaming.
-//
 // Request format:
 //
 //	{
@@ -127,8 +125,6 @@ func (s *Server) doCollectionCreate(ctx context.Context, opID string, params str
 //  3. Creates NATS operation
 //  4. Starts async worker to delete collection
 //  5. Returns operation_id immediately
-//
-// The client can monitor progress via SSE streaming.
 //
 // Request format:
 //

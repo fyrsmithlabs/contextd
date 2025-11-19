@@ -157,7 +157,7 @@ func TestMCPServer_CollectionCreate(t *testing.T) {
 
 			registry := NewOperationRegistry(nc)
 			mockStore := newMockVectorStore()
-			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
+			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil, nil, nil, nil)
 			mcpServer.vectorStore = mockStore
 
 			// Register routes (includes auth middleware)
@@ -259,7 +259,7 @@ func TestMCPServer_CollectionDelete(t *testing.T) {
 			if tt.setupFunc != nil {
 				tt.setupFunc(mockStore)
 			}
-			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
+			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil, nil, nil, nil)
 			mcpServer.vectorStore = mockStore
 
 			// Register routes (includes auth middleware)
@@ -350,7 +350,7 @@ func TestMCPServer_CollectionList(t *testing.T) {
 			if tt.setupFunc != nil {
 				tt.setupFunc(mockStore)
 			}
-			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
+			mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil, nil, nil, nil)
 			mcpServer.vectorStore = mockStore
 
 			// Register routes (includes auth middleware)
@@ -389,7 +389,7 @@ func TestCollectionManagement_AsyncOperations(t *testing.T) {
 
 	registry := NewOperationRegistry(nc)
 	mockStore := newMockVectorStore()
-	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil)
+	mcpServer := NewServer(e, registry, nc, nil, nil, nil, nil, nil, nil, nil)
 	mcpServer.vectorStore = mockStore
 
 	// Register routes (includes auth middleware)

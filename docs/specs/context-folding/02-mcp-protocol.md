@@ -8,7 +8,7 @@
 
 Contextd exposes branch/fold operations via MCP tools over HTTP. Every tool returns branch state metadata to guide LLM decisions.
 
-**Transport**: HTTP (not SSE - SSE deprecated for MCP)
+**Transport**: HTTP
 **Base URL**: `http://localhost:9090/mcp`
 **Discovery**: `/mcp/tools/list` returns all available tools
 

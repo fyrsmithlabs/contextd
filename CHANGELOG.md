@@ -9,7 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Repository Indexing Service**: Implemented real repository indexing functionality
+  - Created `pkg/repository` package with full IndexRepository implementation
+  - File tree traversal with include/exclude pattern matching
+  - File size filtering (1MB default, 10MB maximum)
+  - Path traversal attack prevention and security validation
+  - Async operation tracking via NATS (follows checkpoint_save pattern)
+  - Integration with checkpoint service for searchable file indexing
+  - MCP adapter for loose coupling with MCP server
+  - Comprehensive test coverage (81.1%, exceeds 80% requirement)
+  - Replaces stubbed `index_repository` handler (Issue #9 partial completion)
+
 ### Fixed
+
+- **MCP Specification Accuracy**: Corrected SPEC.md to reflect actual implementation status
+  - Changed Status from "Complete" to "In Progress (~50% Complete)"
+  - Added comprehensive implementation status matrix showing 8/16 tools working
+  - Marked skills tools as "Stubbed" (pkg/skills/ is empty, returns placeholder data)
+  - Marked troubleshoot and analytics tools as "Missing" (services don't exist)
+  - Marked index_repository as "Stubbed" (returns fake operation_id)
+  - Marked status tool as "Wrong" (returns server health instead of operation status)
+  - Added warning: "NOT Production-Ready - Multiple tools incomplete or missing"
+  - Created IMPLEMENTATION-PLAN.md with 6-week remediation roadmap (3 sprints)
+  - Created GitHub issues: #6 (skills), #7 (troubleshoot), #8 (analytics), #9 (stubbed handlers), #10 (status tool), #11 (legacy endpoints)
+  - Resolves documentation divergence identified in MCP audit (2025-01-19)
 
 - **Qdrant Collection Auto-Creation**: Fixed missing Qdrant collection 'contextd' error on startup
   - Added `EnsureCollection()` method to vector store service (idempotent collection creation)
@@ -35,6 +60,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolves GitHub Issue #1
 
 ### Added
+
+- **golang-pro Skill Update**: Mandated integration tests for all service implementations
+  - Added comprehensive "Integration Tests (MANDATORY)" section to golang-pro skill
+  - Integration tests now required for all database-dependent services
+  - Example patterns for testing with real Qdrant instances
+  - \`testing.Short()\` guard for CI/CD skipping
+  - Full cycle testing (request → service → database → response)
+  - Integration tests tracked in GitHub Issue #12
+
+- **pkg/skills Package**: Complete skills management system for reusable workflow templates
+  - Full CRUD operations: `Save()`, `Search()`, `Create()`, `Get()` methods
+  - Semantic search via Qdrant vector embeddings for skill discovery
+  - Team-scoped storage in shared database (global knowledge sharing)
+  - Input validation: name (≤200 chars), description (≤2000 chars), content (≤50000 chars)
+  - Auto-generated UUID v4 IDs with "skill_" prefix
+  - Metadata handling: tags, timestamps (CreatedAt, UpdatedAt)
+  - Test coverage: 88.6% (exceeds 80% requirement)
+  - OpenTelemetry instrumentation for all operations
+  - Resolves GitHub Issue #6 (Implementation Plan Phase 1.1)
+
+- **pkg/troubleshoot Package**: AI-powered error diagnosis service
+  - Hybrid diagnosis combining pattern matching + AI hypothesis generation
+  - `Diagnose(errorMsg, context)` - Analyzes errors and provides root cause + recommendations
+  - `SavePattern()` - Stores known error patterns for team knowledge sharing
+  - `GetPatterns()` - Retrieves all stored patterns
+  - Semantic search for similar error patterns using vector embeddings
+  - High-confidence pattern match (>0.8) returns instant diagnosis (no AI call)
+  - Low-confidence falls back to OpenAI API for hypothesis generation
+  - Graceful degradation: pattern-only mode if AI unavailable
+  - Patterns stored in shared database (team-scoped knowledge)
+  - Test coverage: 85.8% (exceeds 80% requirement)
+  - OpenTelemetry instrumentation for all operations
+  - Resolves GitHub Issue #7 (Implementation Plan Phase 1.3)
+
+- **MCP Handler Integration**: Skills and troubleshoot services integrated with MCP protocol layer
+  - **skill_save** handler: Async operation (replaces "skill-placeholder")
+  - **skill_search** handler: Synchronous semantic search (replaces empty results)
+  - **skill_create** handler: Alias for skill_save via tools/call routing
+  - **troubleshoot** handler: Async AI-powered diagnosis with pattern matching
+  - **list_patterns** handler: List known error patterns
+  - All handlers follow MCP Streamable HTTP spec (2025-03-26)
+  - JSON-RPC 2.0 compliant error handling
+  - Tool count increased from 12 to 14 tools
+  - Services wired in `cmd/contextd/main.go` initialization
+  - Resolves GitHub Issue #9 (partial - skills and troubleshoot handlers complete)
 
 - **Authentication Middleware**: Owner-based authentication for all MCP endpoints
   - `OwnerAuthMiddleware()`: Echo middleware that derives owner ID from system username
@@ -156,10 +226,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Proper error responses with error codes
   - Request ID tracking for debugging
   - Schema validation for all tool parameters
-- **Server-Sent Events (SSE) streaming** for long-running operations
-  - Real-time progress updates during indexing
-  - Async operation status via SSE endpoint
-  - Client reconnection support
 - **NATS JetStream** for operation tracking and progress updates
   - Operation state persistence
   - Multi-subscriber support for monitoring
@@ -241,7 +307,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Embeddings: TEI/OpenAI compatibility, fallback to placeholder token
   - Logger: Structured logging with zap (production/development modes)
 - **All MCP routes registered and functional**:
-  - `POST /mcp/checkpoint/save` - Async checkpoint creation with SSE progress
+  - `POST /mcp/checkpoint/save` - Async checkpoint creation
   - `POST /mcp/checkpoint/search` - Semantic search with prefetch injection
   - `POST /mcp/checkpoint/list` - Recent checkpoints with pagination
   - `POST /mcp/remediation/save` - Error solution storage
@@ -250,7 +316,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `POST /mcp/skill/search` - Skill search (stub)
   - `POST /mcp/index/repository` - Repository indexing (stub)
   - `POST /mcp/status` - Health status check
-  - `GET /mcp/sse/:operation_id` - SSE streaming for async operations
 - **Test suite results**:
   - Unit tests: 100% pass rate across all packages
   - Test coverage: 67-100% (avg 84%, exceeds ≥80% requirement)
@@ -329,10 +394,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migration impact**: Configuration file required, old flags removed
 
 #### MCP Protocol (BREAKING)
-- **stdio transport → HTTP with SSE streaming**
+- **stdio transport → HTTP**
   - JSON-RPC 2.0 compliance (was: custom protocol)
   - Better error handling with structured error responses
-  - Real-time progress via Server-Sent Events
 - **Migration impact**: MCP client configuration must be updated
 
 #### Service Architecture (BREAKING)
@@ -607,7 +671,7 @@ See [docs/changelogs/README.md](docs/changelogs/README.md) for the complete arch
 
 ### Deprecated
 - **Unix socket transport**: Use HTTP server (port 8080)
-- **stdio MCP protocol**: Use HTTP transport with SSE
+- **stdio MCP protocol**: Use HTTP transport
 - **Command-line flag configuration**: Use `config.yaml` + environment variables
 
 ### Removed
@@ -620,7 +684,6 @@ See [docs/changelogs/README.md](docs/changelogs/README.md) for the complete arch
 - **Filter injection attacks** eliminated via project namespacing
 - **Race conditions in pre-fetch detector** with proper locking
 - **NATS error handling** in MCP server with graceful degradation
-- **SSE connection management** with proper cleanup and reconnection
 
 ### Security
 - **Multi-tenant isolation** enforced at database level

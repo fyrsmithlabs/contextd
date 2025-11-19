@@ -47,7 +47,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 					},
 				}),
 			},
-			acceptHeader:   "application/json, text/event-stream",
+			acceptHeader:   "application/json",
 			wantStatusCode: http.StatusOK,
 			wantSessionID:  true,
 			wantError:      false,
@@ -67,7 +67,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 					},
 				}),
 			},
-			acceptHeader:   "application/json, text/event-stream",
+			acceptHeader:   "application/json",
 			wantStatusCode: http.StatusOK,
 			wantSessionID:  true, // Still creates session, but may downgrade protocol
 			wantError:      false,
@@ -107,7 +107,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 					},
 				}),
 			},
-			acceptHeader:   "text/html", // Wrong, should include application/json AND text/event-stream
+			acceptHeader:   "text/html", // Wrong, should include application/json
 			wantStatusCode: http.StatusNotAcceptable,
 			wantSessionID:  false,
 			wantError:      true,
@@ -233,7 +233,7 @@ func TestHandleMCPRequest_ToolsList(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
+			req.Header.Set("Accept", "application/json")
 			if tt.sessionID != "" {
 				req.Header.Set("Mcp-Session-Id", tt.sessionID)
 			}
@@ -359,7 +359,7 @@ func TestHandleMCPRequest_ToolsCall(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
+			req.Header.Set("Accept", "application/json")
 			if tt.sessionID != "" {
 				req.Header.Set("Mcp-Session-Id", tt.sessionID)
 			}
@@ -426,7 +426,7 @@ func TestHandleMCPRequest_MethodNotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -589,28 +589,18 @@ func TestValidateAcceptHeader(t *testing.T) {
 		want   bool
 	}{
 		{
-			name:   "valid - both types present",
-			accept: "application/json, text/event-stream",
-			want:   true,
-		},
-		{
-			name:   "valid - reversed order",
-			accept: "text/event-stream, application/json",
+			name:   "valid - application/json present",
+			accept: "application/json",
 			want:   true,
 		},
 		{
 			name:   "valid - with additional types",
-			accept: "text/html, application/json, text/event-stream, */*",
+			accept: "text/html, application/json, */*",
 			want:   true,
 		},
 		{
 			name:   "invalid - missing application/json",
-			accept: "text/event-stream",
-			want:   false,
-		},
-		{
-			name:   "invalid - missing text/event-stream",
-			accept: "application/json",
+			accept: "text/html",
 			want:   false,
 		},
 		{
@@ -687,7 +677,7 @@ func TestHandleMCPRequest_Resources(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
+			req.Header.Set("Accept", "application/json")
 			if tt.sessionID != "" {
 				req.Header.Set("Mcp-Session-Id", tt.sessionID)
 			}

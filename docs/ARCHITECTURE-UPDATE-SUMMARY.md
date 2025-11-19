@@ -205,7 +205,6 @@ curl http://localhost:8080/health
 **Transport: Streamable HTTP**
 - **Endpoint**: Single `/mcp` for all operations
 - **Client → Server**: POST `/mcp` with JSON-RPC request
-- **Server → Client**: GET `/mcp` opens SSE stream for server messages
 - **Session Management**: `Mcp-Session-Id` header
 - **HTTP Version**: HTTP/1.1 or HTTP/2
 
@@ -228,11 +227,10 @@ curl http://localhost:8080/health
 
 ### Deprecated Protocol (2024-11-05)
 
-**Transport: HTTP+SSE (separate configs)**
-- SSE was a separate transport option (now deprecated)
+**Transport: HTTP (separate configs)**
 - Multiple endpoints instead of single `/mcp` endpoint
 
-**Migration**: Old HTTP+SSE → New Streamable HTTP (single endpoint, integrated SSE)
+**Migration**: Old HTTP with multiple endpoints → New Streamable HTTP (single endpoint)
 
 ---
 
@@ -409,7 +407,6 @@ e.POST("/mcp/remediation/search", s.handleRemediationSearch)
 ```go
 // Single /mcp endpoint with JSON-RPC method routing
 e.POST("/mcp", s.handleMCPRequest)
-e.GET("/mcp", s.handleMCPSSE)
 
 // JSON-RPC message routing:
 // {"jsonrpc": "2.0", "id": "1", "method": "tools/call", "params": {"name": "checkpoint_save", "arguments": {...}}}
@@ -489,7 +486,6 @@ grep -r "single.session\|single-session" --include="*.md" .
 - **JSON-RPC 2.0**: https://www.jsonrpc.org/specification
 
 ### Blog Posts & Explanations
-- **Why MCP Deprecated SSE**: https://blog.fka.dev/blog/2025-06-06-why-mcp-deprecated-sse-and-go-with-streamable-http/
 - **Claude Code MCP Docs**: https://code.claude.com/docs/en/mcp
 
 ### Project Documentation (Updated)
@@ -515,10 +511,9 @@ grep -r "single.session\|single-session" --include="*.md" .
 4. **Deprecation notices**: Checkpoints marked as outdated (not deleted) preserve history
 
 ### MCP Protocol Understanding
-1. **SSE confusion**: "SSE transport" (deprecated) ≠ "SSE for server→client messaging" (current)
-2. **Streamable HTTP**: Current transport name, supports HTTP/1.1 and HTTP/2
-3. **Single endpoint**: MCP spec requires one `/mcp` endpoint, not multiple REST endpoints
-4. **Protocol evolution**: 2024-11-05 (HTTP+SSE) → 2025-03-26 (Streamable HTTP)
+1. **Streamable HTTP**: Current transport name, supports HTTP/1.1 and HTTP/2
+2. **Single endpoint**: MCP spec requires one `/mcp` endpoint, not multiple REST endpoints
+3. **Protocol evolution**: 2024-11-05 (HTTP with multiple endpoints) → 2025-03-26 (Streamable HTTP with single endpoint)
 
 ### Process Improvements
 1. **TDD for skills**: RED-GREEN-REFACTOR cycle catches gaps in skill design

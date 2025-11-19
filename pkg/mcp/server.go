@@ -16,6 +16,9 @@ import (
 	"github.com/fyrsmithlabs/contextd/pkg/config"
 	"github.com/fyrsmithlabs/contextd/pkg/prefetch"
 	"github.com/fyrsmithlabs/contextd/pkg/remediation"
+	"github.com/fyrsmithlabs/contextd/pkg/skills"
+	"github.com/fyrsmithlabs/contextd/pkg/troubleshoot"
+
 	"github.com/fyrsmithlabs/contextd/pkg/vectorstore"
 )
 
@@ -33,8 +36,7 @@ type VectorStoreInterface interface {
 // Server implements MCP protocol over HTTP with Echo router.
 //
 // The server provides:
-//   - 9 MCP tool endpoints (checkpoint, remediation, skill, index, status)
-//   - SSE streaming for long-running operations
+//   - 11 MCP tool endpoints (checkpoint, remediation, skill, troubleshoot, index, status)
 //   - NATS-based operation tracking
 //   - JSON-RPC 2.0 protocol compliance
 //   - Pre-fetch engine integration (optional)
@@ -49,10 +51,13 @@ type Server struct {
 	nats       *nats.Conn
 
 	// Services
-	checkpointService  *checkpoint.Service
-	remediationService *remediation.Service
-	vectorStore        VectorStoreInterface
-	logger             *zap.Logger
+	checkpointService   *checkpoint.Service
+	remediationService  *remediation.Service
+	skillsService       *skills.Service
+	troubleshootService *troubleshoot.Service
+	repositoryService   RepositoryService
+	vectorStore         VectorStoreInterface
+	logger              *zap.Logger
 
 	// MCP protocol session management
 	sessionStore *SessionStore
@@ -66,10 +71,33 @@ type Server struct {
 	prefetchLogger    *zap.Logger
 }
 
+// RepositoryService defines the interface for repository indexing operations.
+//
+// This interface allows the MCP server to work with repository services
+// without directly depending on the repository package's concrete types.
+type RepositoryService interface {
+	IndexRepository(ctx context.Context, path string, opts RepositoryIndexOptions) (*RepositoryIndexResult, error)
+}
+
+// RepositoryIndexOptions defines options for repository indexing.
+type RepositoryIndexOptions struct {
+	IncludePatterns []string
+	ExcludePatterns []string
+	MaxFileSize     int64
+}
+
+// RepositoryIndexResult contains the results of repository indexing.
+type RepositoryIndexResult struct {
+	Path            string
+	FilesIndexed    int
+	IncludePatterns []string
+	ExcludePatterns []string
+	MaxFileSize     int64
+}
+
 // NewServer creates a new MCP server with Echo router and NATS connection.
 //
-// The server registers MCP endpoints under /mcp/* and SSE streaming
-// under /mcp/sse/:operation_id.
+// The server registers MCP endpoints under /mcp/*.
 //
 // Services can be nil if not needed (handlers will return appropriate errors).
 func NewServer(
@@ -78,6 +106,9 @@ func NewServer(
 	nc *nats.Conn,
 	checkpointSvc *checkpoint.Service,
 	remediationSvc *remediation.Service,
+	skillsSvc *skills.Service,
+	troubleshootSvc *troubleshoot.Service,
+	repositorySvc RepositoryService,
 	vectorStoreSvc VectorStoreInterface,
 	logger *zap.Logger,
 ) *Server {
@@ -85,15 +116,18 @@ func NewServer(
 		logger = zap.NewNop()
 	}
 	return &Server{
-		echo:               e,
-		operations:         operations,
-		nats:               nc,
-		checkpointService:  checkpointSvc,
-		remediationService: remediationSvc,
-		vectorStore:        vectorStoreSvc,
-		logger:             logger,
-		sessionStore:       NewSessionStore(),
-		prefetchLogger:     logger,
+		echo:                e,
+		operations:          operations,
+		nats:                nc,
+		checkpointService:   checkpointSvc,
+		remediationService:  remediationSvc,
+		skillsService:       skillsSvc,
+		troubleshootService: troubleshootSvc,
+		repositoryService:   repositorySvc,
+		vectorStore:         vectorStoreSvc,
+		logger:              logger,
+		sessionStore:        NewSessionStore(),
+		prefetchLogger:      logger,
 	}
 }
 
@@ -113,12 +147,13 @@ func NewServer(
 //   - POST /mcp/remediation/search
 //   - POST /mcp/skill/save
 //   - POST /mcp/skill/search
+//   - POST /mcp/troubleshoot
+//   - POST /mcp/list_patterns
 //   - POST /mcp/collection/create
 //   - POST /mcp/collection/delete
 //   - POST /mcp/collection/list
 //   - POST /mcp/index/repository
 //   - POST /mcp/status
-//   - GET  /mcp/sse/:operation_id
 //   - GET  /mcp/tools/list
 //   - GET  /mcp/resources/list
 //   - POST /mcp/resources/read
@@ -145,6 +180,12 @@ func (s *Server) RegisterRoutes() {
 	mcp.POST("/skill/save", s.handleSkillSave)
 	mcp.POST("/skill/search", s.handleSkillSearch)
 
+	// Troubleshoot endpoints (authenticated)
+	mcp.POST("/troubleshoot", s.handleTroubleshoot)
+	mcp.POST("/list_patterns", s.handleListPatterns)
+
+	// Troubleshoot endpoints (authenticated)
+
 	// Collection endpoints (authenticated)
 	mcp.POST("/collection/create", s.handleCollectionCreate)
 	mcp.POST("/collection/delete", s.handleCollectionDelete)
@@ -155,11 +196,6 @@ func (s *Server) RegisterRoutes() {
 
 	// Status endpoint (authenticated)
 	mcp.POST("/status", s.handleStatus)
-
-	// SSE streaming endpoint (authenticated)
-	mcp.GET("/sse/:operation_id", func(c echo.Context) error {
-		return HandleSSE(c, s.operations, s.nats)
-	})
 
 	// MCP protocol discovery endpoints (authenticated)
 	mcp.GET("/tools/list", s.handleToolsList)
@@ -174,8 +210,6 @@ func (s *Server) RegisterRoutes() {
 //  2. Creates NATS operation
 //  3. Starts async worker to save checkpoint
 //  4. Returns operation_id immediately
-//
-// The client can monitor progress via SSE streaming.
 func (s *Server) handleCheckpointSave(c echo.Context) error {
 	// Parse JSON-RPC request
 	var req JSONRPCRequest
@@ -469,32 +503,323 @@ func (s *Server) handleRemediationSearch(c echo.Context) error {
 	return JSONRPCSuccess(c, req.ID, response)
 }
 
+// handleSkillSave handles POST /mcp/skill/save.
+//
+// This is an async operation that saves a skill with automatic embedding generation.
 func (s *Server) handleSkillSave(c echo.Context) error {
-	return JSONRPCSuccess(c, "req-def", map[string]string{
-		"skill_id": "skill-placeholder",
-	})
-}
+	var req JSONRPCRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONRPCErrorWithContext(c, "", ParseError, err)
+	}
 
-func (s *Server) handleSkillSearch(c echo.Context) error {
-	return JSONRPCSuccess(c, "req-ghi", map[string]interface{}{
-		"results": []map[string]string{},
-	})
-}
+	var params struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Content     string   `json:"content"`
+		Tags        []string `json:"tags"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, err)
+	}
 
-func (s *Server) handleIndexRepository(c echo.Context) error {
-	// This would be a long-running operation like checkpoint_save
-	return JSONRPCSuccess(c, "req-jkl", map[string]string{
-		"operation_id": "op-index-placeholder",
+	// Validate required params
+	if params.Name == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("name is required"))
+	}
+	if params.Description == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("description is required"))
+	}
+	if params.Content == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("content is required"))
+	}
+
+	// Extract authenticated owner ID
+	ownerID, err := ExtractOwnerID(c)
+	if err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, AuthError, err)
+	}
+
+	// Create operation
+	ctx := context.WithValue(c.Request().Context(), ownerIDKey, ownerID)
+	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	opID := s.operations.Create(ctx, "skill_save", params)
+
+	// Start async worker
+	go s.doSkillSave(ctx, opID, params)
+
+	// Return operation_id immediately
+	return JSONRPCSuccess(c, req.ID, map[string]string{
+		"operation_id": opID,
 		"status":       "pending",
 	})
 }
 
-func (s *Server) handleStatus(c echo.Context) error {
-	return JSONRPCSuccess(c, "req-mno", map[string]interface{}{
-		"status":  "healthy",
-		"service": "contextd",
-		"version": "0.9.0-rc-1",
+// doSkillSave performs the actual skill save operation.
+func (s *Server) doSkillSave(ctx context.Context, opID string, params struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Content     string   `json:"content"`
+	Tags        []string `json:"tags"`
+}) {
+	if err := s.operations.Started(opID); err != nil {
+		_ = s.operations.Error(opID, InternalError, fmt.Errorf("failed to start: %w", err))
+		return
+	}
+
+	// Check service availability
+	if s.skillsService == nil {
+		_ = s.operations.Error(opID, InternalError, fmt.Errorf("skills service not available"))
+		return
+	}
+
+	// Create skill from params
+	skill := &skills.Skill{
+		Name:        params.Name,
+		Description: params.Description,
+		Content:     params.Content,
+		Tags:        params.Tags,
+	}
+
+	// Save via service
+	skillID, err := s.skillsService.Save(ctx, skill)
+	if err != nil {
+		_ = s.operations.Error(opID, InternalError, err)
+		return
+	}
+
+	// Complete
+	_ = s.operations.Complete(opID, map[string]interface{}{
+		"skill_id": skillID,
 	})
+}
+
+// handleSkillSearch handles POST /mcp/skill/search.
+//
+// This searches for skills semantically using the query.
+func (s *Server) handleSkillSearch(c echo.Context) error {
+	var req JSONRPCRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONRPCErrorWithContext(c, "", ParseError, err)
+	}
+
+	var params struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, err)
+	}
+
+	// Validate params
+	if params.Query == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("query is required"))
+	}
+
+	// Check service availability
+	if s.skillsService == nil {
+		return JSONRPCErrorWithContext(c, req.ID, InternalError, fmt.Errorf("skills service not available"))
+	}
+
+	if params.Limit == 0 {
+		params.Limit = 10
+	}
+
+	// Search via service
+	ctx := c.Request().Context()
+	results, err := s.skillsService.Search(ctx, params.Query, params.Limit)
+	if err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InternalError, err)
+	}
+
+	return JSONRPCSuccess(c, req.ID, map[string]interface{}{
+		"skills": results,
+	})
+}
+
+// handleIndexRepository handles POST /mcp/index/repository - indexes a repository.
+//
+// This is a long-running operation that:
+//  1. Validates request parameters
+//  2. Creates NATS operation
+//  3. Starts async worker to index repository
+//  4. Returns operation_id immediately
+func (s *Server) handleIndexRepository(c echo.Context) error {
+	// Parse JSON-RPC request
+	var req JSONRPCRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONRPCErrorWithContext(c, "", ParseError, err)
+	}
+
+	// Parse tool-specific params
+	var params struct {
+		Path            string   `json:"path"`
+		IncludePatterns []string `json:"include_patterns"`
+		ExcludePatterns []string `json:"exclude_patterns"`
+		MaxFileSize     int64    `json:"max_file_size"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, err)
+	}
+
+	// Validate params
+	if params.Path == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("path is required"))
+	}
+
+	// Set defaults
+	if params.MaxFileSize == 0 {
+		params.MaxFileSize = 1024 * 1024 // 1MB default
+	}
+
+	// Extract authenticated owner ID
+	ownerID, err := ExtractOwnerID(c)
+	if err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, AuthError, err)
+	}
+
+	// Create operation
+	ctx := context.WithValue(c.Request().Context(), ownerIDKey, ownerID)
+	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	opID := s.operations.Create(ctx, "index_repository", params)
+
+	// Start async worker
+	go s.doIndexRepository(ctx, opID, params)
+
+	// Return operation_id immediately
+	return JSONRPCSuccess(c, req.ID, map[string]string{
+		"operation_id": opID,
+		"status":       "pending",
+	})
+}
+
+// doIndexRepository performs the actual repository indexing operation.
+func (s *Server) doIndexRepository(ctx context.Context, opID string, params struct {
+	Path            string   `json:"path"`
+	IncludePatterns []string `json:"include_patterns"`
+	ExcludePatterns []string `json:"exclude_patterns"`
+	MaxFileSize     int64    `json:"max_file_size"`
+}) {
+	if err := s.operations.Started(opID); err != nil {
+		_ = s.operations.Error(opID, InternalError, fmt.Errorf("failed to start: %w", err))
+		return
+	}
+
+	// Check service availability
+	if s.repositoryService == nil {
+		_ = s.operations.Error(opID, InternalError, fmt.Errorf("repository service not available"))
+		return
+	}
+
+	// Create options
+	opts := RepositoryIndexOptions{
+		IncludePatterns: params.IncludePatterns,
+		ExcludePatterns: params.ExcludePatterns,
+		MaxFileSize:     params.MaxFileSize,
+	}
+
+	// Index repository via service
+	result, err := s.repositoryService.IndexRepository(ctx, params.Path, opts)
+	if err != nil {
+		_ = s.operations.Error(opID, InternalError, err)
+		return
+	}
+
+	// Complete
+	_ = s.operations.Complete(opID, map[string]interface{}{
+		"path":             result.Path,
+		"files_indexed":    result.FilesIndexed,
+		"include_patterns": result.IncludePatterns,
+		"exclude_patterns": result.ExcludePatterns,
+		"max_file_size":    result.MaxFileSize,
+	})
+}
+
+// handleStatus handles POST /mcp/status - queries operation status.
+//
+// This endpoint queries the status of an asynchronous operation by its ID.
+// Operations are created by tools like checkpoint_save, skill_save, etc.
+//
+// Request:
+//
+//	{
+//	  "jsonrpc": "2.0",
+//	  "id": "req-123",
+//	  "method": "status",
+//	  "params": {
+//	    "operation_id": "op-uuid"
+//	  }
+//	}
+//
+// Response (success):
+//
+//	{
+//	  "jsonrpc": "2.0",
+//	  "id": "req-123",
+//	  "result": {
+//	    "operation_id": "op-uuid",
+//	    "status": "completed",
+//	    "result": {...},
+//	    "created_at": "2025-11-19T...",
+//	    "updated_at": "2025-11-19T..."
+//	  }
+//	}
+//
+// Response (error):
+//
+//	{
+//	  "jsonrpc": "2.0",
+//	  "id": "req-123",
+//	  "error": {
+//	    "code": -32602,
+//	    "message": "operation not found: op-uuid"
+//	  }
+//	}
+func (s *Server) handleStatus(c echo.Context) error {
+	// Parse JSON-RPC request
+	var req JSONRPCRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONRPCErrorWithContext(c, "", ParseError, err)
+	}
+
+	// Parse tool-specific params
+	var params StatusRequest
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, err)
+	}
+
+	// Validate params
+	if params.OperationID == "" {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams, fmt.Errorf("operation_id is required"))
+	}
+
+	// Query operation store
+	op, err := s.operations.Get(params.OperationID)
+	if err != nil {
+		return JSONRPCErrorWithContext(c, req.ID, InvalidParams,
+			fmt.Errorf("operation not found: %s", params.OperationID))
+	}
+
+	// Build response
+	response := StatusResponse{
+		OperationID: op.ID,
+		Status:      op.Status,
+		CreatedAt:   op.CreatedAt,
+		UpdatedAt:   op.UpdatedAt,
+	}
+
+	// Add result if completed
+	if op.Result != nil {
+		if resultMap, ok := op.Result.(map[string]interface{}); ok {
+			response.Result = resultMap
+		}
+	}
+
+	// Add error if failed
+	if op.Error != nil {
+		response.Error = op.Error.Message
+	}
+
+	return JSONRPCSuccess(c, req.ID, response)
 }
 
 // InitializePrefetch initializes the pre-fetch engine support.

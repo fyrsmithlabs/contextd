@@ -15,7 +15,6 @@ contextd 0.9.0-rc-1 is a complete architectural rebuild focused on context optim
 **Major Changes**:
 - ✅ HTTP server with Echo router (replaces Unix socket)
 - ✅ JSON-RPC 2.0 protocol compliance
-- ✅ Server-Sent Events (SSE) streaming for long operations
 - ✅ YAML-based configuration (replaces command-line flags)
 - ✅ Modular service architecture (checkpoint, remediation, prefetch)
 - ✅ Pre-fetch engine (20-30% token savings)
@@ -26,7 +25,7 @@ contextd 0.9.0-rc-1 is a complete architectural rebuild focused on context optim
 **Breaking Changes**:
 1. **Transport**: Unix socket → HTTP server on port 8080
 2. **Configuration**: Command-line flags → config.yaml + environment variables
-3. **MCP Protocol**: stdio transport → HTTP with SSE streaming
+3. **MCP Protocol**: stdio transport → HTTP
 4. **Service Architecture**: Monolithic → Modular services
 
 **Compatibility**:
@@ -56,9 +55,8 @@ contextd 0.9.0-rc-1 is a complete architectural rebuild focused on context optim
 - Health check endpoints
 - Structured logging with zap
 
-**HTTP/SSE Protocol** (NEW):
+**HTTP Protocol** (NEW):
 - JSON-RPC 2.0 compliance
-- Server-Sent Events for progress updates
 - NATS JetStream for async operation tracking
 - Better error handling and debugging
 
@@ -137,7 +135,7 @@ prefetch:
 }
 ```
 
-**0.9.0-rc-1 MCP Transport** (HTTP with SSE):
+**0.9.0-rc-1 MCP Transport** (HTTP):
 ```json
 {
   "mcpServers": {
@@ -153,7 +151,6 @@ prefetch:
 
 **Migration Impact**:
 - Claude Code MCP configuration must be updated
-- SSE streaming provides real-time progress for long operations
 - JSON-RPC 2.0 error responses (better error handling)
 
 ---

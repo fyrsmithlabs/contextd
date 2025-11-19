@@ -105,7 +105,7 @@ docker-compose restart
 ### 0.9.0-rc-1 New Features
 - **Pre-Fetch Engine** - Automatic context loading on git events (20-30% token savings)
 - **Secret Scrubbing** - 5-layer defense with Gitleaks integration (800+ patterns)
-- **HTTP/SSE Protocol** - JSON-RPC 2.0 with Server-Sent Events streaming
+- **HTTP Protocol** - JSON-RPC 2.0 over HTTP
 - **OpenTelemetry Observability** - Distributed tracing and Prometheus metrics
 - **Modular Services** - Checkpoint, remediation, and prefetch services
 - **YAML Configuration** - Clean, hierarchical configuration with environment overrides
@@ -300,11 +300,10 @@ Automatically loads context when you switch git branches or make commits, reduci
 4. Retrieval scrubbing (responses)
 5. Claude Code hook integration
 
-### HTTP/SSE Protocol
-Modern JSON-RPC 2.0 protocol with real-time streaming.
+### HTTP Protocol
+Modern JSON-RPC 2.0 protocol over HTTP.
 
 **Features**:
-- Server-Sent Events (SSE) for long-running operations
 - NATS JetStream for async operation tracking
 - Better error handling and debugging
 - Health check endpoints
@@ -349,7 +348,7 @@ contextd 0.9.0-rc-1 uses a modular, layered architecture optimized for context e
 ┌─────────────────────────────────────────────────────────┐
 │                    Claude Code (MCP Client)             │
 └────────────────────┬────────────────────────────────────┘
-                     │ HTTP + SSE
+                     │ HTTP
                      ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  HTTP Server (Echo Router)              │
@@ -523,7 +522,6 @@ See [MONITORING-SETUP.md](docs/MONITORING-SETUP.md) for complete setup.
 - ✅ OpenTelemetry observability (traces + metrics)
 - ✅ Modular service architecture
 - ✅ YAML configuration system
-- ✅ SSE streaming for long operations
 - ✅ Comprehensive test coverage (≥80%)
 
 ### v3.1 (Q1 2025)

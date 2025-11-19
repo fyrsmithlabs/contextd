@@ -222,7 +222,6 @@ Public (no auth for MVP):
   GET  /ready           - Readiness probe
 
   POST /mcp             - MCP JSON-RPC endpoint (single endpoint per spec 2025-03-26)
-  GET  /mcp             - MCP SSE streaming endpoint
 
   GET    /api/v1/checkpoints        - List checkpoints
   POST   /api/v1/checkpoints        - Create checkpoint

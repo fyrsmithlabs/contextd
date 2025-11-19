@@ -1,4 +1,4 @@
-// Contextd is a context daemon for Claude Code with HTTP/SSE transport.
+// Contextd is a context daemon for Claude Code with HTTP transport.
 //
 // This binary starts the contextd HTTP server with full service initialization,
 // including NATS, Qdrant, embeddings, and MCP endpoints.
@@ -34,7 +34,10 @@ import (
 	"github.com/fyrsmithlabs/contextd/pkg/embeddings"
 	"github.com/fyrsmithlabs/contextd/pkg/mcp"
 	"github.com/fyrsmithlabs/contextd/pkg/remediation"
+	"github.com/fyrsmithlabs/contextd/pkg/repository"
 	"github.com/fyrsmithlabs/contextd/pkg/server"
+	"github.com/fyrsmithlabs/contextd/pkg/skills"
+	"github.com/fyrsmithlabs/contextd/pkg/troubleshoot"
 	"github.com/fyrsmithlabs/contextd/pkg/vectorstore"
 )
 
@@ -102,7 +105,7 @@ func printVersion() {
 //  2. Initializes logger and telemetry
 //  3. Connects to infrastructure (NATS, Qdrant)
 //  4. Creates embedding service
-//  5. Initializes business services (Checkpoint, Remediation)
+//  5. Initializes business services (Checkpoint, Remediation, Skills)
 //  6. Wires MCP server with all services
 //  7. Starts HTTP server
 //  8. Performs graceful shutdown on context cancellation
@@ -150,10 +153,15 @@ func run(ctx context.Context) error {
 
 	logger.Info("Services initialized",
 		zap.Bool("checkpoint_service", services.checkpointSvc != nil),
-		zap.Bool("remediation_service", services.remediationSvc != nil))
+		zap.Bool("remediation_service", services.remediationSvc != nil),
+		zap.Bool("skills_service", services.skillsSvc != nil),
+		zap.Bool("repository_service", services.repositorySvc != nil))
 
 	// Create HTTP server
 	srv := server.NewServer(cfg)
+
+	// Create MCP adapter for repository service
+	repositoryAdapter := repository.NewMCPAdapter(services.repositorySvc)
 
 	// Create MCP server and register routes
 	mcpServer := mcp.NewServer(
@@ -162,6 +170,9 @@ func run(ctx context.Context) error {
 		deps.natsConn,
 		services.checkpointSvc,
 		services.remediationSvc,
+		services.skillsSvc,
+		services.troubleshootSvc,
+		repositoryAdapter,
 		deps.vectorStore,
 		logger,
 	)
@@ -211,8 +222,11 @@ func (d *dependencies) Close() {
 
 // services holds all business services.
 type services struct {
-	checkpointSvc  *checkpoint.Service
-	remediationSvc *remediation.Service
+	checkpointSvc   *checkpoint.Service
+	remediationSvc  *remediation.Service
+	skillsSvc       *skills.Service
+	troubleshootSvc *troubleshoot.Service
+	repositorySvc   *repository.Service
 }
 
 // initLogger initializes the structured logger.
@@ -308,7 +322,7 @@ func initDependencies(ctx context.Context, cfg *config.Config, logger *zap.Logge
 
 // initServices initializes all business services.
 //
-// This function creates checkpoint and remediation services
+// This function creates checkpoint, remediation, and skills services
 // with the initialized vector store.
 func initServices(deps *dependencies, logger *zap.Logger) (*services, error) {
 	// Create checkpoint service
@@ -317,9 +331,21 @@ func initServices(deps *dependencies, logger *zap.Logger) (*services, error) {
 	// Create remediation service
 	remediationSvc := remediation.NewService(deps.vectorStore, logger)
 
+	// Create troubleshoot service (nil AI client = pattern-only mode)
+	troubleshootSvc := troubleshoot.NewService(deps.vectorStore, logger, nil)
+
+	// Create skills service
+	skillsSvc := skills.NewService(deps.vectorStore)
+
+	// Create repository service (uses checkpoint service for indexing)
+	repositorySvc := repository.NewService(checkpointSvc)
+
 	return &services{
-		checkpointSvc:  checkpointSvc,
-		remediationSvc: remediationSvc,
+		checkpointSvc:   checkpointSvc,
+		remediationSvc:  remediationSvc,
+		skillsSvc:       skillsSvc,
+		troubleshootSvc: troubleshootSvc,
+		repositorySvc:   repositorySvc,
 	}, nil
 }
 

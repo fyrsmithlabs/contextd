@@ -63,7 +63,7 @@ Contextd provides strong foundation:
 - Secret scrubbing with Gitleaks (exact redaction format we need)
 - Multi-tenant architecture (database-per-project isolation)
 - Pre-fetch engine (ready for LLM control)
-- MCP infrastructure (12 tools, HTTP transport, SSE streaming)
+- MCP infrastructure (12 tools, HTTP transport)
 - Observability (OTLP, Prometheus, distributed tracing)
 
 **❌ To Build** (context-folding features):
@@ -127,7 +127,7 @@ Contextd provides strong foundation:
 - NATS state tracking
 - Two-tier storage
 - Basic token counting
-- HTTP transport (not SSE for MCP)
+- HTTP transport
 
 ---
 

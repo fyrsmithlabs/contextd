@@ -12,7 +12,7 @@ This document describes the architectural design of contextd's MCP integration.
 ┌─────────────────────────────────────────────────────────┐
 │                    Claude Code (Client)                  │
 └─────────────────┬───────────────────────────────────────┘
-                  │ HTTP/SSE (JSON-RPC 2.0)
+                  │ HTTP (JSON-RPC 2.0)
                   │ POST/GET /mcp
 ┌─────────────────▼───────────────────────────────────────┐
 │                    MCP Server (pkg/mcp)                  │
@@ -45,11 +45,11 @@ This document describes the architectural design of contextd's MCP integration.
 
 ## Transport Layer
 
-### HTTP/SSE Transport
+### HTTP Transport
 
 **MCP Streamable HTTP** (specification version 2025-03-26):
 
-- **Protocol**: HTTP/1.1 with Server-Sent Events (SSE)
+- **Protocol**: HTTP/1.1
 - **Endpoint**: POST/GET `/mcp` (single endpoint for all MCP operations)
 - **Format**: JSON-RPC 2.0
 - **Port**: 8080 (configurable via CONTEXTD_HTTP_PORT)
@@ -411,7 +411,7 @@ const (
 ## Summary
 
 **Key Architectural Decisions**:
-- ✅ HTTP/SSE transport for remote access and multi-session support
+- ✅ HTTP transport for remote access and multi-session support
 - ✅ Single `/mcp` endpoint for all JSON-RPC operations (MCP spec 2025-03-26)
 - ✅ Adapter pattern to bridge contextd services and MCP protocol
 - ✅ Per-connection, per-tool rate limiting for abuse prevention

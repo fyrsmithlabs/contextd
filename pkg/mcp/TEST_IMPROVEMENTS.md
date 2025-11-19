@@ -37,11 +37,9 @@ Table-driven test covering:
 
 #### `TestValidateAcceptHeader`
 Table-driven test covering:
-- Valid: Both application/json and text/event-stream present
-- Valid: Reversed order
+- Valid: application/json present
 - Valid: With additional media types
 - Invalid: Missing application/json
-- Invalid: Missing text/event-stream
 - Invalid: Empty header
 - Invalid: Wrong media types
 

@@ -31,7 +31,7 @@ This document describes the current implementation status and future refactoring
 **Core Features**:
 - ✅ MCP Streamable HTTP transport (spec 2025-03-26)
 - ✅ JSON-RPC 2.0 message format
-- ✅ HTTP/SSE transport on port 8080
+- ✅ HTTP transport on port 8080
 - ✅ Session management via `Mcp-Session-Id` header
 - ✅ Input validation with JSON schemas
 - ✅ Type conversion (map[string]interface{} ↔ map[string]string)
@@ -126,7 +126,7 @@ This document describes the current implementation status and future refactoring
 **MCP Spec 2025-03-26 Compliance**:
 - ✅ Single `/mcp` endpoint for all operations
 - ✅ JSON-RPC 2.0 message format
-- ✅ HTTP/SSE transport
+- ✅ HTTP transport
 - ✅ Session management via header
 - ✅ Tool discovery with schemas
 - ✅ Error handling via JSON-RPC errors
@@ -172,11 +172,6 @@ This document describes the current implementation status and future refactoring
 - Database connection pooling
 
 ### Phase 3: Advanced Features
-
-**Streaming Responses**:
-- Use SSE for long-running operations
-- Stream troubleshooting hypotheses as generated
-- Stream indexing progress
 
 **Multi-Tenancy Enhancements**:
 - Team-level isolation
@@ -255,7 +250,6 @@ This document describes the current implementation status and future refactoring
 - 🔄 Add TLS support via reverse proxy
 - 🔄 Implement advanced rate limiting
 - 🔄 Add caching and batching optimizations
-- 🔄 Implement streaming responses via SSE
 - 🔄 Deprecate legacy REST endpoints
 
 **Production Readiness**:

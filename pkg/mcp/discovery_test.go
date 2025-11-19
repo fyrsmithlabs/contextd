@@ -25,7 +25,7 @@ func TestHandleToolsList(t *testing.T) {
 	}{
 		{
 			name:          "returns all available tools",
-			wantToolCount: 12, // checkpoint(3) + remediation(2) + skill(2) + index(1) + status(1) + collection(3)
+			wantToolCount: 14, // checkpoint(3) + remediation(2) + skill(2) + troubleshoot(2) + index(1) + status(1) + collection(3)
 			wantToolNames: []string{
 				"checkpoint_save",
 				"checkpoint_search",
@@ -39,6 +39,8 @@ func TestHandleToolsList(t *testing.T) {
 				"collection_create",
 				"collection_delete",
 				"collection_list",
+				"troubleshoot",
+				"list_patterns",
 			},
 			checkFirstTool: true,
 		},
