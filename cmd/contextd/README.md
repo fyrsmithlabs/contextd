@@ -2,13 +2,13 @@
 
 **Status**: Production ready
 
-The contextd server with HTTP/SSE transport.
+The contextd server with HTTP transport.
 
 See [../../docs/specs/v3-rebuild/SPEC.md](../../docs/specs/v3-rebuild/SPEC.md) for complete specification.
 
 ## Architecture
 
-- HTTP/SSE transport (no stdio)
+- HTTP transport (no stdio)
 - MCP over HTTP endpoints
 - Owner-scoped multi-tenancy
 - langchaingo abstractions

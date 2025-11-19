@@ -155,7 +155,7 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 ### HTTP Server vs Unix Socket
 - **Chosen**: HTTP server on configurable port
 - **Why**: Remote access for distributed teams, standard protocol, multiple sessions
-- **Result**: Standard HTTP/1.1 transport, SSE streaming, reverse proxy compatible
+- **Result**: Standard HTTP/1.1 transport, reverse proxy compatible
 - **MVP Decision**: No auth (trusted network), add auth post-MVP for production
 
 ### Authentication Strategy

@@ -72,12 +72,14 @@ func (s *SessionStore) Delete(sessionID string) {
 // negotiateProtocolVersion negotiates the protocol version between client and server.
 //
 // Currently supports:
-//   - 2024-11-05 (MCP Streamable HTTP spec)
+//   - 2025-03-26 (MCP Streamable HTTP spec - current)
+//   - 2024-11-05 (MCP Streamable HTTP spec - deprecated, backward compatibility)
 //
-// Defaults to 2024-11-05 if client requests unsupported version.
+// Defaults to 2025-03-26 if client requests unsupported version.
 func negotiateProtocolVersion(requested string) string {
 	supportedVersions := []string{
-		"2024-11-05",
+		"2025-03-26", // Current spec
+		"2024-11-05", // Deprecated, backward compatibility
 	}
 
 	for _, supported := range supportedVersions {
@@ -87,7 +89,7 @@ func negotiateProtocolVersion(requested string) string {
 	}
 
 	// Default to latest supported version
-	return "2024-11-05"
+	return "2025-03-26"
 }
 
 // handleMCPRequest handles POST /mcp with JSON-RPC 2.0 method routing.

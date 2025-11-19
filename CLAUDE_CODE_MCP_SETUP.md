@@ -97,7 +97,7 @@ Claude should be able to call the tool and return results.
 4. Server validates session before processing tools/list, tools/call
 
 **Headers Required**:
-- `Accept: application/json, text/event-stream`
+- `Accept: application/json`
 - `Content-Type: application/json`
 - `Mcp-Session-Id: <uuid>` (after initialize)
 
@@ -106,7 +106,7 @@ Claude should be able to call the tool and return results.
 ```bash
 curl -X POST http://localhost:9090/mcp \
   -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
+  -H "Accept: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
@@ -181,7 +181,7 @@ curl -X POST http://localhost:9090/mcp \
 
 ### Accept Header Validation Failed
 
-**Problem**: "Not Acceptable: Client must accept both application/json and text/event-stream"
+**Problem**: "Not Acceptable: Client must accept application/json"
 
 **Cause**: Client not sending correct Accept header
 
@@ -217,14 +217,14 @@ SESSION_ID="<uuid-from-initialize>"
 # List tools
 curl -X POST http://localhost:9090/mcp \
   -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
+  -H "Accept: application/json" \
   -H "Mcp-Session-Id: $SESSION_ID" \
   -d '{"jsonrpc":"2.0","id":"1","method":"tools/list","params":{}}'
 
 # Call status tool
 curl -X POST http://localhost:9090/mcp \
   -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
+  -H "Accept: application/json" \
   -H "Mcp-Session-Id: $SESSION_ID" \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"status","arguments":{}}}'
 ```

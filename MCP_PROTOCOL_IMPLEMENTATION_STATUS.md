@@ -153,12 +153,11 @@ $ go test ./pkg/mcp -coverprofile=coverage.out
 - Resources/list method handler (not yet implemented)
 - Resources/read method handler (not yet implemented)
 - Tools/call routing for remaining tools (checkpoint, remediation, skills, etc.)
-- SSE streaming endpoint (GET /mcp, not yet implemented)
 - Session cleanup/expiration (not yet implemented)
 
 **Target**: ≥80%
 
-**Status**: ⚠️ **69.3%** - Below target due to unimplemented features (resources/*, SSE, remaining tools)
+**Status**: ⚠️ **69.3%** - Below target due to unimplemented features (resources/*, remaining tools)
 **Note**: Core implemented functionality has comprehensive test coverage
 
 ---
@@ -258,12 +257,7 @@ $ go test ./pkg/mcp -coverprofile=coverage.out
    - Index tool
    - Collection tools
 
-5. **Add SSE streaming support** (1-2 hours):
-   - `GET /mcp` endpoint for SSE
-   - Session-based streaming
-   - Progress updates
-
-6. **Add DELETE /mcp for session cleanup** (30 min):
+5. **Add DELETE /mcp for session cleanup** (30 min):
    - Session termination endpoint
    - Resource cleanup
 
@@ -321,7 +315,7 @@ $ curl -X POST http://localhost:9090/mcp ...
 **Request**:
 ```bash
 POST /mcp
-Accept: application/json, text/event-stream
+Accept: application/json
 Content-Type: application/json
 
 {"jsonrpc":"2.0","id":"test-1","method":"initialize","params":{"protocolVersion":"2024-11-05",...}}
@@ -348,7 +342,7 @@ Mcp-Protocol-Version: 2024-11-05
 ```bash
 POST /mcp
 Mcp-Session-Id: 73267cc4-be85-4214-a569-d108663dc560
-Accept: application/json, text/event-stream
+Accept: application/json
 
 {"jsonrpc":"2.0","id":"test-2","method":"tools/list","params":{}}
 ```
@@ -402,7 +396,7 @@ POST /mcp
 ```
 HTTP/1.1 406 Not Acceptable
 
-{"jsonrpc":"2.0","id":"","error":{"code":-32000,"message":"Not Acceptable: Client must accept both application/json and text/event-stream","data":{"accept_header":"*/*","required":"application/json, text/event-stream"}}}
+{"jsonrpc":"2.0","id":"","error":{"code":-32000,"message":"Not Acceptable: Client must accept application/json","data":{"accept_header":"*/*","required":"application/json"}}}
 ```
 
 **Status**: ✅ **PASS**

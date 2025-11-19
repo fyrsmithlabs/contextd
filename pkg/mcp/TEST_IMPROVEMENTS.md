@@ -30,8 +30,8 @@ Updated the MCP protocol test suite to add comprehensive tests for session manag
 
 #### `TestNegotiateProtocolVersion`
 Table-driven test covering:
-- Supported version (2024-11-05) → returns as-is
-- Unsupported version → defaults to latest (2024-11-05)
+- Supported version (2025-03-26) → returns as-is
+- Unsupported version → defaults to latest (2025-03-26)
 - Empty version → defaults to latest
 - Invalid format → defaults to latest
 

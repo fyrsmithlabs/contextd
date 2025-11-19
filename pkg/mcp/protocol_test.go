@@ -39,7 +39,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 				ID:      "1",
 				Method:  "initialize",
 				Params: mustMarshal(InitializeParams{
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					Capabilities:    map[string]interface{}{},
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
@@ -79,7 +79,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 				ID:      "3",
 				Method:  "initialize",
 				Params: mustMarshal(InitializeParams{
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					Capabilities:    map[string]interface{}{},
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
@@ -99,7 +99,7 @@ func TestHandleMCPRequest_Initialize(t *testing.T) {
 				ID:      "4",
 				Method:  "initialize",
 				Params: mustMarshal(InitializeParams{
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					Capabilities:    map[string]interface{}{},
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
@@ -256,7 +256,7 @@ func TestHandleMCPRequest_ToolsList(t *testing.T) {
 				session := &Session{
 					ID:              tt.sessionID,
 					OwnerID:         ownerID,
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
 						Version: "1.0.0",
@@ -382,7 +382,7 @@ func TestHandleMCPRequest_ToolsCall(t *testing.T) {
 				session := &Session{
 					ID:              tt.sessionID,
 					OwnerID:         ownerID,
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
 						Version: "1.0.0",
@@ -457,7 +457,7 @@ func TestSessionStore_Create(t *testing.T) {
 	store := NewSessionStore()
 	ownerID := "test-owner-123"
 	params := InitializeParams{
-		ProtocolVersion: "2024-11-05",
+		ProtocolVersion: "2025-03-26",
 		Capabilities:    map[string]interface{}{},
 		ClientInfo: ClientInfo{
 			Name:    "test-client",
@@ -471,7 +471,7 @@ func TestSessionStore_Create(t *testing.T) {
 	assert.NotEmpty(t, session.ID, "Session ID should be generated")
 	assert.Len(t, session.ID, 36, "Session ID should be a UUID")
 	assert.Equal(t, ownerID, session.OwnerID)
-	assert.Equal(t, "2024-11-05", session.ProtocolVersion)
+	assert.Equal(t, "2025-03-26", session.ProtocolVersion)
 	assert.Equal(t, params.ClientInfo, session.ClientInfo)
 	assert.False(t, session.CreatedAt.IsZero())
 	assert.False(t, session.LastAccessedAt.IsZero())
@@ -488,7 +488,7 @@ func TestSessionStore_Get(t *testing.T) {
 	store := NewSessionStore()
 	ownerID := "test-owner-456"
 	params := InitializeParams{
-		ProtocolVersion: "2024-11-05",
+		ProtocolVersion: "2025-03-26",
 		Capabilities:    map[string]interface{}{},
 		ClientInfo: ClientInfo{
 			Name:    "test-client",
@@ -521,7 +521,7 @@ func TestSessionStore_Delete(t *testing.T) {
 	store := NewSessionStore()
 	ownerID := "test-owner-789"
 	params := InitializeParams{
-		ProtocolVersion: "2024-11-05",
+		ProtocolVersion: "2025-03-26",
 		Capabilities:    map[string]interface{}{},
 		ClientInfo: ClientInfo{
 			Name:    "test-client",
@@ -553,23 +553,23 @@ func TestNegotiateProtocolVersion(t *testing.T) {
 	}{
 		{
 			name:      "supported version",
-			requested: "2024-11-05",
-			want:      "2024-11-05",
+			requested: "2025-03-26",
+			want:      "2025-03-26",
 		},
 		{
 			name:      "unsupported version - defaults to latest",
 			requested: "2025-01-01",
-			want:      "2024-11-05",
+			want:      "2025-03-26",
 		},
 		{
 			name:      "empty version - defaults to latest",
 			requested: "",
-			want:      "2024-11-05",
+			want:      "2025-03-26",
 		},
 		{
 			name:      "invalid format - defaults to latest",
 			requested: "invalid-version",
-			want:      "2024-11-05",
+			want:      "2025-03-26",
 		},
 	}
 
@@ -700,7 +700,7 @@ func TestHandleMCPRequest_Resources(t *testing.T) {
 				session := &Session{
 					ID:              tt.sessionID,
 					OwnerID:         ownerID,
-					ProtocolVersion: "2024-11-05",
+					ProtocolVersion: "2025-03-26",
 					ClientInfo: ClientInfo{
 						Name:    "test-client",
 						Version: "1.0.0",
@@ -743,7 +743,7 @@ func TestHandleMCPRequest_Concurrency(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			params := InitializeParams{
-				ProtocolVersion: "2024-11-05",
+				ProtocolVersion: "2025-03-26",
 				Capabilities:    map[string]interface{}{},
 				ClientInfo: ClientInfo{
 					Name:    fmt.Sprintf("client-%d", index),

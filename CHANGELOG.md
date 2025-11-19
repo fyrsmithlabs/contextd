@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive test coverage (81.1%, exceeds 80% requirement)
   - Replaces stubbed `index_repository` handler (Issue #9 partial completion)
 
+### Changed
+
+- **MCP Protocol Version**: Updated to MCP spec 2025-03-26 (from 2024-11-05)
+  - Updated protocol version negotiation to default to 2025-03-26
+  - Maintained backward compatibility with 2024-11-05 for legacy clients
+  - Updated all test cases to use current spec version
+  - Aligns with official MCP Streamable HTTP specification
+
 ### Fixed
 
 - **MCP Specification Accuracy**: Corrected SPEC.md to reflect actual implementation status
@@ -160,6 +168,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validates collection names and vector sizes before operations
 
 ### Removed
+
+- **BREAKING**: Server-Sent Events (SSE) support completely removed
+  - Simplified transport to HTTP-only (no SSE streaming)
+  - Deleted `pkg/mcp/sse.go` (100 lines) - SSE streaming handler
+  - Deleted `pkg/mcp/sse_test.go` (414 lines) - SSE test suite
+  - Removed `GET /mcp/sse/:operation_id` endpoint from server routes
+  - Updated `validateAcceptHeader()` to only require `application/json` (removed `text/event-stream` requirement)
+  - Removed all "The client can monitor progress via SSE streaming" comments from handlers
+  - Updated 13 documentation files to remove SSE references
+  - **Client Impact**: Clients no longer need to include `text/event-stream` in Accept header
+  - **Migration**: Use JSON-RPC polling via operation status endpoints instead of SSE streaming
 
 - **BREAKING**: Unix socket transport documentation removed
   - All references to `~/.config/contextd/api.sock` replaced with `http://localhost:8080`
