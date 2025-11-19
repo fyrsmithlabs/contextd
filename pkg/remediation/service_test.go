@@ -185,9 +185,24 @@ func TestService_Search(t *testing.T) {
 				Threshold:   0.5, // Set low threshold to include both results
 			},
 			mockFunc: func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
-				// Verify project filter is set
-				if filters["project_path"] != "/tmp/test" {
-					t.Errorf("project_path filter not set correctly: %v", filters)
+				// Verify correct Qdrant filter structure (same as checkpoint fix)
+				must, ok := filters["must"].([]map[string]interface{})
+				if !ok {
+					t.Errorf("filter missing 'must' array structure: %v", filters)
+				}
+				if len(must) != 1 {
+					t.Errorf("expected 1 filter condition, got %d", len(must))
+				}
+				condition := must[0]
+				if condition["key"] != "project_path" {
+					t.Errorf("expected key 'project_path', got %v", condition["key"])
+				}
+				match, ok := condition["match"].(map[string]interface{})
+				if !ok {
+					t.Errorf("filter condition missing 'match' structure: %v", condition)
+				}
+				if match["value"] != "/tmp/test" {
+					t.Errorf("expected value '/tmp/test', got %v", match["value"])
 				}
 				// Return mock results
 				return []vectorstore.SearchResult{
@@ -316,9 +331,24 @@ func TestService_List(t *testing.T) {
 				if k != 10 {
 					t.Errorf("expected limit 10, got %d", k)
 				}
-				// Verify project filter
-				if filters["project_path"] != "/tmp/test" {
-					t.Errorf("project_path filter not set correctly: %v", filters)
+				// Verify correct Qdrant filter structure (same as checkpoint fix)
+				must, ok := filters["must"].([]map[string]interface{})
+				if !ok {
+					t.Errorf("filter missing 'must' array structure: %v", filters)
+				}
+				if len(must) != 1 {
+					t.Errorf("expected 1 filter condition, got %d", len(must))
+				}
+				condition := must[0]
+				if condition["key"] != "project_path" {
+					t.Errorf("expected key 'project_path', got %v", condition["key"])
+				}
+				match, ok := condition["match"].(map[string]interface{})
+				if !ok {
+					t.Errorf("filter condition missing 'match' structure: %v", condition)
+				}
+				if match["value"] != "/tmp/test" {
+					t.Errorf("expected value '/tmp/test', got %v", match["value"])
 				}
 				return []vectorstore.SearchResult{
 					{

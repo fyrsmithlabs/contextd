@@ -284,6 +284,20 @@ func initDependencies(ctx context.Context, cfg *config.Config, logger *zap.Logge
 		zap.String("url", qdrantURL),
 		zap.String("collection", vsConfig.CollectionName))
 
+	// Ensure base collection exists (idempotent)
+	// Vector size depends on embedding model:
+	// - BAAI/bge-small-en-v1.5: 384 dimensions (default)
+	// - text-embedding-3-small: 1536 dimensions
+	vectorSize := getVectorSizeForModel(embeddingConfig.Model)
+	if err := vectorStore.EnsureCollection(ctx, vsConfig.CollectionName, vectorSize); err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("failed to ensure collection exists: %w", err)
+	}
+
+	logger.Info("Collection verified",
+		zap.String("collection", vsConfig.CollectionName),
+		zap.Int("vector_size", vectorSize))
+
 	return &dependencies{
 		natsConn:    nc,
 		vectorStore: vectorStore,
@@ -315,4 +329,33 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getVectorSizeForModel returns the vector dimension for a given embedding model.
+//
+// Supported models:
+//   - BAAI/bge-small-en-v1.5: 384 dimensions (default)
+//   - BAAI/bge-base-en-v1.5: 768 dimensions
+//   - BAAI/bge-large-en-v1.5: 1024 dimensions
+//   - text-embedding-3-small: 1536 dimensions
+//   - text-embedding-3-large: 3072 dimensions
+//   - text-embedding-ada-002: 1536 dimensions
+//
+// Returns 384 for unknown models (safe default for BGE-small).
+func getVectorSizeForModel(model string) int {
+	switch model {
+	case "BAAI/bge-small-en-v1.5":
+		return 384
+	case "BAAI/bge-base-en-v1.5":
+		return 768
+	case "BAAI/bge-large-en-v1.5":
+		return 1024
+	case "text-embedding-3-small", "text-embedding-ada-002":
+		return 1536
+	case "text-embedding-3-large":
+		return 3072
+	default:
+		// Default to BGE-small dimensions (most common)
+		return 384
+	}
 }

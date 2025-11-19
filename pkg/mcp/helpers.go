@@ -23,7 +23,7 @@ var hexPattern = regexp.MustCompile(`^[a-fA-F0-9]+$`)
 //	    "operation_id": opID,
 //	    "status": "pending",
 //	})
-func JSONRPCSuccess(c echo.Context, id string, result interface{}) error {
+func JSONRPCSuccess(c echo.Context, id interface{}, result interface{}) error {
 	return c.JSON(http.StatusOK, JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -41,7 +41,7 @@ func JSONRPCSuccess(c echo.Context, id string, result interface{}) error {
 //	if err := validate(); err != nil {
 //	    return JSONRPCErrorWithContext(c, req.ID, InvalidParams, err)
 //	}
-func JSONRPCErrorWithContext(c echo.Context, id string, code int, err error) error {
+func JSONRPCErrorWithContext(c echo.Context, id interface{}, code int, err error) error {
 	// Extract trace ID from request headers or context
 	traceID := c.Response().Header().Get("X-Trace-Id")
 	if traceID == "" {

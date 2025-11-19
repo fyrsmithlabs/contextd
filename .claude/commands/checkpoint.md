@@ -1,29 +1,15 @@
-# Checkpoint Commands
+# Checkpoint
 
-Quick slash commands for contextd checkpoint management.
+Call the contextd MCP `checkpoint_save` tool.
 
-## /checkpoint save [summary]
-Save current session state with optional summary.
+**Workflow:**
+1. Get current directory: `pwd`
+2. Call MCP tool: `checkpoint_save`
+   - `content`: Session summary (from ARGUMENTS or user prompt)
+   - `project_path`: current directory
+   - `metadata`: {} (optional)
+3. Report: operation_id
 
-Examples:
-```
-/checkpoint save "Fixed authentication bug"
-/checkpoint save "Completed user registration flow"
-```
+**Note**: Checkpoint saves async in background.
 
-## /checkpoint search [query]
-Search past checkpoints using natural language.
-
-Examples:
-```
-/checkpoint search "user authentication"
-/checkpoint search "database schema changes"
-/checkpoint search "API integration"
-```
-
-## /checkpoint list
-Show recent checkpoints chronologically.
-
-```
-/checkpoint list
-```
+ARGUMENTS: {summary}

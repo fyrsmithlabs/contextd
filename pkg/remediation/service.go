@@ -117,9 +117,16 @@ func (s *Service) Search(ctx context.Context, query string, opts *SearchOptions)
 		return nil, fmt.Errorf("invalid options: %w", err)
 	}
 
-	// Create project filter for multi-tenant isolation
+	// Create project filter for multi-tenant isolation using Qdrant filter structure
 	filters := map[string]interface{}{
-		"project_path": opts.ProjectPath,
+		"must": []map[string]interface{}{
+			{
+				"key": "project_path",
+				"match": map[string]interface{}{
+					"value": opts.ProjectPath,
+				},
+			},
+		},
 	}
 
 	// Perform semantic search
@@ -184,9 +191,16 @@ func (s *Service) List(ctx context.Context, projectPath string, limit int) ([]*R
 		return nil, ErrProjectPathRequired
 	}
 
-	// Use empty query for listing (relies on filters only)
+	// Use empty query for listing (relies on filters only) with Qdrant filter structure
 	filters := map[string]interface{}{
-		"project_path": projectPath,
+		"must": []map[string]interface{}{
+			{
+				"key": "project_path",
+				"match": map[string]interface{}{
+					"value": projectPath,
+				},
+			},
+		},
 	}
 
 	if limit <= 0 {

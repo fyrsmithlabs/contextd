@@ -239,6 +239,83 @@ func (s *Service) CollectionExists(ctx context.Context, collectionName string) (
 	}
 }
 
+// EnsureCollection ensures that a collection exists, creating it if necessary.
+//
+// This method is idempotent: if the collection already exists, it returns nil
+// without error. If the collection doesn't exist, it creates it with the
+// specified vector dimensions.
+//
+// This is the recommended method for initializing collections during application
+// startup, as it handles both first-time creation and subsequent restarts gracefully.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - collectionName: Name of the collection to ensure exists
+//   - vectorSize: Dimension of vectors (e.g., 384 for BGE-small, 1536 for OpenAI)
+//
+// Returns:
+//   - nil if collection exists or was created successfully
+//   - Error if validation fails or creation fails
+func (s *Service) EnsureCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	// Validate inputs
+	if collectionName == "" {
+		return fmt.Errorf("%w: collection name required", ErrInvalidConfig)
+	}
+	if vectorSize <= 0 {
+		return fmt.Errorf("%w: got %d", ErrInvalidVectorSize, vectorSize)
+	}
+
+	// Check if collection already exists
+	exists, err := s.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return fmt.Errorf("checking collection existence: %w", err)
+	}
+
+	// If exists, we're done (idempotent behavior)
+	if exists {
+		return nil
+	}
+
+	// Create collection via Qdrant HTTP API
+	// Ref: https://qdrant.github.io/qdrant/redoc/index.html#tag/collections/operation/create_collection
+	url := fmt.Sprintf("%s/collections/%s", s.config.URL, collectionName)
+
+	// Prepare request body
+	body := map[string]interface{}{
+		"vectors": map[string]interface{}{
+			"size":     vectorSize,
+			"distance": "Cosine",
+		},
+	}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshaling request body: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
 // GetCollectionInfo retrieves metadata about a collection.
 //
 // Parameters:

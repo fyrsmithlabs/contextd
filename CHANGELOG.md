@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Qdrant Collection Auto-Creation**: Fixed missing Qdrant collection 'contextd' error on startup
+  - Added `EnsureCollection()` method to vector store service (idempotent collection creation)
+  - Collection automatically created on application startup if it doesn't exist
+  - Vector size determined from embedding model configuration (384 for BAAI/bge-small-en-v1.5, 1536 for OpenAI)
+  - Prevents "Collection 'contextd' doesn't exist!" errors in checkpoint_search, checkpoint_list, and remediation_save
+  - Added comprehensive test coverage for EnsureCollection (idempotency, validation, error handling)
+  - Resolves GitHub Issue #3
+
+- **Remediation Filter Syntax**: Fixed Qdrant filter syntax error in remediation search and list operations
+  - Updated `Search()` method to use correct Qdrant filter structure with `must` array
+  - Updated `List()` method to use correct filter structure for `project_path` filter
+  - Fixed error: "unknown field 'project_path', expected one of 'should', 'min_should', 'must', 'must_not'"
+  - Filters now properly structured: `{"must": [{"key": "field", "match": {"value": "val"}}]}`
+  - Applied same fix pattern as checkpoint service (Issue #1)
+  - Resolves GitHub Issue #4
+
+- **Checkpoint Filter Syntax**: Fixed Qdrant filter syntax error in checkpoint search and get operations
+  - Updated `Search()` method to use correct Qdrant filter structure with `must` array
+  - Updated `Get()` method to use correct filter structure for both `project_hash` and `id` filters
+  - Fixed error: "unknown field 'project_hash', expected one of 'should', 'min_should', 'must', 'must_not'"
+  - Filters now properly structured: `{"must": [{"key": "field", "match": {"value": "val"}}]}`
+  - Resolves GitHub Issue #1
+
 ### Added
 
 - **Authentication Middleware**: Owner-based authentication for all MCP endpoints

@@ -46,6 +46,9 @@ func TestCreateCollection(t *testing.T) {
 
 			// Create service
 			config := ConfigFromEnv(tt.collectionName)
+			embedder, err := createTestEmbedder()
+			require.NoError(t, err)
+			config.Embedder = embedder
 			service, err := NewService(config)
 			if tt.collectionName == "" {
 				require.Error(t, err) // Validation should fail in NewService
@@ -114,6 +117,9 @@ func TestDeleteCollection(t *testing.T) {
 
 			// Create service
 			config := ConfigFromEnv("test_service")
+			embedder, err := createTestEmbedder()
+			require.NoError(t, err)
+			config.Embedder = embedder
 			service, err := NewService(config)
 			require.NoError(t, err)
 
@@ -173,6 +179,9 @@ func TestListCollections(t *testing.T) {
 
 			// Create service
 			config := ConfigFromEnv("test_service")
+			embedder, err := createTestEmbedder()
+			require.NoError(t, err)
+			config.Embedder = embedder
 			service, err := NewService(config)
 			require.NoError(t, err)
 
@@ -231,6 +240,9 @@ func TestCollectionExists(t *testing.T) {
 
 			// Create service
 			config := ConfigFromEnv("test_service")
+			embedder, err := createTestEmbedder()
+			require.NoError(t, err)
+			config.Embedder = embedder
 			service, err := NewService(config)
 			require.NoError(t, err)
 
@@ -249,6 +261,92 @@ func TestCollectionExists(t *testing.T) {
 			// Assert
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantExists, exists)
+		})
+	}
+}
+
+// TestEnsureCollection tests ensuring a collection exists (idempotent).
+func TestEnsureCollection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	tests := []struct {
+		name           string
+		collectionName string
+		vectorSize     int
+		createFirst    bool
+		wantErr        bool
+	}{
+		{
+			name:           "creates collection when it doesn't exist",
+			collectionName: "test_ensure_new",
+			vectorSize:     384,
+			createFirst:    false,
+			wantErr:        false,
+		},
+		{
+			name:           "succeeds when collection already exists (idempotent)",
+			collectionName: "test_ensure_existing",
+			vectorSize:     384,
+			createFirst:    true,
+			wantErr:        false,
+		},
+		{
+			name:           "returns error for invalid vector size",
+			collectionName: "test_ensure_invalid",
+			vectorSize:     0,
+			createFirst:    false,
+			wantErr:        true,
+		},
+		{
+			name:           "returns error for empty collection name",
+			collectionName: "",
+			vectorSize:     384,
+			createFirst:    false,
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create service with embedder (required by langchaingo but not used for collection operations)
+			config := ConfigFromEnv("test_service")
+			embedder, err := createTestEmbedder()
+			require.NoError(t, err)
+			config.Embedder = embedder
+			service, err := NewService(config)
+			require.NoError(t, err)
+
+			// Create collection first if needed
+			if tt.createFirst && tt.collectionName != "" {
+				err = service.CreateCollection(ctx, tt.collectionName, tt.vectorSize)
+				require.NoError(t, err)
+			}
+
+			// Cleanup after test
+			if tt.collectionName != "" && !tt.wantErr {
+				defer func() {
+					_ = service.DeleteCollection(ctx, tt.collectionName)
+				}()
+			}
+
+			// Execute
+			err = service.EnsureCollection(ctx, tt.collectionName, tt.vectorSize)
+
+			// Assert
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+
+				// Verify collection exists
+				exists, err := service.CollectionExists(ctx, tt.collectionName)
+				require.NoError(t, err)
+				assert.True(t, exists, "collection should exist after EnsureCollection")
+			}
 		})
 	}
 }

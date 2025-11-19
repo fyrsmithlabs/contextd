@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] Discovering performance bottlenecks
 - [ ] Making security changes
 
-**Last Updated:** 2025-11-18 | **Version:** 1.0.0-alpha
+**Last Updated:** 2025-01-18 | **Version:** 1.0.0-alpha
 
 ---
 
@@ -63,6 +63,82 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 11. **Modular Documentation** - Scannable main files (~150 lines), @imports for details (Kinney approach)
 
 **Version**: v1.0.0-alpha (Pre-release) | **Status**: Actively developed prototype
+
+---
+
+## 🔨 Build & Development Commands (Quick Reference)
+
+**See**: `Makefile` for complete command documentation
+
+### Essential Commands
+
+```bash
+# Build & Run
+make build          # Build contextd binary
+make start          # Start contextd service (systemd)
+make stop           # Stop contextd service
+make logs           # View contextd logs
+
+# Development with Live Reload
+make dev-setup      # Complete dev environment setup (one-time)
+make dev-mcp        # Run in MCP mode with live reload (Air)
+make dev-api        # Run in API mode with live reload
+make test-watch     # Continuous testing during development
+
+# Testing
+make test           # Run Go tests
+make test-race      # Run tests with race detection
+make test-unit      # Fast unit tests (<10s)
+make test-all       # All test suites
+make coverage       # Generate coverage report (requires ≥80%)
+make audit          # Comprehensive quality checks (lint + vet + test + security)
+
+# Code Quality
+make fmt            # Format code (gofmt + goimports)
+make lint           # Run golangci-lint
+make vet            # Run go vet
+make pre-commit-run # Run pre-commit hooks
+
+# Monitoring Stack
+make stack-up       # Start Docker Compose stack (Qdrant, TEI, observability)
+make stack-down     # Stop stack
+make stack-health   # Check all services health
+make stack-logs     # View stack logs
+
+# Tools Installation
+make deps           # Install all development dependencies
+make install-pre-commit  # Install pre-commit hooks
+make install-tools  # Install golangci-lint, gosec, goimports
+make install-air    # Install Air live reload tool
+```
+
+### Development Workflow
+
+```bash
+# Initial setup (one-time)
+make dev-setup      # Installs tools + starts stack + verifies with tests
+
+# Daily workflow
+make dev-mcp        # Terminal 1: Start Air (live reload)
+make test-watch     # Terminal 2: Continuous testing
+make stack-health   # Terminal 3: Monitor stack
+
+# Before commit
+make audit          # Run all quality checks
+make test-all       # Run all test suites
+make coverage       # Verify coverage ≥80%
+```
+
+### Cross-Platform Builds
+
+```bash
+make build-linux    # Build for Linux (amd64, arm64)
+make build-darwin   # Build for macOS (amd64, arm64)
+make build-windows  # Build for Windows (amd64)
+make build-all-platforms  # Build all platforms
+```
+
+**Complete Command Reference**: Run `make help` or `make help-local-testing`
 
 ---
 

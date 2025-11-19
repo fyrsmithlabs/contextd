@@ -23,7 +23,7 @@ import (
 // but included here for protocol compliance.
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"` // Always "2.0"
-	ID      string          `json:"id"`      // Request ID (UUID)
+	ID      interface{}     `json:"id"`      // Request ID (string, number, or null per JSON-RPC 2.0)
 	Method  string          `json:"method"`  // Tool name (implicit from endpoint)
 	Params  json.RawMessage `json:"params"`  // Tool-specific parameters
 }
@@ -31,7 +31,7 @@ type JSONRPCRequest struct {
 // JSONRPCResponse represents a successful JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
 	JSONRPC string      `json:"jsonrpc"` // Always "2.0"
-	ID      string      `json:"id"`      // Matches request ID
+	ID      interface{} `json:"id"`      // Matches request ID (string, number, or null per JSON-RPC 2.0)
 	Result  interface{} `json:"result"`  // Tool-specific result
 }
 
@@ -42,7 +42,7 @@ type JSONRPCResponse struct {
 // observability systems.
 type JSONRPCError struct {
 	JSONRPC string       `json:"jsonrpc"` // Always "2.0"
-	ID      string       `json:"id"`      // Matches request ID
+	ID      interface{}  `json:"id"`      // Matches request ID (string, number, or null per JSON-RPC 2.0)
 	Error   *ErrorDetail `json:"error"`   // Error details with context
 }
 
@@ -112,4 +112,61 @@ type Operation struct {
 	TraceID   string       `json:"trace_id"`         // OTLP trace ID
 	CreatedAt time.Time    `json:"created_at"`       // Operation creation time
 	UpdatedAt time.Time    `json:"updated_at"`       // Last update time
+}
+
+// Session represents an MCP protocol session.
+//
+// Sessions are created during the initialize handshake and tracked via
+// the Mcp-Session-Id header. Each session is associated with an authenticated
+// owner for multi-tenant isolation.
+//
+// Session lifecycle:
+//   - Created: During initialize handshake
+//   - Active: After successful initialization
+//   - Expired: After timeout or explicit deletion
+type Session struct {
+	ID              string     `json:"id"`               // Session UUID
+	OwnerID         string     `json:"owner_id"`         // Owner hash for multi-tenant isolation
+	ProtocolVersion string     `json:"protocol_version"` // Negotiated MCP protocol version
+	ClientInfo      ClientInfo `json:"client_info"`      // Client information
+	CreatedAt       time.Time  `json:"created_at"`       // Session creation time
+	LastAccessedAt  time.Time  `json:"last_accessed_at"` // Last activity timestamp
+}
+
+// ClientInfo contains information about the MCP client.
+type ClientInfo struct {
+	Name    string `json:"name"`    // Client name (e.g., "claude-code")
+	Version string `json:"version"` // Client version (e.g., "2.0.29")
+}
+
+// InitializeParams contains parameters for the initialize method.
+type InitializeParams struct {
+	ProtocolVersion string                 `json:"protocolVersion"` // Requested protocol version
+	Capabilities    map[string]interface{} `json:"capabilities"`    // Client capabilities
+	ClientInfo      ClientInfo             `json:"clientInfo"`      // Client information
+}
+
+// InitializeResult contains the result of the initialize method.
+type InitializeResult struct {
+	ProtocolVersion string             `json:"protocolVersion"` // Negotiated protocol version
+	Capabilities    ServerCapabilities `json:"capabilities"`    // Server capabilities
+	ServerInfo      ServerInfo         `json:"serverInfo"`      // Server information
+}
+
+// ServerCapabilities describes what the server supports.
+type ServerCapabilities struct {
+	Tools     map[string]interface{} `json:"tools"`     // Tool capabilities
+	Resources map[string]interface{} `json:"resources"` // Resource capabilities
+}
+
+// ServerInfo contains information about the MCP server.
+type ServerInfo struct {
+	Name    string `json:"name"`    // Server name (e.g., "contextd")
+	Version string `json:"version"` // Server version (e.g., "0.9.0-rc-1")
+}
+
+// ToolsCallParams contains parameters for the tools/call method.
+type ToolsCallParams struct {
+	Name      string                 `json:"name"`      // Tool name (e.g., "checkpoint_save")
+	Arguments map[string]interface{} `json:"arguments"` // Tool-specific arguments
 }

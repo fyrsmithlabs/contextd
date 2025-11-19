@@ -54,9 +54,9 @@ func TestHandleToolsList(t *testing.T) {
 
 			// Create server (vectorstore not needed for tools list)
 			server := &Server{
-				echo:         e,
-				logger:       nil, // Use no-op logger for tests
-				vectorStore:  nil,
+				echo:        e,
+				logger:      nil, // Use no-op logger for tests
+				vectorStore: nil,
 			}
 
 			// Execute

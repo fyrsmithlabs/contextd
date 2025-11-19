@@ -54,6 +54,9 @@ type Server struct {
 	vectorStore        VectorStoreInterface
 	logger             *zap.Logger
 
+	// MCP protocol session management
+	sessionStore *SessionStore
+
 	// Pre-fetch support (optional)
 	prefetchEnabled   bool
 	prefetchCache     *prefetch.Cache
@@ -89,6 +92,7 @@ func NewServer(
 		remediationService: remediationSvc,
 		vectorStore:        vectorStoreSvc,
 		logger:             logger,
+		sessionStore:       NewSessionStore(),
 		prefetchLogger:     logger,
 	}
 }
@@ -119,7 +123,13 @@ func NewServer(
 //   - GET  /mcp/resources/list
 //   - POST /mcp/resources/read
 func (s *Server) RegisterRoutes() {
-	// Create MCP group with authentication middleware
+	// MCP Protocol Endpoint (MCP Streamable HTTP spec 2025-03-26)
+	// Single endpoint with JSON-RPC method routing
+	// MVP: No authentication (trusted network assumption)
+	// TODO: Add OAuth 2.0 implementation for production
+	s.echo.POST("/mcp", s.handleMCPRequest)
+
+	// Create MCP group with authentication middleware for legacy REST endpoints
 	mcp := s.echo.Group("/mcp", auth.OwnerAuthMiddleware())
 
 	// Checkpoint endpoints (authenticated)

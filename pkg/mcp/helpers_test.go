@@ -133,26 +133,26 @@ func TestJSONRPCErrorWithContext(t *testing.T) {
 // TestParseCollectionURI tests collection URI parsing.
 func TestParseCollectionURI(t *testing.T) {
 	tests := []struct {
-		name                string
-		uri                 string
-		wantOwnerID         string
-		wantCollectionName  string
-		wantErr             bool
-		errContains         string
+		name               string
+		uri                string
+		wantOwnerID        string
+		wantCollectionName string
+		wantErr            bool
+		errContains        string
 	}{
 		{
-			name:                "valid collection URI",
-			uri:                 "collection://owner_a1b2c3d4/project_def456/main",
-			wantOwnerID:         "a1b2c3d4",
-			wantCollectionName:  "owner_a1b2c3d4/project_def456/main",
-			wantErr:             false,
+			name:               "valid collection URI",
+			uri:                "collection://owner_a1b2c3d4/project_def456/main",
+			wantOwnerID:        "a1b2c3d4",
+			wantCollectionName: "owner_a1b2c3d4/project_def456/main",
+			wantErr:            false,
 		},
 		{
-			name:                "valid collection URI with 64-char owner ID",
-			uri:                 "collection://owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
-			wantOwnerID:         "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678",
-			wantCollectionName:  "owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
-			wantErr:             false,
+			name:               "valid collection URI with 64-char owner ID",
+			uri:                "collection://owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
+			wantOwnerID:        "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678",
+			wantCollectionName: "owner_a1b2c3d4e5f67890123456789012345678901234567890123456789012345678/project_abc/feature-branch",
+			wantErr:            false,
 		},
 		{
 			name:        "invalid scheme - http",

@@ -3,16 +3,21 @@ name: auto-checkpoint
 description: Auto-save checkpoint when context approaching limits
 ---
 
-Automatically save current session to contextd checkpoint.
+# Auto-Checkpoint
 
-This command:
-1. Saves current context to checkpoint with auto-generated summary
-2. Reports checkpoint ID for easy resume
-3. Recommends /clear if context > 90%
-4. Provides resume command for after /clear
+Call the contextd MCP `checkpoint_save` tool with auto-generated summary.
 
-Use this command when:
-- Context warning appears (>70%)
-- Before ending session
-- Before /clear command
-- When switching major tasks
+**Workflow:**
+1. Generate summary from conversation history:
+   - Tasks completed
+   - Key decisions
+   - Current state
+   - Issues/findings
+2. Get current directory: `pwd`
+3. Call MCP tool: `checkpoint_save`
+   - `content`: Generated summary
+   - `project_path`: current directory
+4. Report: operation_id, summary
+5. If context > 90%: Recommend `/clear`
+
+**Note**: Execute immediately, no user prompt for summary.

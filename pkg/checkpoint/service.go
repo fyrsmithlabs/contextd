@@ -148,9 +148,16 @@ func (s *Service) Search(ctx context.Context, query string, opts *SearchOptions)
 		return nil, fmt.Errorf("invalid search options: %w", err)
 	}
 
-	// Build filters for project-scoped search
+	// Build filters for project-scoped search using Qdrant filter structure
 	filters := map[string]interface{}{
-		"project_hash": projectHash(opts.ProjectPath),
+		"must": []map[string]interface{}{
+			{
+				"key": "project_hash",
+				"match": map[string]interface{}{
+					"value": projectHash(opts.ProjectPath),
+				},
+			},
+		},
 	}
 
 	// TODO: Add tag filtering when needed
@@ -259,11 +266,23 @@ func (s *Service) Get(ctx context.Context, projectPath, id string) (*Checkpoint,
 		return nil, errors.New("checkpoint ID is required")
 	}
 
-	// Search by ID with project filter
+	// Search by ID with project filter using Qdrant filter structure
 	// This is a workaround since vectorstore doesn't have a Get method
 	filters := map[string]interface{}{
-		"project_hash": projectHash(projectPath),
-		"id":           id,
+		"must": []map[string]interface{}{
+			{
+				"key": "project_hash",
+				"match": map[string]interface{}{
+					"value": projectHash(projectPath),
+				},
+			},
+			{
+				"key": "id",
+				"match": map[string]interface{}{
+					"value": id,
+				},
+			},
+		},
 	}
 
 	results, err := s.vectorStore.SearchWithFilters(ctx, id, 1, filters)

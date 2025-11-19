@@ -164,9 +164,25 @@ func TestService_Search(t *testing.T) {
 				Limit:       10,
 			},
 			mockFunc: func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
-				// Verify filters include project_hash
-				if _, ok := filters["project_hash"]; !ok {
-					t.Error("project_hash filter not set")
+				// Verify filters use correct Qdrant filter structure
+				must, ok := filters["must"].([]map[string]interface{})
+				if !ok || len(must) == 0 {
+					t.Error("filters must contain 'must' array with project_hash filter")
+				}
+				// Verify project_hash is in the must conditions
+				foundProjectHash := false
+				for _, condition := range must {
+					if key, ok := condition["key"].(string); ok && key == "project_hash" {
+						if match, ok := condition["match"].(map[string]interface{}); ok {
+							if _, hasValue := match["value"]; hasValue {
+								foundProjectHash = true
+								break
+							}
+						}
+					}
+				}
+				if !foundProjectHash {
+					t.Error("project_hash filter not found in must conditions")
 				}
 				return []vectorstore.SearchResult{
 					{
@@ -370,9 +386,36 @@ func TestService_Get(t *testing.T) {
 			projectPath: "/tmp/test",
 			id:          "ckpt-1",
 			mockFunc: func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
-				// Verify filters
-				if filters["id"] != "ckpt-1" {
-					t.Errorf("id filter = %v, want ckpt-1", filters["id"])
+				// Verify filters use correct Qdrant filter structure
+				must, ok := filters["must"].([]map[string]interface{})
+				if !ok || len(must) == 0 {
+					t.Error("filters must contain 'must' array")
+				}
+				// Verify both project_hash and id filters are present
+				foundProjectHash := false
+				foundID := false
+				for _, condition := range must {
+					if key, ok := condition["key"].(string); ok {
+						if key == "project_hash" {
+							if match, ok := condition["match"].(map[string]interface{}); ok {
+								if _, hasValue := match["value"]; hasValue {
+									foundProjectHash = true
+								}
+							}
+						} else if key == "id" {
+							if match, ok := condition["match"].(map[string]interface{}); ok {
+								if value, ok := match["value"].(string); ok && value == "ckpt-1" {
+									foundID = true
+								}
+							}
+						}
+					}
+				}
+				if !foundProjectHash {
+					t.Error("project_hash filter not found in must conditions")
+				}
+				if !foundID {
+					t.Error("id filter not found in must conditions or has wrong value")
 				}
 				return []vectorstore.SearchResult{
 					{
