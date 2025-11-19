@@ -66,8 +66,11 @@ func (s *Server) handleTroubleshoot(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "troubleshoot", params)
 
-	// Start async worker (AI operation can take 1-3 seconds)
-	go s.doTroubleshoot(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doTroubleshoot(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{

@@ -78,8 +78,11 @@ func (s *Server) handleCollectionCreate(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "collection_create", params)
 
-	// Start async worker
-	go s.doCollectionCreate(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doCollectionCreate(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{
@@ -177,8 +180,11 @@ func (s *Server) handleCollectionDelete(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "collection_delete", params)
 
-	// Start async worker
-	go s.doCollectionDelete(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doCollectionDelete(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{

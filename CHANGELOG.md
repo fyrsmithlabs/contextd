@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CRITICAL**: Fixed context cancellation bug in async MCP handlers causing all async operations to fail with "context canceled" after HTTP response sent. Affected handlers: `checkpoint_save`, `skill_save`, `troubleshoot`, `collection_create`, `collection_delete`. Background workers now use `context.Background()` instead of HTTP request context.
+
 ### Added
 
 - **Repository Indexing Service**: Implemented real repository indexing functionality

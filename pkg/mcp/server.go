@@ -246,8 +246,11 @@ func (s *Server) handleCheckpointSave(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "checkpoint_save", params)
 
-	// Start async worker (in production, this would call actual checkpoint service)
-	go s.doCheckpointSave(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doCheckpointSave(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{
@@ -544,8 +547,11 @@ func (s *Server) handleSkillSave(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "skill_save", params)
 
-	// Start async worker
-	go s.doSkillSave(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doSkillSave(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{
@@ -682,8 +688,11 @@ func (s *Server) handleIndexRepository(c echo.Context) error {
 	ctx = context.WithValue(ctx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
 	opID := s.operations.Create(ctx, "index_repository", params)
 
-	// Start async worker
-	go s.doIndexRepository(ctx, opID, params)
+	// Start async worker with background context (not request context)
+	// Request context gets cancelled when HTTP request completes
+	bgCtx := context.WithValue(context.Background(), ownerIDKey, ownerID)
+	bgCtx = context.WithValue(bgCtx, traceIDKey, c.Response().Header().Get("X-Request-ID"))
+	go s.doIndexRepository(bgCtx, opID, params)
 
 	// Return operation_id immediately
 	return JSONRPCSuccess(c, req.ID, map[string]string{
