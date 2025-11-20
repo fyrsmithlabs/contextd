@@ -48,7 +48,13 @@ var (
 	buildDate = "unknown"
 )
 
+// logger is the global logger instance, used by stdio mode
+var logger *zap.Logger
+
 func main() {
+	// Define flags
+	mcpMode := flag.Bool("mcp", false, "Run as MCP server (stdio mode for Claude Code)")
+
 	// Parse command-line arguments
 	flag.Parse()
 	args := flag.Args()
@@ -82,8 +88,23 @@ func main() {
 		cancel()
 	}()
 
-	// Run server
-	if err := run(ctx); err != nil {
+	// Load configuration
+	cfg := config.Load()
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
+	// Run server in appropriate mode
+	var err error
+	if *mcpMode {
+		err = runStdioServer(ctx, cfg)
+	} else {
+		err = run(ctx)
+	}
+
+	if err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 

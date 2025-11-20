@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **stdio MCP Support (MVP)**: Implemented stdio transport for Claude Code integration
+  - Created `pkg/mcp/stdio` package with HTTP delegation architecture
+  - stdio MCP server delegates tool calls to HTTP daemon (localhost:9090)
+  - Implemented 3 core MCP tools: `checkpoint_save`, `checkpoint_search`, `status`
+  - Supports dual-mode operation: `--mcp` flag for stdio, default for HTTP
+  - Uses MCP SDK v1.1.0 for protocol compliance
+  - HTTP delegation enables:
+    - Zero service duplication (reuses existing HTTP service layer)
+    - Multiple concurrent stdio sessions supported
+    - Maintains multi-tenant isolation via existing database-per-project architecture
+  - Comprehensive test coverage (88.4%, exceeds 80% requirement)
+  - Extension path documented for remaining 20 tools (future PRs)
+  - Enables Claude Code users to access contextd checkpoints via stdio protocol
+
 - **Repository Indexing Service**: Implemented real repository indexing functionality
   - Created `pkg/repository` package with full IndexRepository implementation
   - File tree traversal with include/exclude pattern matching

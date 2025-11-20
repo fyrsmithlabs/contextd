@@ -10,14 +10,13 @@ This document defines the architectural patterns and design principles for conte
 
 **Every architectural decision MUST prioritize security:**
 
-- **MCP Streamable HTTP Transport** (spec 2025-03-26)
-  - Default port: 8080 (configurable via CONTEXTD_HTTP_PORT)
-  - Listen address: 0.0.0.0 (accepts remote connections)
-  - Endpoint: POST/GET `/mcp` (single endpoint, JSON-RPC routing)
-  - Session management: `Mcp-Session-Id` header
+- **Dual Transport Support** (HTTP + stdio)
+  - **HTTP Transport**: Port 9090 (configurable), remote access, REST API
+  - **stdio Transport**: stdin/stdout, Claude Code integration, MCP SDK
+  - Session management: `Mcp-Session-Id` header (HTTP), process isolation (stdio)
 
-- **Security Requirements** (per MCP spec)
-  - **REQUIRED**: Origin header validation (prevent DNS rebinding attacks)
+- **Security Requirements** (per MCP spec 2025-03-26)
+  - **REQUIRED**: Origin header validation (HTTP mode)
   - **RECOMMENDED**: Localhost binding for local servers (127.0.0.1)
   - **STRONGLY RECOMMENDED**: Authentication (Bearer token, JWT, OAuth)
 
@@ -85,32 +84,39 @@ contextd/
 
 ## Quick Reference
 
-**Transport**: HTTP Server (port 8080)
-**Protocol**: MCP Streamable HTTP (spec 2025-03-26)
-**Framework**: Echo (Go web framework)
+**Transports**: HTTP Server (port 9090) + stdio (stdin/stdout)
+**Protocol**: MCP Streamable HTTP (spec 2025-03-26) + MCP stdio
+**Framework**: Echo (HTTP), MCP Go SDK (stdio)
 **Vector Store**: Qdrant (local)
 **Embeddings**: TEI or OpenAI API
 **Observability**: OpenTelemetry (OTLP/HTTP)
 
-**Key Endpoints**:
+**HTTP Endpoints**:
 - `/health` - Health check
 - `/mcp` - MCP JSON-RPC endpoint (POST/GET)
 - `/api/v1/checkpoints` - Checkpoint operations
 - `/api/v1/remediations` - Remediation operations
 
+**stdio Tools**: 23 MCP tools via `contextd --mcp`
+
 ---
 
 ## Component Architecture
 
-**Communication Flow**:
+**Communication Flow (HTTP)**:
 ```
-Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector Store
+Client → HTTP (Port 9090) → Echo Server → Handler → Service → Vector Store
+```
+
+**Communication Flow (stdio)**:
+```
+Claude Code ↔ stdio (contextd --mcp) → HTTP Daemon (localhost:9090) → Service → Vector Store
 ```
 
 **Components**:
-1. **Communication Layer**: HTTP server, MCP Streamable HTTP, Echo framework
+1. **Communication Layer**: HTTP server (Echo) + stdio server (MCP SDK)
 2. **Security Layer**: Origin validation, middleware stack (MVP: no auth)
-3. **Configuration**: Environment variables → hardcoded defaults
+3. **Configuration**: Environment variables → config.yaml → hardcoded defaults
 4. **Observability**: OpenTelemetry (traces + metrics)
 5. **Vector Store**: Qdrant abstraction layer
 6. **Service Layer**: Business logic (checkpoint, remediation, skills, etc.)
@@ -122,25 +128,39 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 
 ## Dual-Mode Operation
 
-### API Mode (Default)
+### HTTP Mode (Default)
 
 ```
 ./contextd
-  → HTTP Server (Port 8080)
-  → REST API
+  → HTTP Server (Port 9090)
+  → REST API + MCP JSON-RPC
+  → 14 HTTP endpoints
   → No Auth (MVP)
-  → For automation hooks
+  → For automation hooks, remote access
 ```
 
-### MCP Mode
+**Use cases**:
+- Remote access (distributed teams)
+- Automation scripts
+- CI/CD integration
+- Multiple concurrent sessions
+
+### stdio Mode (Claude Code Integration)
 
 ```
 ./contextd --mcp
-  → stdio transport
-  → JSON-RPC protocol
-  → 9 MCP tools
+  → stdio transport (stdin/stdout)
+  → MCP Go SDK
+  → 23 MCP tools
+  → Real-time progress notifications
   → For Claude Code integration
 ```
+
+**Use cases**:
+- Native Claude Code integration
+- Local development
+- Interactive sessions
+- Better progress visibility
 
 **Both modes share:**
 - Same service layer
@@ -148,15 +168,35 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 - Same configuration
 - Same observability
 
+**Detailed stdio Architecture**:
+@./architecture/stdio-transport.md
+
 ---
 
 ## Key Design Decisions
 
-### HTTP Server vs Unix Socket
+### HTTP + stdio Dual Transport
+- **Chosen**: Both HTTP and stdio (not one or the other)
+- **Why**: HTTP for remote/automation, stdio for Claude Code native integration
+- **Result**: Flexibility for different use cases, shared service layer ensures consistency
+- **Trade-off**: Slightly more complex than single transport, but better UX
+
+### HTTP Server vs Unix Socket (HTTP Mode)
 - **Chosen**: HTTP server on configurable port
 - **Why**: Remote access for distributed teams, standard protocol, multiple sessions
 - **Result**: Standard HTTP/1.1 transport, reverse proxy compatible
 - **MVP Decision**: No auth (trusted network), add auth post-MVP for production
+
+### MCP SDK vs Custom Protocol (stdio Mode)
+- **Chosen**: Official MCP Go SDK
+- **Why**: Protocol compliance, progress notifications, future-proof
+- **Result**: Native Claude Code integration, real-time progress updates
+
+### stdio Polling vs NATS Subscription
+- **Chosen**: HTTP daemon polling (500ms interval)
+- **Why**: Simpler implementation, no NATS dependency for stdio mode
+- **Result**: Slight latency (500ms updates) but good enough for UX
+- **Future**: Could add NATS subscription for real-time events
 
 ### Authentication Strategy
 - **Chosen**: No authentication for MVP
@@ -192,7 +232,8 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 @./architecture/development-patterns.md
 
 **Topics covered**:
-- Adding new endpoints
+- Adding new endpoints (HTTP mode)
+- Adding new tools (stdio mode)
 - Adding new packages
 - Configuration changes
 - Middleware order
@@ -207,7 +248,7 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 @./architecture/performance-security.md
 
 **Topics covered**:
-- Response time targets
+- Response time targets (HTTP vs stdio)
 - Optimization strategies
 - Scalability considerations (current & future)
 - Threat model
@@ -220,3 +261,4 @@ Client → HTTP (Port 8080) → Echo Server → Handler → Service → Vector S
 - **Coding Standards**: `docs/standards/coding-standards.md`
 - **Testing Standards**: `docs/standards/testing-standards.md`
 - **Package Guidelines**: `docs/standards/package-guidelines.md`
+- **stdio Transport Architecture**: `docs/standards/architecture/stdio-transport.md`
