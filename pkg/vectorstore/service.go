@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sync"
 
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/schema"
@@ -89,8 +90,10 @@ func (c Config) Validate() error {
 
 // Service provides vector store functionality.
 type Service struct {
-	store  vectorstores.VectorStore
-	config Config
+	store       vectorstores.VectorStore
+	config      Config
+	storeCache  map[string]vectorstores.VectorStore // collection name -> store
+	cacheMutex  sync.RWMutex
 }
 
 // NewService creates a new vector store service with the given configuration.
@@ -128,9 +131,63 @@ func NewService(config Config) (*Service, error) {
 	}
 
 	return &Service{
-		store:  store,
-		config: config,
+		store:      store,
+		config:     config,
+		storeCache: make(map[string]vectorstores.VectorStore),
 	}, nil
+}
+
+// getStoreForCollection returns a vector store for the specified collection.
+// If the store doesn't exist in cache, creates and caches it.
+func (s *Service) getStoreForCollection(collectionName string) (vectorstores.VectorStore, error) {
+	// If collection name is empty or matches default, use default store
+	if collectionName == "" || collectionName == s.config.CollectionName {
+		return s.store, nil
+	}
+
+	// Check cache (read lock)
+	s.cacheMutex.RLock()
+	if store, ok := s.storeCache[collectionName]; ok {
+		s.cacheMutex.RUnlock()
+		return store, nil
+	}
+	s.cacheMutex.RUnlock()
+
+	// Not in cache, create new store (write lock)
+	s.cacheMutex.Lock()
+	defer s.cacheMutex.Unlock()
+
+	// Double-check after acquiring write lock
+	if store, ok := s.storeCache[collectionName]; ok {
+		return store, nil
+	}
+
+	// Parse URL
+	qdrantURL, err := url.Parse(s.config.URL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing Qdrant URL: %w", err)
+	}
+
+	// Create options for new collection
+	opts := []qdrant.Option{
+		qdrant.WithURL(*qdrantURL),
+		qdrant.WithCollectionName(collectionName),
+	}
+
+	// Add embedder if configured
+	if s.config.Embedder != nil {
+		opts = append(opts, qdrant.WithEmbedder(s.config.Embedder))
+	}
+
+	// Create new store
+	store, err := qdrant.New(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("creating Qdrant store for collection %s: %w", collectionName, err)
+	}
+
+	// Cache and return
+	s.storeCache[collectionName] = store
+	return store, nil
 }
 
 // AddDocuments adds documents to the vector store.
@@ -138,31 +195,49 @@ func NewService(config Config) (*Service, error) {
 // Documents are embedded and stored with their metadata. The document ID
 // is used as the unique identifier in the vector store.
 //
+// If Document.Collection is specified, the document is added to that collection.
+// Otherwise, the service's default collection is used.
+//
 // Returns ErrEmptyDocuments if documents slice is empty or nil.
 func (s *Service) AddDocuments(ctx context.Context, docs []Document) error {
 	if len(docs) == 0 {
 		return fmt.Errorf("%w: documents cannot be empty", ErrEmptyDocuments)
 	}
 
-	// Convert to langchaingo schema.Document format
-	schemaDocs := make([]schema.Document, len(docs))
-	for i, doc := range docs {
-		schemaDocs[i] = schema.Document{
+	// Group documents by collection
+	docsByCollection := make(map[string][]schema.Document)
+	for _, doc := range docs {
+		collectionName := doc.Collection
+		if collectionName == "" {
+			collectionName = s.config.CollectionName
+		}
+
+		// Convert to langchaingo schema.Document format
+		schemaDoc := schema.Document{
 			PageContent: doc.Content,
 			Metadata:    doc.Metadata,
 		}
 
 		// Store document ID in metadata for retrieval
-		if schemaDocs[i].Metadata == nil {
-			schemaDocs[i].Metadata = make(map[string]interface{})
+		if schemaDoc.Metadata == nil {
+			schemaDoc.Metadata = make(map[string]interface{})
 		}
-		schemaDocs[i].Metadata["id"] = doc.ID
+		schemaDoc.Metadata["id"] = doc.ID
+
+		docsByCollection[collectionName] = append(docsByCollection[collectionName], schemaDoc)
 	}
 
-	// Add documents to vector store
-	_, err := s.store.AddDocuments(ctx, schemaDocs)
-	if err != nil {
-		return fmt.Errorf("adding documents to store: %w", err)
+	// Add documents to each collection
+	for collectionName, collectionDocs := range docsByCollection {
+		store, err := s.getStoreForCollection(collectionName)
+		if err != nil {
+			return fmt.Errorf("getting store for collection %s: %w", collectionName, err)
+		}
+
+		_, err = store.AddDocuments(ctx, collectionDocs)
+		if err != nil {
+			return fmt.Errorf("adding documents to collection %s: %w", collectionName, err)
+		}
 	}
 
 	return nil
@@ -248,6 +323,68 @@ func (s *Service) SearchWithFilters(ctx context.Context, query string, k int, fi
 	)
 	if err != nil {
 		return nil, fmt.Errorf("similarity search with filters: %w", err)
+	}
+
+	// Convert to SearchResult format
+	results := make([]SearchResult, len(docs))
+	for i, doc := range docs {
+		result := SearchResult{
+			Content:  doc.PageContent,
+			Metadata: doc.Metadata,
+			Score:    doc.Score,
+		}
+
+		// Extract document ID from metadata
+		if id, ok := doc.Metadata["id"]; ok {
+			if idStr, ok := id.(string); ok {
+				result.ID = idStr
+			}
+		}
+
+		results[i] = result
+	}
+
+	return results, nil
+}
+
+// SearchInCollection performs similarity search in a specific collection with metadata filters.
+//
+// This method supports the database-per-project architecture by allowing searches
+// in project-specific collections (e.g., "project_abc123__checkpoints").
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - collectionName: Name of the collection to search in
+//   - query: Search query text
+//   - k: Maximum number of results
+//   - filters: Metadata filters (e.g., {"project_hash": "abc123"})
+//
+// Returns:
+//   - Filtered search results from the specified collection
+//   - Error if search fails
+func (s *Service) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]SearchResult, error) {
+	if query == "" {
+		return nil, errors.New("query cannot be empty")
+	}
+	if k <= 0 {
+		return nil, errors.New("k must be positive")
+	}
+
+	// Get store for the specified collection
+	store, err := s.getStoreForCollection(collectionName)
+	if err != nil {
+		return nil, fmt.Errorf("getting store for collection %s: %w", collectionName, err)
+	}
+
+	// Perform similarity search with filters
+	docs, err := store.SimilaritySearch(
+		ctx,
+		query,
+		k,
+		vectorstores.WithFilters(filters),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("similarity search in collection %s: %w", collectionName, err)
 	}
 
 	// Convert to SearchResult format

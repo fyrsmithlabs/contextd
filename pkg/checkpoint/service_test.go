@@ -12,8 +12,11 @@ import (
 
 // Mock vectorstore.Service for testing
 type mockVectorStore struct {
-	addDocsFunc       func(ctx context.Context, docs []vectorstore.Document) error
-	searchFiltersFunc func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error)
+	addDocsFunc          func(ctx context.Context, docs []vectorstore.Document) error
+	searchFiltersFunc    func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error)
+	searchCollectionFunc func(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error)
+	getCollectionInfoFunc func(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error)
+	exactSearchFunc      func(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error)
 }
 
 func (m *mockVectorStore) AddDocuments(ctx context.Context, docs []vectorstore.Document) error {
@@ -30,6 +33,36 @@ func (m *mockVectorStore) Search(ctx context.Context, query string, k int) ([]ve
 func (m *mockVectorStore) SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
 	if m.searchFiltersFunc != nil {
 		return m.searchFiltersFunc(ctx, query, k, filters)
+	}
+	return nil, nil
+}
+
+func (m *mockVectorStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	if m.searchCollectionFunc != nil {
+		return m.searchCollectionFunc(ctx, collectionName, query, k, filters)
+	}
+	// Default: delegate to SearchWithFilters for backward compatibility
+	if m.searchFiltersFunc != nil {
+		return m.searchFiltersFunc(ctx, query, k, filters)
+	}
+	return nil, nil
+}
+
+func (m *mockVectorStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	if m.getCollectionInfoFunc != nil {
+		return m.getCollectionInfoFunc(ctx, collectionName)
+	}
+	// Default: return mock info with 100 points (normal dataset, uses HNSW)
+	return &vectorstore.CollectionInfo{
+		Name:       collectionName,
+		VectorSize: 384,
+		PointCount: 100,
+	}, nil
+}
+
+func (m *mockVectorStore) ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error) {
+	if m.exactSearchFunc != nil {
+		return m.exactSearchFunc(ctx, collectionName, query, k)
 	}
 	return nil, nil
 }
@@ -164,25 +197,10 @@ func TestService_Search(t *testing.T) {
 				Limit:       10,
 			},
 			mockFunc: func(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
-				// Verify filters use correct Qdrant filter structure
-				must, ok := filters["must"].([]map[string]interface{})
-				if !ok || len(must) == 0 {
-					t.Error("filters must contain 'must' array with project_hash filter")
-				}
-				// Verify project_hash is in the must conditions
-				foundProjectHash := false
-				for _, condition := range must {
-					if key, ok := condition["key"].(string); ok && key == "project_hash" {
-						if match, ok := condition["match"].(map[string]interface{}); ok {
-							if _, hasValue := match["value"]; hasValue {
-								foundProjectHash = true
-								break
-							}
-						}
-					}
-				}
-				if !foundProjectHash {
-					t.Error("project_hash filter not found in must conditions")
+				// BUG-2025-11-20-004 FIX: Collection-based isolation means filters should be empty
+				// Project isolation is now handled by collection name (project_<hash>__checkpoints)
+				if len(filters) > 0 {
+					t.Errorf("filters should be empty with collection-based isolation, got: %v", filters)
 				}
 				return []vectorstore.SearchResult{
 					{
@@ -496,9 +514,9 @@ func Test_projectHash(t *testing.T) {
 		t.Error("projectHash() collision")
 	}
 
-	// Hash should be 16 characters (hex string)
-	if len(hash1) != 16 {
-		t.Errorf("projectHash() length = %d, want 16", len(hash1))
+	// Hash should be 8 characters (hex string) to match existing convention
+	if len(hash1) != 8 {
+		t.Errorf("projectHash() length = %d, want 8", len(hash1))
 	}
 }
 

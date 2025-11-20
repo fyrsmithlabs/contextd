@@ -21,6 +21,9 @@ import (
 type VectorStore interface {
 	AddDocuments(ctx context.Context, docs []vectorstore.Document) error
 	SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error)
+	SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error)
+	GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error)
+	ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error)
 }
 
 // Service provides checkpoint management with vector storage and semantic search.
@@ -73,6 +76,16 @@ func (s *Service) Save(ctx context.Context, cp *Checkpoint) error {
 	}
 	cp.UpdatedAt = now
 
+	// Auto-detect git branch if not provided
+	if cp.Branch == "" {
+		if branch, err := detectGitBranch(cp.ProjectPath); err == nil && branch != "" {
+			cp.Branch = branch
+			s.logger.Debug("Auto-detected git branch",
+				zap.String("project", cp.ProjectPath),
+				zap.String("branch", branch))
+		}
+	}
+
 	// Build content for embedding (summary + content)
 	embedContent := cp.Summary
 	if cp.Content != "" {
@@ -99,16 +112,25 @@ func (s *Service) Save(ctx context.Context, cp *Checkpoint) error {
 		metadata["tags"] = cp.Tags
 	}
 
+	// Add branch
+	if cp.Branch != "" {
+		metadata["branch"] = cp.Branch
+	}
+
 	// Add full content to metadata (not embedded, but stored for retrieval)
 	if cp.Content != "" {
 		metadata["content"] = cp.Content
 	}
 
+	// Compute project-specific collection name (fixes BUG-2025-11-20-004 ROOT CAUSE #2)
+	collectionName := fmt.Sprintf("project_%s__checkpoints", projectHash(cp.ProjectPath))
+
 	// Create vector store document
 	doc := vectorstore.Document{
-		ID:       cp.ID,
-		Content:  embedContent,
-		Metadata: metadata,
+		ID:         cp.ID,
+		Content:    embedContent,
+		Metadata:   metadata,
+		Collection: collectionName, // Use project-specific collection
 	}
 
 	// Store in vector database (embedding generated automatically)
@@ -148,24 +170,45 @@ func (s *Service) Search(ctx context.Context, query string, opts *SearchOptions)
 		return nil, fmt.Errorf("invalid search options: %w", err)
 	}
 
-	// Build filters for project-scoped search using Qdrant filter structure
-	filters := map[string]interface{}{
-		"must": []map[string]interface{}{
-			{
-				"key": "project_hash",
-				"match": map[string]interface{}{
-					"value": projectHash(opts.ProjectPath),
-				},
-			},
-		},
-	}
+	// Compute project-specific collection name (fixes BUG-2025-11-20-004 ROOT CAUSE #2)
+	collectionName := fmt.Sprintf("project_%s__checkpoints", projectHash(opts.ProjectPath))
+
+	// NOTE: No filters needed - collection-based isolation provides project scoping
+	// The project-specific collection name already ensures we only search within the project
+	// Filters will be used later for tag filtering if needed
+	var filters map[string]interface{}
 
 	// TODO: Add tag filtering when needed
 	// Tag filtering will be implemented in memory after retrieval
 	_ = opts.Tags // Avoid unused variable warning
 
-	// Execute semantic search
-	results, err := s.vectorStore.SearchWithFilters(ctx, query, opts.Limit, filters)
+	// BUG-2025-11-20-005: Check collection size for small dataset fix
+	// Qdrant requires ≥10 vectors for HNSW index to work
+	// For <10 vectors, use exact search fallback (brute force cosine similarity)
+	var results []vectorstore.SearchResult
+	var err error
+
+	collectionInfo, err := s.vectorStore.GetCollectionInfo(ctx, collectionName)
+	if err != nil {
+		s.logger.Warn("Failed to get collection info, falling back to standard search",
+			zap.Error(err),
+			zap.String("collection", collectionName))
+		// If we can't get collection info, try standard search anyway
+		results, err = s.vectorStore.SearchInCollection(ctx, collectionName, query, opts.Limit, filters)
+	} else if collectionInfo.PointCount < 10 {
+		// Small dataset: Use exact search fallback
+		s.logger.Debug("Using exact search fallback for small dataset",
+			zap.String("collection", collectionName),
+			zap.Int("point_count", collectionInfo.PointCount))
+
+		// Use exact search (brute force cosine similarity) for <10 vectors
+		// This is slower but works without HNSW index
+		results, err = s.vectorStore.ExactSearch(ctx, collectionName, query, opts.Limit)
+	} else {
+		// Normal dataset: Use HNSW indexed search
+		results, err = s.vectorStore.SearchInCollection(ctx, collectionName, query, opts.Limit, filters)
+	}
+
 	if err != nil {
 		s.logger.Error("Checkpoint search failed",
 			zap.Error(err),
@@ -192,6 +235,11 @@ func (s *Service) Search(ctx context.Context, query string, opts *SearchOptions)
 
 		// Filter by tags if specified (in-memory filtering)
 		if len(opts.Tags) > 0 && !hasAnyTag(checkpoint.Tags, opts.Tags) {
+			continue
+		}
+
+		// Filter by branch if specified (in-memory filtering)
+		if opts.Branch != "" && checkpoint.Branch != opts.Branch {
 			continue
 		}
 
@@ -266,6 +314,9 @@ func (s *Service) Get(ctx context.Context, projectPath, id string) (*Checkpoint,
 		return nil, errors.New("checkpoint ID is required")
 	}
 
+	// Compute project-specific collection name (fixes BUG-2025-11-20-004 ROOT CAUSE #2)
+	collectionName := fmt.Sprintf("project_%s__checkpoints", projectHash(projectPath))
+
 	// Search by ID with project filter using Qdrant filter structure
 	// This is a workaround since vectorstore doesn't have a Get method
 	filters := map[string]interface{}{
@@ -285,7 +336,7 @@ func (s *Service) Get(ctx context.Context, projectPath, id string) (*Checkpoint,
 		},
 	}
 
-	results, err := s.vectorStore.SearchWithFilters(ctx, id, 1, filters)
+	results, err := s.vectorStore.SearchInCollection(ctx, collectionName, id, 1, filters)
 	if err != nil {
 		return nil, fmt.Errorf("getting checkpoint: %w", err)
 	}
@@ -311,7 +362,88 @@ func (s *Service) Get(ctx context.Context, projectPath, id string) (*Checkpoint,
 // projectHash generates a SHA256 hash of the project path for collection naming.
 func projectHash(projectPath string) string {
 	hash := sha256.Sum256([]byte(projectPath))
-	return hex.EncodeToString(hash[:])[:16] // Use first 16 chars for brevity
+	return hex.EncodeToString(hash[:])[:8] // Use first 8 chars to match existing convention
+}
+
+// getOrCreateCollectionName resolves collection name with collision detection.
+//
+// Algorithm:
+// 1. Generate base hash: project_<hash>__<type>
+// 2. Check if collection exists
+// 3. If exists, verify project_path matches (check sample document)
+// 4. If collision (different project), append _01, _02, etc.
+// 5. Limit: 100 collision attempts
+//
+// Returns collection name or error if collision limit exceeded.
+func (s *Service) getOrCreateCollectionName(ctx context.Context, projectPath, collectionType string) (string, error) {
+	baseHash := projectHash(projectPath)
+	maxAttempts := 100
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var collectionName string
+		if attempt == 0 {
+			collectionName = fmt.Sprintf("project_%s__%s", baseHash, collectionType)
+		} else {
+			collectionName = fmt.Sprintf("project_%s_%02d__%s", baseHash, attempt, collectionType)
+		}
+
+		// Check if collection exists
+		info, err := s.vectorStore.GetCollectionInfo(ctx, collectionName)
+		if err != nil {
+			// Collection doesn't exist - we can use this name
+			if errors.Is(err, vectorstore.ErrCollectionNotFound) {
+				s.logger.Debug("Collection available",
+					zap.String("collection", collectionName),
+					zap.String("project", projectPath),
+					zap.Int("attempt", attempt))
+				return collectionName, nil
+			}
+			// Other error - return it
+			return "", fmt.Errorf("checking collection info: %w", err)
+		}
+
+		// Collection exists - verify it's for the same project
+		if info.PointCount == 0 {
+			// Empty collection - assume it's ours (edge case: abandoned collection)
+			s.logger.Warn("Found empty collection, assuming ownership",
+				zap.String("collection", collectionName),
+				zap.String("project", projectPath))
+			return collectionName, nil
+		}
+
+		// Query a sample document to check project_path
+		// Use SearchInCollection with limit=1 to get any document
+		results, err := s.vectorStore.SearchInCollection(ctx, collectionName, projectPath, 1, nil)
+		if err != nil {
+			// If search fails, try next collision suffix
+			s.logger.Debug("Failed to query collection for verification",
+				zap.Error(err),
+				zap.String("collection", collectionName))
+			continue
+		}
+
+		if len(results) > 0 {
+			// Check if the document belongs to this project
+			if storedPath, ok := results[0].Metadata["project_path"].(string); ok {
+				if storedPath == projectPath {
+					// Same project - reuse this collection
+					s.logger.Debug("Reusing existing collection",
+						zap.String("collection", collectionName),
+						zap.String("project", projectPath))
+					return collectionName, nil
+				}
+			}
+		}
+
+		// Collision detected - try next suffix
+		s.logger.Info("Hash collision detected, trying next suffix",
+			zap.String("collection", collectionName),
+			zap.String("project", projectPath),
+			zap.Int("attempt", attempt))
+	}
+
+	// Exceeded collision limit
+	return "", fmt.Errorf("exceeded collision limit (%d attempts) for project %s", maxAttempts, projectPath)
 }
 
 // resultToCheckpoint converts a vector store search result to a Checkpoint.
@@ -366,10 +498,15 @@ func resultToCheckpoint(result vectorstore.SearchResult) (*Checkpoint, error) {
 		}
 	}
 
+	// Extract branch
+	if branch, ok := result.Metadata["branch"].(string); ok {
+		cp.Branch = branch
+	}
+
 	// Copy all metadata (excluding system fields)
 	for k, v := range result.Metadata {
 		if k != "id" && k != "project_path" && k != "project_hash" && k != "summary" &&
-			k != "created_at" && k != "updated_at" && k != "content" && k != "tags" {
+			k != "created_at" && k != "updated_at" && k != "content" && k != "tags" && k != "branch" {
 			cp.Metadata[k] = v
 		}
 	}

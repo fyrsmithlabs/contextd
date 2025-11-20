@@ -31,6 +31,9 @@ type Checkpoint struct {
 	// Tags categorize checkpoints for organization
 	Tags []string `json:"tags"`
 
+	// Branch is the git branch name (optional, auto-detected from project path)
+	Branch string `json:"branch,omitempty"`
+
 	// CreatedAt is when this checkpoint was created
 	CreatedAt time.Time `json:"created_at"`
 
@@ -51,6 +54,9 @@ type SearchOptions struct {
 
 	// Tags filters results to checkpoints with any of these tags
 	Tags []string
+
+	// Branch filters results to checkpoints from a specific git branch (optional)
+	Branch string
 }
 
 // ListOptions configures checkpoint listing behavior.

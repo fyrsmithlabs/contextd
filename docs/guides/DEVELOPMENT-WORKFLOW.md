@@ -10,6 +10,221 @@
 
 ---
 
+## Mandatory Multi-Agent Orchestration Workflow
+
+**CRITICAL**: ALL tasks MUST follow this multi-agent workflow. Single-agent completion is NOT acceptable.
+
+### Core Principle
+
+**Consensus Requirement**: All specialized agents must review and approve the solution before the task is considered complete. No single agent (including you) can unilaterally declare a task done.
+
+### Agent Assignment by Task Type
+
+| Task Type | Required Agents/Skills | Agreement Criteria |
+|-----------|----------------------|-------------------|
+| **Go Code Implementation** | 1. `golang-pro` skill (implementation)<br>2. `security-auditor` agent (security review)<br>3. `superpowers:code-reviewer` agent (final review) | All 3 must approve: code quality, security compliance, test coverage ≥80% |
+| **MCP Protocol Work** | 1. `mcp-developer` agent (design/research)<br>2. `golang-pro` skill (implementation)<br>3. `superpowers:code-reviewer` agent (validation) | Protocol compliance verified by mcp-developer, implementation approved by golang-pro, final validation by code-reviewer |
+| **Security-Critical Changes** | 1. `security-auditor` agent (threat modeling)<br>2. `golang-pro` skill (secure implementation)<br>3. `contextd:security-check` skill (contextd-specific validation)<br>4. `superpowers:code-reviewer` agent (final review) | All 4 must approve: threat model, implementation, contextd multi-tenant compliance, overall quality |
+| **Documentation Updates** | 1. `kinney-documentation` skill (structure/style)<br>2. `documentation-engineer` agent (technical accuracy)<br>3. `superpowers:code-reviewer` agent (completeness check) | All 3 must approve: scannable structure, technical accuracy, completeness |
+| **Architecture Decisions** | 1. Specialist agent (e.g., `mcp-developer`, `qdrant-specialist`)<br>2. `golang-pro` skill (feasibility check)<br>3. `security-auditor` agent (security implications)<br>4. `superpowers:code-reviewer` agent (ADR compliance) | All 4 must approve: design soundness, implementation feasibility, security, ADR alignment |
+| **Test Strategy** | 1. `test-strategist` agent (strategy design)<br>2. `golang-pro` skill (test implementation)<br>3. `superpowers:code-reviewer` agent (coverage validation) | All 3 must approve: strategy completeness, test quality, coverage ≥80% |
+
+### Standard Multi-Agent Workflow (ALL Tasks)
+
+```
+Step 1: Planning & Design
+├─ TaskMaster: Break down task into subtasks
+├─ Specialist Agent: Design solution (architecture, strategy, research)
+│  └─ Output: Design document, requirements, approach
+└─ Review: Team review of design before implementation
+
+Step 2: Implementation
+├─ golang-pro skill: Implement solution following design
+│  ├─ TDD (Red → Green → Refactor)
+│  ├─ Security-first coding
+│  └─ ≥80% test coverage
+└─ Output: Working code with comprehensive tests
+
+Step 3: Security Validation (if applicable)
+├─ security-auditor agent: Review for vulnerabilities
+│  ├─ Multi-tenant isolation
+│  ├─ Input validation
+│  └─ gosec findings
+└─ contextd:security-check skill: Contextd-specific checks
+
+Step 4: Final Code Review (MANDATORY)
+├─ superpowers:code-reviewer agent: Comprehensive review
+│  ├─ Verification evidence validation
+│  ├─ Standards compliance
+│  ├─ Documentation completeness
+│  └─ Architecture compliance
+└─ Verdict: APPROVED / CHANGES REQUIRED / BLOCKED
+
+Step 5: Task Completion (Only if ALL agents approved)
+└─ contextd:completing-major-task or contextd:completing-minor-task
+```
+
+### Parallel Agent Execution
+
+**For independent subtasks**, deploy agents in parallel using a single message with multiple Task tool calls:
+
+```javascript
+// Example: Implementing authentication system
+Task("Security threat modeling", "Analyze auth system threats...", "security-auditor")
+Task("Go implementation with TDD", "Implement JWT auth with ≥80% coverage...", "golang-pro")
+Task("Documentation", "Create auth system docs...", "documentation-engineer")
+
+// After all complete, synchronize for code review
+Task("Final code review", "Validate all work...", "superpowers:code-reviewer")
+```
+
+### Examples by Task Type
+
+#### Example 1: Go Feature Implementation
+
+```
+User: "Implement JWT authentication for MCP endpoints"
+
+1. Security threat modeling (security-auditor agent)
+   → Identifies: token storage, replay attacks, timing attacks
+
+2. Implementation (golang-pro skill)
+   → Implements: constant-time comparison, secure storage, tests
+   → Result: 87% coverage, all tests pass
+
+3. Security validation (security-auditor agent + contextd:security-check)
+   → Validates: Multi-tenant isolation maintained, no new gosec findings
+
+4. Code review (superpowers:code-reviewer agent)
+   → Validates: All standards met, documentation complete
+   → Verdict: APPROVED
+
+5. Task completion (contextd:completing-major-task)
+   → Evidence: Build output, test results, security validation, functionality proof
+```
+
+#### Example 2: MCP Protocol Design
+
+```
+User: "Design MCP batch operations endpoint"
+
+1. Protocol research (mcp-developer agent)
+   → Researches: MCP spec 2025-06-18, batch patterns, error handling
+   → Output: Design document with spec compliance
+
+2. Feasibility check (golang-pro skill)
+   → Validates: Implementation feasible in Go, identifies edge cases
+
+3. Security review (security-auditor agent)
+   → Validates: No SSRF, rate limiting, multi-tenant safe
+
+4. Implementation (golang-pro skill)
+   → Implements: Following mcp-developer's design
+   → Result: Protocol-compliant, tested
+
+5. Protocol validation (mcp-developer agent)
+   → Validates: Spec compliance, proper JSON-RPC
+
+6. Final review (superpowers:code-reviewer agent)
+   → Verdict: APPROVED
+```
+
+#### Example 3: Documentation Update
+
+```
+User: "Update architecture documentation for stdio transport"
+
+1. Structure design (kinney-documentation skill)
+   → Designs: Scannable structure, ~150 lines, @imports for details
+
+2. Technical content (documentation-engineer agent)
+   → Writes: Accurate technical descriptions, diagrams, examples
+
+3. Accuracy validation (mcp-developer agent, if MCP-related)
+   → Validates: Protocol accuracy, terminology correctness
+
+4. Completeness check (superpowers:code-reviewer agent)
+   → Validates: All sections present, CHANGELOG updated
+
+5. Task completion (contextd:completing-minor-task or major)
+```
+
+### Anti-Patterns (What NOT to Do)
+
+❌ **Single-Agent Completion**
+```
+Bad: "I implemented and reviewed the code myself. Task complete."
+Why: No independent validation, bias in self-review
+Fix: Deploy multiple agents, get consensus
+```
+
+❌ **Skipping Security Review**
+```
+Bad: "Code looks secure, skipping security-auditor agent"
+Why: Security issues missed, multi-tenant isolation not validated
+Fix: ALWAYS run security-auditor for ANY code change
+```
+
+❌ **Sequential When Parallel Possible**
+```
+Bad: Design → wait → Implement → wait → Test → wait → Review
+Why: Wastes time when subtasks are independent
+Fix: Deploy agents in parallel for independent work
+```
+
+❌ **Accepting First Approval**
+```
+Bad: "golang-pro approved, shipping it!"
+Why: Missing security review, code review, verification
+Fix: ALL required agents must approve before completion
+```
+
+### Consensus Decision Making
+
+**When agents disagree:**
+
+1. **Document disagreement**: Capture each agent's concerns
+2. **Identify root cause**: Technical limitation? Security risk? Standard violation?
+3. **Escalate if needed**: Ask user for guidance on tradeoffs
+4. **Iterate solution**: Address all concerns until consensus reached
+5. **No forced consensus**: If fundamental disagreement exists, do NOT proceed
+
+**Example Disagreement Resolution**:
+```
+security-auditor: "Timing attack possible in token comparison"
+golang-pro: "Using strings.Compare for efficiency"
+
+Resolution:
+1. Acknowledge security concern (valid threat)
+2. Implement constant-time comparison (crypto/subtle)
+3. Re-review by both agents
+4. Consensus: APPROVED (security + efficiency via proper library)
+```
+
+### Verification at Each Stage
+
+**Each agent must provide structured output:**
+
+```markdown
+Agent: [Agent name]
+Task: [What was reviewed]
+Status: APPROVED / CHANGES REQUIRED / BLOCKED
+Findings:
+  - [Specific finding with file:line reference]
+  - [Specific finding with file:line reference]
+Recommendations:
+  - [Actionable recommendation]
+```
+
+**Final completion requires:**
+- [ ] All required agents for task type have reviewed
+- [ ] All agents status: APPROVED
+- [ ] Verification evidence template complete
+- [ ] CHANGELOG.md updated
+- [ ] All tests passing with ≥80% coverage
+
+---
+
 ## Critical: Always Check Standards & Specs First
 
 Before starting any task:

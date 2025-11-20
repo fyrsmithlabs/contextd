@@ -11,6 +11,11 @@ type Document struct {
 	// Metadata contains additional key-value pairs for filtering
 	// Common fields: owner, project, file, branch, timestamp
 	Metadata map[string]interface{}
+
+	// Collection is the target collection name for this document.
+	// If empty, uses the service's default collection.
+	// Format: project_<hash>__<type> for project-specific collections.
+	Collection string
 }
 
 // SearchResult represents a search result from the vector store.
