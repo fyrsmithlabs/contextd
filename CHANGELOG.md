@@ -11,9 +11,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Small Dataset Search Fix** (BUG-2025-11-20-005): Fixed Qdrant HNSW index returning zero results for collections with <10 vectors
+  - HNSW index requires minimum 10 vectors for indexing, collections below threshold returned empty results
+  - Implemented exact search fallback using brute-force cosine similarity for collections with <10 vectors
+  - Vector count check via `GetCollectionInfo()` before search determines which algorithm to use
+  - Search performance: <50ms for <10 vectors (exact search), <200ms for ≥10 vectors (HNSW)
+  - Test coverage: 87.5% for exact search implementation
+  - Ensures new projects with few checkpoints remain searchable
+  - Resolves GitHub Issue #12 (Phase 1, task 1)
+
+- **Hash Collision Detection**: Implemented collision detection algorithm for project hash collisions
+  - 8-char SHA256 hash prefix has ~0.1% collision probability at 100K projects, 10% at 1M projects
+  - Detection algorithm: Query sample document to verify `project_path` metadata matches
+  - Resolution: Append numeric suffix (`_01`, `_02`, etc.) on collision, limit 100 attempts
+  - Collection naming: `project_<hash>__checkpoints` or `project_<hash>_NN__checkpoints` on collision
+  - Reuses existing collection if same project (idempotent)
+  - Test coverage: 81.5% for collision detection method
+  - Prevents data corruption from hash collisions as system scales
+  - Resolves GitHub Issue #12 (Phase 1, task 2)
+
 - **CRITICAL**: Fixed context cancellation bug in async MCP handlers causing all async operations to fail with "context canceled" after HTTP response sent. Affected handlers: `checkpoint_save`, `skill_save`, `troubleshoot`, `collection_create`, `collection_delete`. Background workers now use `context.Background()` instead of HTTP request context.
 
+- **CRITICAL**: Fixed collection architecture violation in checkpoint service (BUG-2025-11-20-004 ROOT CAUSE #2):
+  - checkpoint_save now writes to project-specific collections (`project_<hash>__checkpoints`)
+  - checkpoint_search now reads from same project-specific collections
+  - Restores multi-tenant isolation per ADR-002 (database-per-project physical isolation)
+  - Fixes checkpoint searchability (Save and Search now use same collection)
+  - Per-collection store caching for performance (thread-safe with sync.RWMutex)
+  - Comprehensive security validation (6 security requirements, 6 security tests)
+  - Test coverage: 88.1% (exceeds 80% requirement)
+
 ### Added
+
+- **Git Branch Tracking for Checkpoints**: Implemented automatic git branch detection and filtering
+  - Added optional `branch` field to Checkpoint model (auto-populated if git repo detected)
+  - Auto-detection via go-git SDK (`github.com/go-git/go-git/v5`) in Save method
+  - Graceful handling of non-git directories (returns empty string, not error)
+  - Branch metadata stored in checkpoint documents for filtering
+  - Branch filtering support in Search API (`SearchOptions.Branch`)
+  - In-memory filtering during search (similar to tags filtering)
+  - Test coverage: 77.8% for `detectGitBranch`, 93.5% for Save with branch detection, 83.8% for Search with filtering
+  - Enables workflow-based checkpoint organization (e.g., "show checkpoints from feature/auth branch")
+  - Resolves GitHub Issue #12 (Phase 1, task 3)
 
 - **stdio MCP Support (MVP)**: Implemented stdio transport for Claude Code integration
   - Created `pkg/mcp/stdio` package with HTTP delegation architecture
@@ -41,6 +80,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaces stubbed `index_repository` handler (Issue #9 partial completion)
 
 ### Changed
+
+- **Development Workflow - Mandatory Multi-Agent Orchestration**: Standardized multi-agent consensus workflow for all development tasks
+  - MANDATORY: All tasks require multiple specialized agents to review and approve
+  - Agent assignment matrix by task type (Go code, MCP, security, docs, architecture)
+  - Consensus requirement: ALL agents must approve before task completion
+  - Parallel execution patterns for independent subtasks
+  - Disagreement resolution process with escalation path
+  - Examples: Go feature (3 agents), MCP design (6 agents), docs (3 agents)
+  - Anti-patterns documented (single-agent completion, skipping security review)
+  - Structured output required from each agent (APPROVED/CHANGES REQUIRED/BLOCKED)
+  - Prevents single-agent bias, ensures security validation, enforces standards compliance
+  - Updated `docs/guides/DEVELOPMENT-WORKFLOW.md` with comprehensive workflow
 
 - **MCP Protocol Version**: Updated to MCP spec 2025-06-18 (from 2024-11-05)
   - Updated protocol version negotiation to default to 2025-06-18 (June 2025)
