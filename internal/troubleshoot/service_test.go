@@ -45,8 +45,11 @@ func TestNewService(t *testing.T) {
 	store := &mockVectorStore{}
 	logger := zap.NewNop()
 
-	svc := NewService(store, logger, nil)
+	svc, err := NewService(store, logger, nil)
 
+	if err != nil {
+		t.Fatalf("NewService() returned error: %v", err)
+	}
 	if svc == nil {
 		t.Fatal("NewService() returned nil")
 	}
@@ -58,16 +61,35 @@ func TestNewService(t *testing.T) {
 	}
 }
 
+func TestNewService_NilVectorStore(t *testing.T) {
+	logger := zap.NewNop()
+
+	svc, err := NewService(nil, logger, nil)
+
+	if err == nil {
+		t.Fatal("NewService() should return error for nil vector store")
+	}
+	if svc != nil {
+		t.Error("NewService() should return nil service when vector store is nil")
+	}
+	if err.Error() != "vector store is required for troubleshoot service" {
+		t.Errorf("NewService() error = %q, want %q", err.Error(), "vector store is required for troubleshoot service")
+	}
+}
+
 func TestNewService_NilLogger(t *testing.T) {
 	store := &mockVectorStore{}
 
-	svc := NewService(store, nil, nil)
+	svc, err := NewService(store, nil, nil)
 
-	if svc == nil {
-		t.Fatal("NewService() returned nil")
+	if err == nil {
+		t.Fatal("NewService() should return error for nil logger")
 	}
-	if svc.logger == nil {
-		t.Error("Service should have created a no-op logger")
+	if svc != nil {
+		t.Error("NewService() should return nil service when logger is nil")
+	}
+	if err.Error() != "logger is required for troubleshoot service" {
+		t.Errorf("NewService() error = %q, want %q", err.Error(), "logger is required for troubleshoot service")
 	}
 }
 
@@ -148,9 +170,12 @@ func TestSavePattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &mockVectorStore{}
-			svc := NewService(store, zap.NewNop(), nil)
+			svc, err := NewService(store, zap.NewNop(), nil)
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
 
-			err := svc.SavePattern(context.Background(), tt.pattern)
+			err = svc.SavePattern(context.Background(), tt.pattern)
 
 			if tt.wantErr && err == nil {
 				t.Errorf("SavePattern() error = nil, wantErr %v", tt.wantErr)
@@ -173,7 +198,10 @@ func TestSavePattern_StoreError(t *testing.T) {
 			return errors.New("store error")
 		},
 	}
-	svc := NewService(store, zap.NewNop(), nil)
+	svc, err := NewService(store, zap.NewNop(), nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
 
 	pattern := &Pattern{
 		ErrorType:   "ConnectionError",
@@ -182,7 +210,7 @@ func TestSavePattern_StoreError(t *testing.T) {
 		Confidence:  0.9,
 	}
 
-	err := svc.SavePattern(context.Background(), pattern)
+	err = svc.SavePattern(context.Background(), pattern)
 	if err == nil {
 		t.Fatal("SavePattern() should return error when store fails")
 	}
@@ -247,7 +275,10 @@ func TestGetPatterns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &mockVectorStore{}
 			tt.setup(store)
-			svc := NewService(store, zap.NewNop(), nil)
+			svc, err := NewService(store, zap.NewNop(), nil)
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
 
 			patterns, err := svc.GetPatterns(context.Background())
 
@@ -407,7 +438,10 @@ func TestDiagnose(t *testing.T) {
 			ai := &mockAIClient{}
 			tt.setupStore(store)
 			tt.setupAI(ai)
-			svc := NewService(store, zap.NewNop(), ai)
+			svc, err := NewService(store, zap.NewNop(), ai)
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
 
 			diagnosis, err := svc.Diagnose(context.Background(), tt.errorMsg, tt.errorContext)
 

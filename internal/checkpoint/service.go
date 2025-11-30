@@ -89,7 +89,7 @@ func NewService(cfg *Config, qc qdrant.Client, logger *zap.Logger) (Service, err
 		return nil, errors.New("qdrant client is required")
 	}
 	if logger == nil {
-		logger = zap.NewNop()
+		return nil, errors.New("logger is required for checkpoint service")
 	}
 
 	s := &service{

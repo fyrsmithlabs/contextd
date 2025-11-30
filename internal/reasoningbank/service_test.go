@@ -179,11 +179,11 @@ func TestNewService(t *testing.T) {
 		assert.NotNil(t, svc)
 	})
 
-	t.Run("uses nop logger if nil", func(t *testing.T) {
+	t.Run("requires logger", func(t *testing.T) {
 		store := newMockStore()
-		svc, err := NewService(store, nil)
-		require.NoError(t, err)
-		assert.NotNil(t, svc)
+		_, err := NewService(store, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "logger is required for ReasoningBank service")
 	})
 }
 

@@ -145,6 +145,7 @@ func TestNewService(t *testing.T) {
 		cfg       *Config
 		qdrant    QdrantClient
 		embedder  *mockEmbedder
+		logger    *zap.Logger
 		wantErr   bool
 		errSubstr string
 	}{
@@ -153,6 +154,7 @@ func TestNewService(t *testing.T) {
 			cfg:      DefaultServiceConfig(),
 			qdrant:   newMockQdrantClient(),
 			embedder: &mockEmbedder{vectorSize: 1536},
+			logger:   zap.NewNop(),
 			wantErr:  false,
 		},
 		{
@@ -160,6 +162,7 @@ func TestNewService(t *testing.T) {
 			cfg:      nil,
 			qdrant:   newMockQdrantClient(),
 			embedder: &mockEmbedder{vectorSize: 1536},
+			logger:   zap.NewNop(),
 			wantErr:  false,
 		},
 		{
@@ -167,8 +170,18 @@ func TestNewService(t *testing.T) {
 			cfg:       DefaultServiceConfig(),
 			qdrant:    nil,
 			embedder:  &mockEmbedder{vectorSize: 1536},
+			logger:    zap.NewNop(),
 			wantErr:   true,
 			errSubstr: "qdrant client is required",
+		},
+		{
+			name:      "fails without logger",
+			cfg:       DefaultServiceConfig(),
+			qdrant:    newMockQdrantClient(),
+			embedder:  &mockEmbedder{vectorSize: 1536},
+			logger:    nil,
+			wantErr:   true,
+			errSubstr: "logger is required",
 		},
 		// Note: Cannot test nil embedder case because in Go, a nil pointer
 		// wrapped in an interface is not nil (nil *mockEmbedder != nil Embedder)
@@ -177,7 +190,7 @@ func TestNewService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, err := NewService(tt.cfg, tt.qdrant, tt.embedder, zap.NewNop())
+			svc, err := NewService(tt.cfg, tt.qdrant, tt.embedder, tt.logger)
 
 			if tt.wantErr {
 				require.Error(t, err)

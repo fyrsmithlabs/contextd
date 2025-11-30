@@ -86,7 +86,7 @@ func (c *AbstractiveCompressor) Compress(ctx context.Context, content string, al
 
 	// Validate API key is configured
 	if c.config.AnthropicAPIKey == "" {
-		return nil, fmt.Errorf("Anthropic API key not configured for abstractive compression")
+		return nil, fmt.Errorf("anthropic API key not configured for abstractive compression")
 	}
 
 	// For very short content, return as-is
@@ -122,7 +122,7 @@ Provide only the compressed version without any explanations or meta-commentary.
 	// Call Claude API
 	compressedContent, err := c.callClaudeAPI(ctx, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("Claude API call failed: %w", err)
+		return nil, fmt.Errorf("claude API call failed: %w", err)
 	}
 
 	// Calculate metrics

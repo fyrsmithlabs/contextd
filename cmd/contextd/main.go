@@ -18,9 +18,17 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/config"
+	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
+	"github.com/fyrsmithlabs/contextd/internal/mcp"
+	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
+	"github.com/fyrsmithlabs/contextd/internal/remediation"
+	"github.com/fyrsmithlabs/contextd/internal/repository"
+	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/telemetry"
+	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 )
 
 // Version information (set at build time via ldflags)
@@ -29,17 +37,6 @@ var (
 	commit    = "unknown"
 	buildDate = "unknown"
 )
-
-// isFlagPassed returns true if the flag was explicitly set on the command line.
-func isFlagPassed(name string) bool {
-	found := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			found = true
-		}
-	})
-	return found
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -52,8 +49,8 @@ func run() error {
 	// Parse flags
 	configPath := flag.String("config", "", "path to config file (optional)")
 	showVersion := flag.Bool("version", false, "show version information")
-	port := flag.Int("port", 50051, "server port")
-	host := flag.String("host", "localhost", "server host")
+	httpPort := flag.Int("http-port", 0, "HTTP server port (overrides config, default: 9090)")
+	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
 	flag.Parse()
 
 	if *showVersion {
@@ -107,79 +104,157 @@ func run() error {
 	// ============================================================================
 	// Load Configuration
 	// ============================================================================
+	// Always try to load from file first (default: ~/.config/contextd/config.yaml)
+	// Falls back to environment-only config if file doesn't exist
 	var cfg *config.Config
-	if *configPath != "" {
-		cfg, err = config.LoadWithFile(*configPath)
-		if err != nil {
+	cfg, err = config.LoadWithFile(*configPath)
+	if err != nil {
+		// Check if it's just a missing file (acceptable) vs actual error
+		if *configPath == "" {
+			// No explicit config path, try env-only fallback
+			logger.Warn(ctx, "config file not found or invalid, using environment variables only",
+				zap.Error(err),
+			)
+			cfg = config.Load()
+		} else {
+			// Explicit config path specified but failed - this is an error
 			return fmt.Errorf("loading config from file: %w", err)
 		}
-		logger.Info(ctx, "config loaded from file", zap.String("path", *configPath))
 	} else {
-		cfg = config.Load()
-		logger.Info(ctx, "using default config (no config file specified)")
+		if *configPath != "" {
+			logger.Info(ctx, "config loaded from file", zap.String("path", *configPath))
+		} else {
+			logger.Info(ctx, "config loaded from default location (~/.config/contextd/config.yaml)")
+		}
 	}
 
 	// ============================================================================
-	// PHASE 3: MCP Server (Not Yet Implemented)
+	// PHASE 3: MCP Server
 	// ============================================================================
-	// TODO: Initialize MCP server with:
-	//   - stdio transport for local development
-	//   - Tool discovery and registration
-	//   - Session management
-	//   - Memory service integration
-	//
-	// Example:
-	//   mcpServer := mcp.NewServer(mcp.Config{
-	//       Transport: mcp.TransportStdio,
-	//       Logger:    logger,
-	//   })
-	//   defer mcpServer.Close()
+	// Initialize MCP server with stdio transport and core services.
+	// Note: Some dependencies (Qdrant, embedder) are stubs pending implementation.
+
+	// Initialize stub Qdrant client (TODO: replace with real implementation)
+	// For now, we'll skip services that require Qdrant since it's not yet implemented
+	logger.Warn(ctx, "Qdrant client not yet implemented, some services will be unavailable")
+
+	// Initialize secret scrubber
+	scrubCfg := secrets.DefaultConfig()
+	scrubCfg.Enabled = true
+	scrubber, err := secrets.New(scrubCfg)
+	if err != nil {
+		return fmt.Errorf("initializing secret scrubber: %w", err)
+	}
+	logger.Info(ctx, "secret scrubber initialized")
 
 	// ============================================================================
-	// PHASE 5: HTTP Server (Not Yet Implemented)
+	// Initialize HTTP Server
 	// ============================================================================
-	// TODO: Initialize dual-protocol server (gRPC + HTTP) with:
-	//   - cmux for port multiplexing
-	//   - gRPC services for typed clients
-	//   - Echo HTTP REST API for simplicity
-	//   - Secret scrubbing on all responses
-	//   - Process isolation for tool execution
-	//
-	// Example:
-	//   serverCfg := server.Config{
-	//       Port:       *port,
-	//       Host:       *host,
-	//       EnableGRPC: true,
-	//   }
-	//   if isFlagPassed("port") {
-	//       serverCfg.Port = *port
-	//   }
-	//   if isFlagPassed("host") {
-	//       serverCfg.Host = *host
-	//   }
-	//
-	//   srv := server.NewDualServer(serverCfg, &server.Deps{
-	//       Logger: logger,
-	//       // ... other dependencies
-	//   })
-	//   defer srv.Shutdown(context.Background())
-	//
-	//   go srv.Start()
+	// Determine HTTP server configuration (flags override config)
+	httpServerHost := "localhost"
+	if *httpHost != "" {
+		httpServerHost = *httpHost
+	}
 
-	logger.Info(ctx, "contextd initialized (foundation only)",
-		zap.String("host", *host),
-		zap.Int("port", *port),
-		zap.String("phase", "Phase 1 complete"),
+	httpServerPort := cfg.Server.Port
+	if *httpPort != 0 {
+		httpServerPort = *httpPort
+	}
+
+	httpCfg := &httpserver.Config{
+		Host: httpServerHost,
+		Port: httpServerPort,
+	}
+
+	httpSrv, err := httpserver.NewServer(scrubber, logger.Underlying(), httpCfg)
+	if err != nil {
+		return fmt.Errorf("initializing HTTP server: %w", err)
+	}
+	logger.Info(ctx, "HTTP server initialized",
+		zap.String("host", httpServerHost),
+		zap.Int("port", httpServerPort),
+	)
+
+	// Start HTTP server in background goroutine
+	httpErrChan := make(chan error, 1)
+	go func() {
+		if err := httpSrv.Start(); err != nil {
+			httpErrChan <- fmt.Errorf("HTTP server error: %w", err)
+		}
+	}()
+
+	// Initialize checkpoint service (stub - requires Qdrant)
+	// Using nil for now since Qdrant is not implemented
+	var checkpointSvc checkpoint.Service
+	logger.Warn(ctx, "checkpoint service unavailable (requires Qdrant implementation)")
+
+	// Initialize remediation service (stub - requires Qdrant + embedder)
+	var remediationSvc remediation.Service
+	logger.Warn(ctx, "remediation service unavailable (requires Qdrant + embedder)")
+
+	// Initialize repository service (requires checkpoint service)
+	var repositorySvc *repository.Service
+	logger.Warn(ctx, "repository service unavailable (requires checkpoint service)")
+
+	// Initialize troubleshoot service (stub - requires vectorstore)
+	var troubleshootSvc *troubleshoot.Service
+	logger.Warn(ctx, "troubleshoot service unavailable (requires vectorstore)")
+
+	// Initialize reasoningbank service (stub - requires vectorstore)
+	var reasoningbankSvc *reasoningbank.Service
+	logger.Warn(ctx, "reasoningbank service unavailable (requires vectorstore)")
+
+	// Create MCP server with available services
+	// Note: Most tools will be unavailable until infrastructure is implemented
+	mcpCfg := &mcp.Config{
+		Name:    "contextd-v2",
+		Version: version,
+		Logger:  logger.Underlying(), // Get underlying *zap.Logger
+	}
+
+	// For now, skip MCP server creation since required services are unavailable
+	// This will be enabled once Qdrant and vectorstore are implemented
+	logger.Warn(ctx, "MCP server initialization skipped - required services unavailable")
+	logger.Info(ctx, "To enable MCP server, implement: Qdrant client, embedder, vectorstore")
+
+	// Keep the config for future use
+	_ = mcpCfg
+	_ = scrubber
+	_ = checkpointSvc
+	_ = remediationSvc
+	_ = repositorySvc
+	_ = troubleshootSvc
+	_ = reasoningbankSvc
+
+	logger.Info(ctx, "contextd initialized (infrastructure pending)",
+		zap.String("http_host", httpServerHost),
+		zap.Int("http_port", httpServerPort),
+		zap.String("status", "Phase 4 complete, Phase 5-6 pending"),
 	)
 
 	// Log config for debugging (will be redacted if contains secrets)
 	_ = cfg // Config loaded but not yet used by services
 
-	// Wait for shutdown signal
-	<-ctx.Done()
-	logger.Info(ctx, "shutdown signal received")
+	// Wait for shutdown signal or HTTP server error
+	select {
+	case <-ctx.Done():
+		logger.Info(ctx, "shutdown signal received")
+	case err := <-httpErrChan:
+		logger.Error(ctx, "HTTP server error", zap.Error(err))
+		return err
+	}
 
 	logger.Info(ctx, "shutting down contextd")
+
+	// Gracefully shutdown HTTP server
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	defer shutdownCancel()
+
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "HTTP server shutdown error", zap.Error(err))
+	} else {
+		logger.Info(ctx, "HTTP server stopped")
+	}
 
 	// Shutdown is handled by deferred functions above
 

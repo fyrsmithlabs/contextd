@@ -47,16 +47,19 @@ type Service struct {
 // The service uses vector storage for pattern matching and an optional
 // AI client for hypothesis generation. If aiClient is nil, the service
 // will only use pattern-based diagnosis.
-func NewService(store VectorStore, logger *zap.Logger, aiClient AIClient) *Service {
+func NewService(store VectorStore, logger *zap.Logger, aiClient AIClient) (*Service, error) {
+	if store == nil {
+		return nil, errors.New("vector store is required for troubleshoot service")
+	}
 	if logger == nil {
-		logger = zap.NewNop()
+		return nil, errors.New("logger is required for troubleshoot service")
 	}
 	return &Service{
 		store:    store,
 		logger:   logger,
 		aiClient: aiClient,
 		tracer:   tracer,
-	}
+	}, nil
 }
 
 // SavePattern stores an error pattern for future matching.

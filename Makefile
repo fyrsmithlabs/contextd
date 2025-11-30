@@ -6,7 +6,8 @@ help:
 	@echo ""
 	@echo "Build & Run:"
 	@echo "  make build          Build contextd binary"
-	@echo "  make build-all      Build contextd binary (alias for build)"
+	@echo "  make build-ctxd     Build ctxd CLI binary"
+	@echo "  make build-all      Build both contextd and ctxd binaries"
 	@echo "  make go-install     Install binaries to GOPATH/bin"
 	@echo "  make version        Show version of built/installed binary"
 	@echo "  make start          Start contextd service"
@@ -84,7 +85,14 @@ build:
 		-o contextd ./cmd/contextd/
 	@echo "✓ Built contextd"
 
-build-all: build
+build-ctxd:
+	@echo "🔨 Building ctxd CLI..."
+	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+	go build -ldflags="-X main.version=$$VERSION" \
+		-o ctxd ./cmd/ctxd/
+	@echo "✓ Built ctxd"
+
+build-all: build build-ctxd
 
 go-install:
 	@echo "📦 Installing contextd binaries with go install..."
@@ -93,10 +101,12 @@ go-install:
 	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
 	go install -ldflags="-X main.version=$$VERSION -X main.commit=$$COMMIT -X main.buildDate=$$DATE" ./cmd/contextd
 	@echo "✓ Installed contextd to $(shell go env GOPATH)/bin"
+	@go install -ldflags="-X main.version=$$VERSION" ./cmd/ctxd
+	@echo "✓ Installed ctxd to $(shell go env GOPATH)/bin"
 	@echo "  Make sure $(shell go env GOPATH)/bin is in your PATH"
 
 clean:
-	@rm -f contextd
+	@rm -f contextd ctxd
 	@rm -rf dist/
 	@rm -f coverage.out coverage.html
 	@echo "✓ Cleaned build artifacts"

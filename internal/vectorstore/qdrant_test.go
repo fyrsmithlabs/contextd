@@ -242,11 +242,12 @@ func TestQdrantStore_Integration(t *testing.T) {
 	assert.NotEmpty(t, results)
 
 	// Search with filters
-	results, err = store.SearchWithFilters(ctx, "test query", 10, map[string]interface{}{
+	filteredResults, err := store.SearchWithFilters(ctx, "test query", 10, map[string]interface{}{
 		"owner": "alice",
 	})
 	require.NoError(t, err)
 	// Should only return alice's document
+	_ = filteredResults
 
 	// Get collection info
 	info, err := store.GetCollectionInfo(ctx, config.CollectionName)

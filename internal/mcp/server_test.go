@@ -214,7 +214,8 @@ func TestNewServer(t *testing.T) {
 	require.NoError(t, err)
 
 	repositorySvc := repository.NewService(checkpointSvc)
-	troubleshootSvc := troubleshoot.NewService(troubleshootStore, logger, nil)
+	troubleshootSvc, err := troubleshoot.NewService(troubleshootStore, logger, nil)
+	require.NoError(t, err)
 	reasoningbankSvc, err := reasoningbank.NewService(vectorStore, logger)
 	require.NoError(t, err)
 	scrubber := secrets.MustNew(secrets.DefaultConfig())
@@ -314,7 +315,8 @@ func TestServerClose(t *testing.T) {
 	require.NoError(t, err)
 
 	repositorySvc := repository.NewService(checkpointSvc)
-	troubleshootSvc := troubleshoot.NewService(troubleshootStore, logger, nil)
+	troubleshootSvc, err := troubleshoot.NewService(troubleshootStore, logger, nil)
+	require.NoError(t, err)
 	reasoningbankSvc, err := reasoningbank.NewService(vectorStore, logger)
 	require.NoError(t, err)
 	scrubber := secrets.MustNew(secrets.DefaultConfig())

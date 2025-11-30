@@ -225,6 +225,12 @@ func (c *ExtractiveCompressor) selectSentences(sentences []string, scores []floa
 		}
 	}
 
+	// Edge case: if no sentences were selected (targetLength too small),
+	// select the highest-scoring sentence to ensure non-empty output
+	if len(selected) == 0 && len(sentences) > 0 {
+		selected = append(selected, sentences[scoreSlice[0].index])
+	}
+
 	// Sort selected sentences by original order to maintain coherence
 	sort.Slice(selected, func(i, j int) bool {
 		// Find original indices

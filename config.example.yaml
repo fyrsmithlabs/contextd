@@ -1,44 +1,54 @@
 # config.example.yaml
 # Contextd Configuration
-# Copy to config.yaml and modify as needed.
-# Environment variables override file values (prefix: CONTEXTD_)
+# Copy to ~/.config/contextd/config.yaml and modify as needed.
+# File MUST have 0600 permissions: chmod 600 ~/.config/contextd/config.yaml
+#
+# Environment variables override file values.
+# Mapping: SECTION_FIELD_NAME -> section.field_name
+# Example: SERVER_HTTP_PORT -> server.http_port
 
 # Server Configuration
-# Controls gRPC and HTTP server settings
 server:
-  # gRPC server configuration
-  grpc:
-    host: ""              # Empty = bind to all interfaces (0.0.0.0)
-    port: 50051           # gRPC server port
-    max_recv_msg_size: 16777216  # 16MB - maximum message size for receiving
-    max_send_msg_size: 16777216  # 16MB - maximum message size for sending
+  http_port: 9090              # HTTP server port (default: 9090)
+  shutdown_timeout: 10s        # Graceful shutdown timeout (default: 10s)
 
-    # Keepalive settings for gRPC connections
-    keepalive:
-      time: 30s           # Send keepalive pings every 30s
-      timeout: 10s        # Wait 10s for keepalive response before closing
-      min_time: 10s       # Minimum time between client pings
+# Observability Configuration (OpenTelemetry)
+observability:
+  enable_telemetry: false      # Enable OTEL tracing (default: true)
+  service_name: contextd       # Service name for traces (default: contextd)
 
-  # HTTP server configuration (for MCP Streamable HTTP transport)
-  http:
-    host: ""              # Empty = bind to all interfaces
-    port: 8080            # HTTP server port
-    read_timeout: 30s     # Timeout for reading entire request
-    write_timeout: 30s    # Timeout for writing entire response
-    idle_timeout: 120s    # Timeout for idle connections
+# Pre-Fetch Configuration
+# Proactively loads context based on git state
+prefetch:
+  enabled: true                # Enable pre-fetch engine (default: true)
+  cache_ttl: 5m                # Cache TTL (default: 5m)
+  cache_max_entries: 100       # Maximum cache entries (default: 100)
 
-  # Graceful shutdown timeout
-  shutdown_timeout: 30s   # Max time to wait for graceful shutdown
+  # Individual rule configuration (optional, defaults shown)
+  # rules:
+  #   branch_diff:
+  #     enabled: true
+  #     max_files: 10
+  #     max_size_kb: 50
+  #     timeout_ms: 1000
+  #   recent_commit:
+  #     enabled: true
+  #     max_size_kb: 20
+  #     timeout_ms: 500
+  #   common_files:
+  #     enabled: true
+  #     max_files: 3
+  #     timeout_ms: 500
 
-# Feature-specific configurations will be added here by their packages:
-# - logging (internal/logging) - log levels, formats, output destinations
-# - telemetry (internal/telemetry) - OpenTelemetry configuration
-# - qdrant (internal/qdrant) - Vector database connection settings
-# - scrubber (internal/scrubber) - Secret detection patterns
-# - memory (internal/memory) - ReasoningBank settings
-# - checkpoint (internal/checkpoint) - Session persistence settings
+# Checkpoint Configuration
+checkpoint:
+  max_content_size_kb: 1024    # Maximum content size in KB (default: 1024 = 1MB)
 
 # Example environment variable overrides:
-# export CONTEXTD_SERVER_GRPC_PORT=9000
-# export CONTEXTD_SERVER_HTTP_PORT=9080
-# export CONTEXTD_SERVER_SHUTDOWN_TIMEOUT=60s
+# export SERVER_HTTP_PORT=8080
+# export SERVER_SHUTDOWN_TIMEOUT=30s
+# export OBSERVABILITY_ENABLE_TELEMETRY=true
+# export OBSERVABILITY_SERVICE_NAME=my-contextd
+# export PREFETCH_ENABLED=false
+# export PREFETCH_CACHE_TTL=10m
+# export CHECKPOINT_MAX_CONTENT_SIZE_KB=2048

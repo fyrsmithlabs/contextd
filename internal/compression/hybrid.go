@@ -24,9 +24,9 @@ const (
 // HybridCompressor combines extractive and abstractive approaches
 // with intelligent routing based on content type
 type HybridCompressor struct {
-	extractive  *ExtractiveCompressor
-	abstractive *AbstractiveCompressor
-	config      Config
+	extractive         *ExtractiveCompressor
+	abstractive        Compressor // Use interface for dependency injection
+	config             Config
 }
 
 // NewHybridCompressor creates a new hybrid compressor
@@ -34,6 +34,16 @@ func NewHybridCompressor(config Config) *HybridCompressor {
 	return &HybridCompressor{
 		extractive:  NewExtractiveCompressor(config),
 		abstractive: NewAbstractiveCompressor(config),
+		config:      config,
+	}
+}
+
+// NewHybridCompressorWithAbstractive creates a hybrid compressor with injected abstractive compressor
+// This allows for testing with mock implementations
+func NewHybridCompressorWithAbstractive(config Config, abstractive Compressor) *HybridCompressor {
+	return &HybridCompressor{
+		extractive:  NewExtractiveCompressor(config),
+		abstractive: abstractive,
 		config:      config,
 	}
 }

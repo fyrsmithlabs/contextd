@@ -42,7 +42,7 @@ func NewService(store vectorstore.Store, logger *zap.Logger) (*Service, error) {
 		return nil, fmt.Errorf("vector store cannot be nil")
 	}
 	if logger == nil {
-		logger = zap.NewNop()
+		return nil, fmt.Errorf("logger is required for ReasoningBank service")
 	}
 
 	return &Service{

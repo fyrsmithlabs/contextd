@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/qdrant"
 )
@@ -23,6 +24,13 @@ func TestNewService_RequiresQdrant(t *testing.T) {
 	_, err := NewService(nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "qdrant client is required")
+}
+
+func TestNewService_RequiresLogger(t *testing.T) {
+	qc := newMockQdrantClient()
+	_, err := NewService(nil, qc, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "logger is required for checkpoint service")
 }
 
 func TestCheckpointToPayload(t *testing.T) {
@@ -255,7 +263,8 @@ func (m *mockQdrantClient) Close() error {
 
 func TestService_SaveAndGet(t *testing.T) {
 	qc := newMockQdrantClient()
-	svc, err := NewService(nil, qc, nil)
+	logger := zap.NewNop()
+	svc, err := NewService(nil, qc, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -283,7 +292,8 @@ func TestService_SaveAndGet(t *testing.T) {
 
 func TestService_List(t *testing.T) {
 	qc := newMockQdrantClient()
-	svc, err := NewService(nil, qc, nil)
+	logger := zap.NewNop()
+	svc, err := NewService(nil, qc, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -302,7 +312,8 @@ func TestService_List(t *testing.T) {
 
 func TestService_Close(t *testing.T) {
 	qc := newMockQdrantClient()
-	svc, err := NewService(nil, qc, nil)
+	logger := zap.NewNop()
+	svc, err := NewService(nil, qc, logger)
 	require.NoError(t, err)
 
 	// Close should work

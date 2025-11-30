@@ -103,7 +103,7 @@ func NewService(cfg *Config, qc QdrantClient, embedder Embedder, logger *zap.Log
 		return nil, errors.New("embedder is required")
 	}
 	if logger == nil {
-		logger = zap.NewNop()
+		return nil, errors.New("logger is required for remediation service")
 	}
 
 	s := &service{
