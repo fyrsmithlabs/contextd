@@ -1,408 +1,188 @@
-// Contextd is a context daemon for Claude Code with HTTP transport.
+// Package main provides the entry point for the contextd server.
 //
-// This binary starts the contextd HTTP server with full service initialization,
-// including NATS, Qdrant, embeddings, and MCP endpoints.
-//
-// Configuration is loaded from environment variables. See pkg/config for details.
-//
-// Usage:
-//
-//	# Start server with defaults
-//	contextd
-//
-//	# Configure via environment
-//	SERVER_PORT=9090 QDRANT_URL=http://localhost:6333 contextd
+// contextd is a shared knowledge layer for AI agents, providing:
+//   - ReasoningBank: Cross-session memory
+//   - Context-Folding: Active context management
+//   - Institutional Knowledge: Project → Team → Org hierarchy
+//   - Secret Scrubbing: gitleaks-based security
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/nats-io/nats.go"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
-	"github.com/fyrsmithlabs/contextd/pkg/checkpoint"
-	"github.com/fyrsmithlabs/contextd/pkg/config"
-	"github.com/fyrsmithlabs/contextd/pkg/embeddings"
-	"github.com/fyrsmithlabs/contextd/pkg/mcp"
-	"github.com/fyrsmithlabs/contextd/pkg/remediation"
-	"github.com/fyrsmithlabs/contextd/pkg/repository"
-	"github.com/fyrsmithlabs/contextd/pkg/server"
-	"github.com/fyrsmithlabs/contextd/pkg/skills"
-	"github.com/fyrsmithlabs/contextd/pkg/troubleshoot"
-	"github.com/fyrsmithlabs/contextd/pkg/vectorstore"
+	"github.com/fyrsmithlabs/contextd/internal/config"
+	"github.com/fyrsmithlabs/contextd/internal/logging"
+	"github.com/fyrsmithlabs/contextd/internal/telemetry"
 )
 
-// Version information (set via ldflags during build)
+// Version information (set at build time via ldflags)
 var (
 	version   = "dev"
-	gitCommit = "unknown"
+	commit    = "unknown"
 	buildDate = "unknown"
 )
 
-// logger is the global logger instance, used by stdio mode
-var logger *zap.Logger
+// isFlagPassed returns true if the flag was explicitly set on the command line.
+func isFlagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
 
 func main() {
-	// Define flags
-	mcpMode := flag.Bool("mcp", false, "Run as MCP server (stdio mode for Claude Code)")
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	// Parse command-line arguments
+func run() error {
+	// Parse flags
+	configPath := flag.String("config", "", "path to config file (optional)")
+	showVersion := flag.Bool("version", false, "show version information")
+	port := flag.Int("port", 50051, "server port")
+	host := flag.String("host", "localhost", "server host")
 	flag.Parse()
-	args := flag.Args()
 
-	// Handle subcommands
-	if len(args) > 0 {
-		switch args[0] {
-		case "version":
-			printVersion()
-			os.Exit(0)
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
-			fmt.Fprintf(os.Stderr, "\nUsage:\n")
-			fmt.Fprintf(os.Stderr, "  contextd           Start the contextd daemon\n")
-			fmt.Fprintf(os.Stderr, "  contextd version   Show version information\n")
-			os.Exit(1)
-		}
+	if *showVersion {
+		fmt.Printf("contextd %s (commit: %s, built: %s)\n", version, commit, buildDate)
+		return nil
 	}
 
-	// Setup signal handling for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create root context with signal handling
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Setup signal handler
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigCh
-		log.Printf("Received signal %v, shutting down gracefully...", sig)
-		cancel()
-	}()
-
-	// Load configuration
-	cfg := config.Load()
-
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
+	// ============================================================================
+	// Initialize Logging
+	// ============================================================================
+	logCfg := logging.NewDefaultConfig()
+	logger, err := logging.NewLogger(logCfg, nil)
+	if err != nil {
+		return fmt.Errorf("initializing logger: %w", err)
 	}
+	defer logger.Sync()
 
-	// Run server in appropriate mode
-	var err error
-	if *mcpMode {
-		err = runStdioServer(ctx, cfg)
+	logger.Info(ctx, "starting contextd",
+		zap.String("version", version),
+		zap.String("commit", commit),
+		zap.String("build_date", buildDate),
+	)
+
+	// ============================================================================
+	// Initialize Telemetry (VITAL)
+	// ============================================================================
+	telCfg := telemetry.NewDefaultConfig()
+	telCfg.ServiceName = "contextd"
+	// Disabled by default until OTEL collector is available
+	// Set OTEL_EXPORTER_OTLP_ENDPOINT to enable
+	tel, err := telemetry.New(ctx, telCfg)
+	if err != nil {
+		logger.Warn(ctx, "telemetry initialization failed, continuing without telemetry",
+			zap.Error(err),
+		)
 	} else {
-		err = run(ctx)
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if shutdownErr := tel.Shutdown(shutdownCtx); shutdownErr != nil {
+				logger.Error(ctx, "telemetry shutdown error", zap.Error(shutdownErr))
+			}
+		}()
+		logger.Info(ctx, "telemetry initialized")
 	}
 
-	if err != nil {
-		log.Fatalf("Server error: %v", err)
+	// ============================================================================
+	// Load Configuration
+	// ============================================================================
+	var cfg *config.Config
+	if *configPath != "" {
+		cfg, err = config.LoadWithFile(*configPath)
+		if err != nil {
+			return fmt.Errorf("loading config from file: %w", err)
+		}
+		logger.Info(ctx, "config loaded from file", zap.String("path", *configPath))
+	} else {
+		cfg = config.Load()
+		logger.Info(ctx, "using default config (no config file specified)")
 	}
 
-	log.Println("Server shutdown complete")
-}
+	// ============================================================================
+	// PHASE 3: MCP Server (Not Yet Implemented)
+	// ============================================================================
+	// TODO: Initialize MCP server with:
+	//   - stdio transport for local development
+	//   - Tool discovery and registration
+	//   - Session management
+	//   - Memory service integration
+	//
+	// Example:
+	//   mcpServer := mcp.NewServer(mcp.Config{
+	//       Transport: mcp.TransportStdio,
+	//       Logger:    logger,
+	//   })
+	//   defer mcpServer.Close()
 
-// printVersion prints version information
-func printVersion() {
-	fmt.Printf("contextd by Fyrsmith Labs\n")
-	fmt.Printf("Version:    %s\n", version)
-	fmt.Printf("Commit:     %s\n", gitCommit)
-	fmt.Printf("Build Date: %s\n", buildDate)
-}
+	// ============================================================================
+	// PHASE 5: HTTP Server (Not Yet Implemented)
+	// ============================================================================
+	// TODO: Initialize dual-protocol server (gRPC + HTTP) with:
+	//   - cmux for port multiplexing
+	//   - gRPC services for typed clients
+	//   - Echo HTTP REST API for simplicity
+	//   - Secret scrubbing on all responses
+	//   - Process isolation for tool execution
+	//
+	// Example:
+	//   serverCfg := server.Config{
+	//       Port:       *port,
+	//       Host:       *host,
+	//       EnableGRPC: true,
+	//   }
+	//   if isFlagPassed("port") {
+	//       serverCfg.Port = *port
+	//   }
+	//   if isFlagPassed("host") {
+	//       serverCfg.Host = *host
+	//   }
+	//
+	//   srv := server.NewDualServer(serverCfg, &server.Deps{
+	//       Logger: logger,
+	//       // ... other dependencies
+	//   })
+	//   defer srv.Shutdown(context.Background())
+	//
+	//   go srv.Start()
 
-// run starts the contextd server and blocks until context is cancelled.
-//
-// This function initializes all dependencies and services:
-//  1. Loads and validates configuration
-//  2. Initializes logger and telemetry
-//  3. Connects to infrastructure (NATS, Qdrant)
-//  4. Creates embedding service
-//  5. Initializes business services (Checkpoint, Remediation, Skills)
-//  6. Wires MCP server with all services
-//  7. Starts HTTP server
-//  8. Performs graceful shutdown on context cancellation
-//
-// Returns http.ErrServerClosed on graceful shutdown.
-func run(ctx context.Context) error {
-	// Load configuration
-	cfg := config.Load()
-
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	// Initialize logger
-	logger, err := initLogger(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to initialize logger: %w", err)
-	}
-	defer func() {
-		_ = logger.Sync() // Best-effort sync on shutdown
-	}()
-
-	logger.Info("Starting contextd",
-		zap.Int("port", cfg.Server.Port),
-		zap.String("service", cfg.Observability.ServiceName),
-		zap.Duration("shutdown_timeout", cfg.Server.ShutdownTimeout))
-
-	// Initialize infrastructure dependencies
-	deps, err := initDependencies(ctx, cfg, logger)
-	if err != nil {
-		return fmt.Errorf("failed to initialize dependencies: %w", err)
-	}
-	defer deps.Close()
-
-	logger.Info("Dependencies initialized",
-		zap.Bool("nats_connected", deps.natsConn != nil),
-		zap.Bool("vectorstore_ready", deps.vectorStore != nil))
-
-	// Initialize business services
-	services, err := initServices(deps, logger)
-	if err != nil {
-		return fmt.Errorf("failed to initialize services: %w", err)
-	}
-
-	logger.Info("Services initialized",
-		zap.Bool("checkpoint_service", services.checkpointSvc != nil),
-		zap.Bool("remediation_service", services.remediationSvc != nil),
-		zap.Bool("skills_service", services.skillsSvc != nil),
-		zap.Bool("repository_service", services.repositorySvc != nil))
-
-	// Create HTTP server
-	srv := server.NewServer(cfg)
-
-	// Create MCP adapter for repository service
-	repositoryAdapter := repository.NewMCPAdapter(services.repositorySvc)
-
-	// Create MCP server and register routes
-	mcpServer := mcp.NewServer(
-		srv.Echo(),
-		deps.operations,
-		deps.natsConn,
-		services.checkpointSvc,
-		services.remediationSvc,
-		services.skillsSvc,
-		services.troubleshootSvc,
-		repositoryAdapter,
-		deps.vectorStore,
-		logger,
+	logger.Info(ctx, "contextd initialized (foundation only)",
+		zap.String("host", *host),
+		zap.Int("port", *port),
+		zap.String("phase", "Phase 1 complete"),
 	)
 
-	// Register MCP routes
-	mcpServer.RegisterRoutes()
+	// Log config for debugging (will be redacted if contains secrets)
+	_ = cfg // Config loaded but not yet used by services
 
-	// Initialize prefetch engine (if enabled)
-	if err := mcpServer.InitializePrefetch(&cfg.PreFetch, logger); err != nil {
-		logger.Warn("Failed to initialize prefetch engine",
-			zap.Error(err))
-	} else if cfg.PreFetch.Enabled {
-		logger.Info("Prefetch engine initialized",
-			zap.Duration("cache_ttl", cfg.PreFetch.CacheTTL),
-			zap.Int("max_entries", cfg.PreFetch.CacheMaxEntries))
-	}
+	// Wait for shutdown signal
+	<-ctx.Done()
+	logger.Info(ctx, "shutdown signal received")
 
-	// Register metrics endpoint
-	srv.Echo().GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	logger.Info(ctx, "shutting down contextd")
 
-	logger.Info("Server configured",
-		zap.String("health_endpoint", fmt.Sprintf("http://localhost:%d/health", cfg.Server.Port)),
-		zap.String("mcp_prefix", "/mcp"),
-		zap.String("metrics_endpoint", "/metrics"))
+	// Shutdown is handled by deferred functions above
 
-	// Start server (blocks until context cancellation)
-	return srv.Start(ctx)
-}
-
-// dependencies holds all infrastructure dependencies.
-type dependencies struct {
-	natsConn    *nats.Conn
-	vectorStore *vectorstore.Service
-	operations  *mcp.OperationRegistry
-	logger      *zap.Logger
-}
-
-// Close releases all infrastructure resources.
-func (d *dependencies) Close() {
-	if d.natsConn != nil {
-		d.natsConn.Close()
-	}
-	if d.logger != nil {
-		_ = d.logger.Sync() // Best-effort sync
-	}
-}
-
-// services holds all business services.
-type services struct {
-	checkpointSvc   *checkpoint.Service
-	remediationSvc  *remediation.Service
-	skillsSvc       *skills.Service
-	troubleshootSvc *troubleshoot.Service
-	repositorySvc   *repository.Service
-}
-
-// initLogger initializes the structured logger.
-func initLogger(cfg *config.Config) (*zap.Logger, error) {
-	// Use production logger for non-development environments
-	if cfg.Observability.EnableTelemetry {
-		return zap.NewProduction()
-	}
-	return zap.NewDevelopment()
-}
-
-// initDependencies initializes all infrastructure dependencies.
-//
-// This function:
-//  1. Connects to NATS for operation tracking
-//  2. Creates vector store with Qdrant + embedder
-//  3. Initializes operation registry
-func initDependencies(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*dependencies, error) {
-	// Connect to NATS
-	natsURL := getEnvOrDefault("NATS_URL", "nats://localhost:4222")
-	nc, err := nats.Connect(natsURL,
-		nats.RetryOnFailedConnect(true),
-		nats.MaxReconnects(5),
-		nats.ReconnectWait(1*time.Second),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS at %s: %w", natsURL, err)
-	}
-
-	logger.Info("Connected to NATS", zap.String("url", natsURL))
-
-	// Create JetStream context for operation tracking (verify it works)
-	_, err = nc.JetStream()
-	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
-	}
-
-	// Create operation registry
-	operations := mcp.NewOperationRegistry(nc)
-
-	// Initialize embedding service (TEI or OpenAI)
-	embeddingConfig := embeddings.ConfigFromEnv()
-	embeddingSvc, err := embeddings.NewService(embeddingConfig)
-	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to create embedding service: %w", err)
-	}
-
-	logger.Info("Embedding service initialized",
-		zap.String("base_url", embeddingConfig.BaseURL),
-		zap.String("model", embeddingConfig.Model))
-
-	// Initialize vector store with Qdrant
-	qdrantURL := getEnvOrDefault("QDRANT_URL", "http://localhost:6333")
-	vsConfig := vectorstore.Config{
-		URL:            qdrantURL,
-		CollectionName: "contextd", // Base collection name
-		Embedder:       embeddingSvc.Embedder(),
-	}
-
-	vectorStore, err := vectorstore.NewService(vsConfig)
-	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to create vector store: %w", err)
-	}
-
-	logger.Info("Vector store initialized",
-		zap.String("url", qdrantURL),
-		zap.String("collection", vsConfig.CollectionName))
-
-	// Ensure base collection exists (idempotent)
-	// Vector size depends on embedding model:
-	// - BAAI/bge-small-en-v1.5: 384 dimensions (default)
-	// - text-embedding-3-small: 1536 dimensions
-	vectorSize := getVectorSizeForModel(embeddingConfig.Model)
-	if err := vectorStore.EnsureCollection(ctx, vsConfig.CollectionName, vectorSize); err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to ensure collection exists: %w", err)
-	}
-
-	logger.Info("Collection verified",
-		zap.String("collection", vsConfig.CollectionName),
-		zap.Int("vector_size", vectorSize))
-
-	return &dependencies{
-		natsConn:    nc,
-		vectorStore: vectorStore,
-		operations:  operations,
-		logger:      logger,
-	}, nil
-}
-
-// initServices initializes all business services.
-//
-// This function creates checkpoint, remediation, and skills services
-// with the initialized vector store.
-func initServices(deps *dependencies, logger *zap.Logger) (*services, error) {
-	// Create checkpoint service
-	checkpointSvc := checkpoint.NewService(deps.vectorStore, logger)
-
-	// Create remediation service
-	remediationSvc := remediation.NewService(deps.vectorStore, logger)
-
-	// Create troubleshoot service (nil AI client = pattern-only mode)
-	troubleshootSvc := troubleshoot.NewService(deps.vectorStore, logger, nil)
-
-	// Create skills service
-	skillsSvc := skills.NewService(deps.vectorStore)
-
-	// Create repository service (uses checkpoint service for indexing)
-	repositorySvc := repository.NewService(checkpointSvc)
-
-	return &services{
-		checkpointSvc:   checkpointSvc,
-		remediationSvc:  remediationSvc,
-		skillsSvc:       skillsSvc,
-		troubleshootSvc: troubleshootSvc,
-		repositorySvc:   repositorySvc,
-	}, nil
-}
-
-// getEnvOrDefault gets environment variable or returns default value.
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getVectorSizeForModel returns the vector dimension for a given embedding model.
-//
-// Supported models:
-//   - BAAI/bge-small-en-v1.5: 384 dimensions (default)
-//   - BAAI/bge-base-en-v1.5: 768 dimensions
-//   - BAAI/bge-large-en-v1.5: 1024 dimensions
-//   - text-embedding-3-small: 1536 dimensions
-//   - text-embedding-3-large: 3072 dimensions
-//   - text-embedding-ada-002: 1536 dimensions
-//
-// Returns 384 for unknown models (safe default for BGE-small).
-func getVectorSizeForModel(model string) int {
-	switch model {
-	case "BAAI/bge-small-en-v1.5":
-		return 384
-	case "BAAI/bge-base-en-v1.5":
-		return 768
-	case "BAAI/bge-large-en-v1.5":
-		return 1024
-	case "text-embedding-3-small", "text-embedding-ada-002":
-		return 1536
-	case "text-embedding-3-large":
-		return 3072
-	default:
-		// Default to BGE-small dimensions (most common)
-		return 384
-	}
+	logger.Info(ctx, "contextd stopped")
+	return nil
 }
