@@ -15,6 +15,8 @@ Simplified MCP server for AI agent memory and context management. Calls internal
 - Remediation: Error pattern tracking
 - Secret scrubbing: gitleaks SDK on all tool responses
 - Vectorstore: Qdrant with collection-per-project isolation
+- Compression: Extractive, abstractive, and hybrid context compression
+- Hooks: Lifecycle hooks for session management and auto-checkpoint
 
 ---
 
@@ -29,6 +31,8 @@ internal/
 ├── remediation/       # Error patterns
 ├── vectorstore/       # Qdrant interface
 ├── secrets/           # gitleaks scrubbing (97% coverage)
+├── compression/       # Context compression (extractive, abstractive, hybrid)
+├── hooks/             # Lifecycle hooks (session, clear, threshold)
 ├── config/            # Koanf configuration
 ├── logging/           # Zap + OTEL bridge
 └── telemetry/         # OpenTelemetry
