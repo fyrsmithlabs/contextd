@@ -1,5 +1,29 @@
 package vectorstore
 
+import "time"
+
+// CompressionLevel represents the compression state of content.
+type CompressionLevel string
+
+const (
+	// CompressionLevelNone represents uncompressed original content.
+	CompressionLevelNone CompressionLevel = "none"
+	// CompressionLevelFolded represents context-folded content (partial compression).
+	CompressionLevelFolded CompressionLevel = "folded"
+	// CompressionLevelSummary represents summarized content (high compression).
+	CompressionLevelSummary CompressionLevel = "summary"
+)
+
+// CompressionMetadata tracks compression state and metrics.
+type CompressionMetadata struct {
+	Level            CompressionLevel `json:"compression_level"`               // Current compression level
+	Algorithm        string           `json:"compression_algorithm,omitempty"` // Compression algorithm used
+	OriginalSize     int              `json:"original_size"`                   // Original content size (tokens/chars)
+	CompressedSize   int              `json:"compressed_size"`                 // Compressed content size
+	CompressionRatio float64          `json:"compression_ratio"`               // Compression ratio (original/compressed)
+	CompressedAt     *time.Time       `json:"compressed_at,omitempty"`         // When compression was applied
+}
+
 // Document represents a document to be stored in the vector store.
 type Document struct {
 	// ID is the unique identifier for the document
