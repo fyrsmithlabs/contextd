@@ -1,0 +1,2171 @@
+{
+  "SafeExec.Bash": {
+    "description": "Execute shell command with secret scrubbing",
+    "endpoint": "POST /api/v1/safeexec/bash",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Shell command to execute (max 4KB)"
+        },
+        "timeout": {
+          "type": "integer",
+          "default": 30,
+          "description": "Timeout in seconds"
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory (optional)"
+        }
+      },
+      "required": [
+        "session_id",
+        "cmd"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "stdout_preview": {
+          "type": "string"
+        },
+        "stderr_preview": {
+          "type": "string"
+        },
+        "stdout_ref": {
+          "type": "string"
+        },
+        "stderr_ref": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "List directory",
+        "input": {
+          "session_id": "sess_abc123",
+          "cmd": "ls -la"
+        },
+        "output": {
+          "summary": "Executed: ls -la (exit 0, 15 lines)",
+          "exit_code": 0,
+          "tokens_used": 45
+        }
+      },
+      {
+        "description": "Command with timeout",
+        "input": {
+          "session_id": "sess_abc123",
+          "cmd": "sleep 5 && echo done",
+          "timeout": 10
+        },
+        "output": {
+          "summary": "Executed: sleep 5 && echo done (exit 0, 1 lines)",
+          "exit_code": 0
+        }
+      },
+      {
+        "description": "Failed command",
+        "input": {
+          "session_id": "sess_abc123",
+          "cmd": "cat /nonexistent"
+        },
+        "output": {
+          "summary": "Executed: cat (exit 1)",
+          "exit_code": 1,
+          "stderr_preview": "cat: /nonexistent: No such file"
+        }
+      }
+    ]
+  },
+  "SafeExec.Read": {
+    "description": "Read file contents with path validation and scrubbing",
+    "endpoint": "POST /api/v1/safeexec/read",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute file path (must be within project)"
+        },
+        "offset": {
+          "type": "integer",
+          "default": 0,
+          "description": "Line offset"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max lines (0 = all)"
+        }
+      },
+      "required": [
+        "session_id",
+        "path"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "content_preview": {
+          "type": "string"
+        },
+        "content_ref": {
+          "type": "string"
+        },
+        "total_lines": {
+          "type": "integer"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Read config file",
+        "input": {
+          "session_id": "sess_abc123",
+          "path": "/project/config.yaml"
+        },
+        "output": {
+          "summary": "Read 25 lines from /project/config.yaml",
+          "total_lines": 25,
+          "tokens_used": 120
+        }
+      },
+      {
+        "description": "Read with offset",
+        "input": {
+          "session_id": "sess_abc123",
+          "path": "/project/main.go",
+          "offset": 100,
+          "limit": 50
+        },
+        "output": {
+          "summary": "Read 50 lines from /project/main.go",
+          "total_lines": 500,
+          "tokens_used": 200
+        }
+      }
+    ]
+  },
+  "SafeExec.Write": {
+    "description": "Write content to file with path validation",
+    "endpoint": "POST /api/v1/safeexec/write",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute file path (must be within project)"
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write (max 1MB)"
+        },
+        "append": {
+          "type": "boolean",
+          "default": false,
+          "description": "Append instead of overwrite"
+        }
+      },
+      "required": [
+        "session_id",
+        "path",
+        "content"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "bytes_written": {
+          "type": "integer"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Write new file",
+        "input": {
+          "session_id": "sess_abc123",
+          "path": "/project/output.txt",
+          "content": "Hello World\n"
+        },
+        "output": {
+          "summary": "Wrote 1 lines to /project/output.txt",
+          "bytes_written": 12,
+          "tokens_used": 5
+        }
+      },
+      {
+        "description": "Append to file",
+        "input": {
+          "session_id": "sess_abc123",
+          "path": "/project/log.txt",
+          "content": "New entry\n",
+          "append": true
+        },
+        "output": {
+          "summary": "Wrote 1 lines to /project/log.txt",
+          "bytes_written": 10,
+          "tokens_used": 5
+        }
+      }
+    ]
+  },
+  "Session.Start": {
+    "description": "Start a new session for contextd operations",
+    "endpoint": "POST /api/v1/session/start",
+    "input": {
+      "type": "object",
+      "properties": {
+        "project_path": {
+          "type": "string",
+          "description": "Root path for this session (boundary for file ops)"
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "Tenant identifier (optional)"
+        },
+        "team_id": {
+          "type": "string",
+          "description": "Team identifier (optional)"
+        }
+      },
+      "required": [
+        "project_path"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "injected_context": {
+          "type": "string",
+          "description": "Tier 0 context injection"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Start session",
+        "input": {
+          "project_path": "/home/user/myproject"
+        },
+        "output": {
+          "session_id": "sess_abc123def456",
+          "injected_context": "# contextd: Shared Knowledge Layer...",
+          "tokens_used": 170
+        }
+      }
+    ]
+  },
+  "Session.End": {
+    "description": "End an active session",
+    "endpoint": "POST /api/v1/session/end",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Session ID to end"
+        },
+        "outcome": {
+          "type": "string",
+          "description": "Session outcome: success | failure | partial"
+        },
+        "distill": {
+          "type": "boolean",
+          "default": false,
+          "description": "Trigger async distillation"
+        }
+      },
+      "required": [
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memories_extracted": {
+          "type": "integer"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "End session",
+        "input": {
+          "session_id": "sess_abc123def456",
+          "outcome": "success"
+        },
+        "output": {
+          "memories_extracted": 0,
+          "tokens_used": 5
+        }
+      }
+    ]
+  },
+  "Ref.GetContent": {
+    "description": "Resolve a content reference to get full content",
+    "endpoint": "POST /api/v1/ref/content",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "ref_id": {
+          "type": "string",
+          "description": "Reference ID from previous response"
+        }
+      },
+      "required": [
+        "session_id",
+        "ref_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Get full stdout",
+        "input": {
+          "session_id": "sess_abc123",
+          "ref_id": "ref_xyz789"
+        },
+        "output": {
+          "content": "line1\nline2\nline3\n...",
+          "content_type": "text",
+          "tokens_used": 375
+        }
+      }
+    ]
+  },
+  "Memory.Search": {
+    "description": "Search for memories by semantic similarity to a query",
+    "endpoint": "POST /api/v1/memory/search",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query (natural language)"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Search scope: project | team | org | all (default: project)",
+          "default": "project"
+        },
+        "outcome": {
+          "type": "string",
+          "description": "Filter by outcome: success | failure | all (default: all)",
+          "default": "all"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results to return (default: 10)",
+          "default": 10
+        },
+        "min_confidence": {
+          "type": "number",
+          "description": "Minimum confidence threshold 0.0-1.0 (default: 0.7)",
+          "default": 0.7
+        }
+      },
+      "required": [
+        "session_id",
+        "query"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description_preview": {
+                "type": "string",
+                "description": "First 100 chars of description"
+              },
+              "confidence": {
+                "type": "number"
+              },
+              "outcome": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "total_count": {
+          "type": "integer"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Search for Go error handling strategies",
+        "input": {
+          "session_id": "sess_abc123",
+          "query": "Go error handling best practices",
+          "scope": "project"
+        },
+        "output": {
+          "memories": [
+            {
+              "id": "mem_001",
+              "title": "Use %w for error wrapping",
+              "description_preview": "Always wrap errors with fmt.Errorf and %w to preserve error chain...",
+              "confidence": 0.92,
+              "outcome": "success"
+            },
+            {
+              "id": "mem_002",
+              "title": "Avoid naked returns in error paths",
+              "description_preview": "Naked returns can hide errors. Always explicitly return nil or err...",
+              "confidence": 0.88,
+              "outcome": "success"
+            }
+          ],
+          "total_count": 2,
+          "tokens_used": 85
+        }
+      },
+      {
+        "description": "Search for debugging failures",
+        "input": {
+          "session_id": "sess_abc123",
+          "query": "debugging segfault",
+          "scope": "all",
+          "outcome": "failure"
+        },
+        "output": {
+          "memories": [
+            {
+              "id": "mem_050",
+              "title": "Don't use printf debugging for segfaults",
+              "description_preview": "Printf debugging doesn't work for segfaults - use gdb or delve instead...",
+              "confidence": 0.75,
+              "outcome": "failure"
+            }
+          ],
+          "total_count": 1,
+          "tokens_used": 42
+        }
+      },
+      {
+        "description": "Search with no results",
+        "input": {
+          "session_id": "sess_abc123",
+          "query": "quantum entanglement patterns"
+        },
+        "output": {
+          "memories": [],
+          "total_count": 0,
+          "tokens_used": 20
+        }
+      }
+    ]
+  },
+  "Memory.Store": {
+    "description": "Store a new memory (explicit capture)",
+    "endpoint": "POST /api/v1/memory/store",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for the memory"
+        },
+        "description": {
+          "type": "string",
+          "description": "When to apply this memory"
+        },
+        "content": {
+          "type": "string",
+          "description": "Detailed strategy or anti-pattern"
+        },
+        "outcome": {
+          "type": "string",
+          "description": "success | failure | neutral",
+          "default": "neutral"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags for categorization (optional)"
+        }
+      },
+      "required": [
+        "session_id",
+        "title",
+        "description",
+        "content"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Generated memory ID"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Store a successful debugging strategy",
+        "input": {
+          "session_id": "sess_abc123",
+          "title": "Use delve for Go race conditions",
+          "description": "When debugging data races or concurrency issues in Go",
+          "content": "Run tests with -race flag first to identify race. Then use delve with goroutine inspection: dlv test -- -test.run TestName. Use 'goroutines' command to list all goroutines and 'goroutine N' to switch context.",
+          "outcome": "success",
+          "tags": [
+            "go",
+            "debugging",
+            "concurrency"
+          ]
+        },
+        "output": {
+          "id": "mem_abc123def456",
+          "tokens_used": 5
+        }
+      },
+      {
+        "description": "Store an anti-pattern",
+        "input": {
+          "session_id": "sess_abc123",
+          "title": "Don't use time.Sleep for test synchronization",
+          "description": "When writing tests with async operations",
+          "content": "Using time.Sleep(100*time.Millisecond) to wait for async operations makes tests flaky. Use channels, sync.WaitGroup, or polling with timeout instead.",
+          "outcome": "failure",
+          "tags": [
+            "go",
+            "testing",
+            "anti-pattern"
+          ]
+        },
+        "output": {
+          "id": "mem_xyz789abc123",
+          "tokens_used": 5
+        }
+      }
+    ]
+  },
+  "Memory.Feedback": {
+    "description": "Provide feedback on a memory to adjust its confidence",
+    "endpoint": "POST /api/v1/memory/feedback",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "memory_id": {
+          "type": "string",
+          "description": "ID of the memory to rate"
+        },
+        "helpful": {
+          "type": "boolean",
+          "description": "true = helpful, false = not helpful"
+        },
+        "comment": {
+          "type": "string",
+          "description": "Optional comment (use 'outdated' to mark as outdated)"
+        }
+      },
+      "required": [
+        "session_id",
+        "memory_id",
+        "helpful"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "new_confidence": {
+          "type": "number",
+          "description": "Updated confidence score"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Mark memory as helpful",
+        "input": {
+          "session_id": "sess_abc123",
+          "memory_id": "mem_001",
+          "helpful": true
+        },
+        "output": {
+          "new_confidence": 0.95,
+          "tokens_used": 5
+        }
+      },
+      {
+        "description": "Mark memory as not helpful",
+        "input": {
+          "session_id": "sess_abc123",
+          "memory_id": "mem_002",
+          "helpful": false,
+          "comment": "Didn't apply to this situation"
+        },
+        "output": {
+          "new_confidence": 0.78,
+          "tokens_used": 5
+        }
+      },
+      {
+        "description": "Mark memory as outdated",
+        "input": {
+          "session_id": "sess_abc123",
+          "memory_id": "mem_003",
+          "helpful": false,
+          "comment": "outdated - Go 1.23 changed this"
+        },
+        "output": {
+          "new_confidence": 0.55,
+          "tokens_used": 5
+        }
+      }
+    ]
+  },
+  "Memory.Get": {
+    "description": "Retrieve full details of a memory by ID",
+    "endpoint": "GET /api/v1/memory/:id?session_id=<session_id>",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Memory ID (URL parameter)"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID (query parameter)"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "description": "Full detailed content"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Get full memory details",
+        "input": {
+          "id": "mem_001",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "id": "mem_001",
+          "title": "Use %w for error wrapping",
+          "description": "When wrapping errors in Go to preserve error chain for errors.Is/As",
+          "content": "Always use fmt.Errorf with %w verb instead of %v when wrapping errors. This preserves the error chain allowing errors.Is() and errors.As() to work correctly. Example: return fmt.Errorf(\"failed to process: %w\", err) instead of return fmt.Errorf(\"failed to process: %v\", err)",
+          "outcome": "success",
+          "confidence": 0.92,
+          "tags": [
+            "go",
+            "error-handling"
+          ],
+          "tokens_used": 145
+        }
+      }
+    ]
+  },
+  "Checkpoint.Save": {
+    "description": "Save a checkpoint of the current session state",
+    "endpoint": "POST /api/v1/checkpoint/save",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Brief summary of session state"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional tags for categorization"
+        }
+      },
+      "required": [
+        "session_id",
+        "summary"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Save checkpoint manually",
+        "input": {
+          "session_id": "sess_abc123",
+          "summary": "Completed feature X implementation"
+        },
+        "output": {
+          "checkpoint_id": "cp_xyz789",
+          "tokens_used": 10
+        }
+      },
+      {
+        "description": "Save checkpoint with tags",
+        "input": {
+          "session_id": "sess_abc123",
+          "summary": "Before refactoring auth module",
+          "tags": [
+            "refactoring",
+            "auth"
+          ]
+        },
+        "output": {
+          "checkpoint_id": "cp_def456",
+          "tokens_used": 12
+        }
+      }
+    ]
+  },
+  "Checkpoint.List": {
+    "description": "List available checkpoints for the current session",
+    "endpoint": "POST /api/v1/checkpoint/list",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 10,
+          "description": "Maximum number of checkpoints to return"
+        }
+      },
+      "required": [
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "checkpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "List checkpoints",
+        "input": {
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "checkpoints": [
+            {
+              "id": "cp_xyz789",
+              "summary": "Completed feature X",
+              "created_at": "2025-11-26T10:30:00Z",
+              "tags": []
+            },
+            {
+              "id": "cp_def456",
+              "summary": "Before refactoring",
+              "created_at": "2025-11-26T11:45:00Z",
+              "tags": [
+                "refactoring"
+              ]
+            }
+          ],
+          "tokens_used": 30
+        }
+      }
+    ]
+  },
+  "Checkpoint.Resume": {
+    "description": "Resume from a checkpoint at the specified detail level",
+    "endpoint": "POST /api/v1/checkpoint/resume",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "checkpoint_id": {
+          "type": "string",
+          "description": "ID of checkpoint to resume from"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "context",
+            "full"
+          ],
+          "default": "context",
+          "description": "Detail level: summary (minimal), context (balanced), full (complete state)"
+        }
+      },
+      "required": [
+        "session_id",
+        "checkpoint_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string",
+          "description": "Returned if level >= context"
+        },
+        "context_ref": {
+          "type": "string",
+          "description": "Reference for full state (returned if level = full)"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Resume with summary only",
+        "input": {
+          "session_id": "sess_abc123",
+          "checkpoint_id": "cp_xyz789",
+          "level": "summary"
+        },
+        "output": {
+          "summary": "Completed feature X implementation",
+          "tokens_used": 10
+        }
+      },
+      {
+        "description": "Resume with context",
+        "input": {
+          "session_id": "sess_abc123",
+          "checkpoint_id": "cp_xyz789",
+          "level": "context"
+        },
+        "output": {
+          "summary": "Completed feature X",
+          "context": "Session checkpoint: Completed feature X implementation",
+          "tokens_used": 50
+        }
+      },
+      {
+        "description": "Resume with full state",
+        "input": {
+          "session_id": "sess_abc123",
+          "checkpoint_id": "cp_xyz789",
+          "level": "full"
+        },
+        "output": {
+          "summary": "Completed feature X",
+          "context": "Session checkpoint: Completed feature X implementation",
+          "context_ref": "ref_cp_xyz789",
+          "tokens_used": 200
+        }
+      }
+    ]
+  },
+  "Remediation.Search": {
+    "description": "Search for similar past error remediations by error message or pattern",
+    "endpoint": "POST /api/v1/remediation/search",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message or pattern to search for"
+        },
+        "context": {
+          "type": "string",
+          "description": "Additional context about the error (optional)"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 5,
+          "description": "Maximum results to return"
+        }
+      },
+      "required": [
+        "session_id",
+        "error"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "remediations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "problem_preview": {
+                "type": "string",
+                "description": "First 100 chars of problem"
+              },
+              "solution_preview": {
+                "type": "string",
+                "description": "First 100 chars of solution"
+              },
+              "confidence": {
+                "type": "number",
+                "description": "Confidence score 0.0-1.0"
+              }
+            }
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Search for compile error fix",
+        "input": {
+          "session_id": "sess_abc123",
+          "error": "undefined reference to function",
+          "limit": 3
+        },
+        "output": {
+          "remediations": [
+            {
+              "id": "rem_xyz789",
+              "title": "Fix undefined function reference",
+              "problem_preview": "Compiler error: undefined reference to 'calculateTotal'...",
+              "solution_preview": "Import the missing package or define the function...",
+              "confidence": 0.85
+            }
+          ],
+          "tokens_used": 45
+        }
+      },
+      {
+        "description": "Search for runtime error fix",
+        "input": {
+          "session_id": "sess_abc123",
+          "error": "nil pointer dereference",
+          "context": "in auth handler"
+        },
+        "output": {
+          "remediations": [
+            {
+              "id": "rem_abc456",
+              "title": "Fix nil pointer in auth",
+              "problem_preview": "Panic: nil pointer dereference when accessing user.Email...",
+              "solution_preview": "Add nil check before accessing user properties...",
+              "confidence": 0.92
+            }
+          ],
+          "tokens_used": 52
+        }
+      }
+    ]
+  },
+  "Remediation.Record": {
+    "description": "Record a successful error fix for future reference",
+    "endpoint": "POST /api/v1/remediation/record",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for the remediation"
+        },
+        "problem": {
+          "type": "string",
+          "description": "Description of the error or issue"
+        },
+        "symptoms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Observable symptoms of the error"
+        },
+        "root_cause": {
+          "type": "string",
+          "description": "Root cause of the error"
+        },
+        "solution": {
+          "type": "string",
+          "description": "Solution that fixed the error"
+        },
+        "code_diff": {
+          "type": "string",
+          "description": "Optional code diff showing the fix"
+        },
+        "affected_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files that were changed"
+        }
+      },
+      "required": [
+        "session_id",
+        "title",
+        "problem",
+        "root_cause",
+        "solution"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID of the recorded remediation"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Record a compile error fix",
+        "input": {
+          "session_id": "sess_abc123",
+          "title": "Fix missing import",
+          "problem": "Compile error: undefined reference to 'fmt.Println'",
+          "symptoms": [
+            "Build failed",
+            "Undefined function error"
+          ],
+          "root_cause": "Missing import for fmt package",
+          "solution": "Add 'import \"fmt\"' to the file",
+          "code_diff": "+import \"fmt\"",
+          "affected_files": [
+            "main.go"
+          ]
+        },
+        "output": {
+          "id": "rem_new123",
+          "tokens_used": 75
+        }
+      }
+    ]
+  },
+  "Agent.List": {
+    "description": "List agents at given scope",
+    "endpoint": "POST /api/v1/agent/list",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Scope: project|team|org",
+          "default": "project"
+        }
+      },
+      "required": [
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description_preview": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "List project agents",
+        "input": {
+          "session_id": "sess_abc123",
+          "scope": "project"
+        },
+        "output": {
+          "agents": [
+            {
+              "id": "agent_123",
+              "name": "Code Reviewer",
+              "description_preview": "Reviews code for security and best practices"
+            }
+          ],
+          "tokens_used": 25
+        }
+      }
+    ]
+  },
+  "Agent.Get": {
+    "description": "Get specific agent configuration",
+    "endpoint": "GET /api/v1/agent/:id?session_id=xxx",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Agent ID"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collections_access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model_preference": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Get agent details",
+        "input": {
+          "id": "agent_123",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "id": "agent_123",
+          "name": "Code Reviewer",
+          "description": "Reviews code for security and best practices",
+          "system_prompt": "You are an expert code reviewer...",
+          "skills": [
+            "security_review",
+            "go_best_practices"
+          ],
+          "collections_access": [
+            "platform_contextd_memories"
+          ],
+          "model_preference": "claude-3-5-sonnet-20241022",
+          "temperature": 0.7,
+          "tokens_used": 150
+        }
+      }
+    ]
+  },
+  "Agent.Create": {
+    "description": "Create new agent configuration",
+    "endpoint": "POST /api/v1/agent",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Agent name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Agent description"
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "System prompt"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Skill IDs"
+        },
+        "collections_access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Collection names"
+        },
+        "model_preference": {
+          "type": "string",
+          "description": "Model ID"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Temperature 0.0-2.0"
+        },
+        "scope": {
+          "type": "string",
+          "description": "project|team|org",
+          "default": "project"
+        }
+      },
+      "required": [
+        "session_id",
+        "name",
+        "description",
+        "system_prompt"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "New agent ID"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Create security reviewer agent",
+        "input": {
+          "session_id": "sess_abc123",
+          "name": "Security Reviewer",
+          "description": "Reviews code for security vulnerabilities",
+          "system_prompt": "You are an expert security reviewer...",
+          "skills": [
+            "security_review"
+          ],
+          "collections_access": [
+            "platform_contextd_memories"
+          ],
+          "model_preference": "claude-3-5-sonnet-20241022",
+          "temperature": 0.3,
+          "scope": "project"
+        },
+        "output": {
+          "id": "agent_new789",
+          "tokens_used": 15
+        }
+      }
+    ]
+  },
+  "Agent.Update": {
+    "description": "Update existing agent configuration",
+    "endpoint": "PUT /api/v1/agent/:id",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Agent ID (from URL)"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collections_access": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model_preference": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Update agent temperature",
+        "input": {
+          "id": "agent_123",
+          "session_id": "sess_abc123",
+          "temperature": 0.5
+        },
+        "output": {
+          "tokens_used": 10
+        }
+      }
+    ]
+  },
+  "Agent.Delete": {
+    "description": "Delete agent configuration",
+    "endpoint": "DELETE /api/v1/agent/:id?session_id=xxx",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Agent ID"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Delete agent",
+        "input": {
+          "id": "agent_123",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "tokens_used": 5
+        }
+      }
+    ]
+  },
+  "Policy.Check": {
+    "description": "Check if an action complies with applicable policies",
+    "endpoint": "POST /api/v1/policy/check",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "action": {
+          "type": "string",
+          "description": "Action the agent wants to perform"
+        },
+        "context": {
+          "type": "string",
+          "description": "Additional context about the action"
+        }
+      },
+      "required": [
+        "session_id",
+        "action"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "compliant": {
+          "type": "boolean",
+          "description": "true if action complies with all policies"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "policy_id": {
+                "type": "string"
+              },
+              "policy_title": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why this policy is violated"
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "critical",
+                  "warning",
+                  "info"
+                ]
+              }
+            }
+          }
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "How to fix violations"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Compliant action",
+        "input": {
+          "session_id": "sess_abc123",
+          "action": "read config file",
+          "context": "loading application settings"
+        },
+        "output": {
+          "compliant": true,
+          "violations": [],
+          "suggestions": [],
+          "tokens_used": 25
+        }
+      },
+      {
+        "description": "Security policy violation",
+        "input": {
+          "session_id": "sess_abc123",
+          "action": "commit changes",
+          "context": "adding .env file with API_KEY"
+        },
+        "output": {
+          "compliant": false,
+          "violations": [
+            {
+              "policy_id": "pol_sec_001",
+              "policy_title": "No secrets in code",
+              "reason": "Action may expose secrets",
+              "severity": "critical"
+            }
+          ],
+          "suggestions": [
+            "Remove secrets from code and use environment variables or secret management service"
+          ],
+          "tokens_used": 75
+        }
+      }
+    ]
+  },
+  "Policy.List": {
+    "description": "List policies by scope and category",
+    "endpoint": "POST /api/v1/policy/list",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "project",
+            "team",
+            "org"
+          ],
+          "description": "Filter by scope"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "security",
+            "coding",
+            "repo"
+          ],
+          "description": "Filter by category"
+        }
+      },
+      "required": [
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "List all org security policies",
+        "input": {
+          "session_id": "sess_abc123",
+          "scope": "org",
+          "category": "security"
+        },
+        "output": {
+          "policies": [
+            {
+              "id": "pol_sec_001",
+              "title": "No secrets in code",
+              "category": "security",
+              "severity": "critical"
+            },
+            {
+              "id": "pol_sec_002",
+              "title": "All inputs must be validated",
+              "category": "security",
+              "severity": "critical"
+            }
+          ],
+          "tokens_used": 45
+        }
+      }
+    ]
+  },
+  "Policy.Get": {
+    "description": "Get full details of a policy by ID",
+    "endpoint": "GET /api/v1/policy/:id?session_id=<session_id>",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Policy ID (URL parameter)"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID (query parameter)"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "requirement": {
+          "type": "string",
+          "description": "What the policy requires"
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": [
+            "block",
+            "warn",
+            "audit",
+            "advisory"
+          ]
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Get policy details",
+        "input": {
+          "id": "pol_sec_001",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "id": "pol_sec_001",
+          "title": "No secrets in code",
+          "category": "security",
+          "severity": "critical",
+          "requirement": "Never commit API keys, tokens, passwords, or other secrets to version control",
+          "enforcement": "block",
+          "tokens_used": 85
+        }
+      }
+    ]
+  },
+  "Skill.List": {
+    "description": "List skills by scope",
+    "endpoint": "POST /api/v1/skill/list",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Scope filter: project, team, org",
+          "default": "project"
+        }
+      },
+      "required": [
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description_preview": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "List project skills",
+        "input": {
+          "session_id": "sess_abc123",
+          "scope": "project"
+        },
+        "output": {
+          "skills": [
+            {
+              "id": "skill_123",
+              "name": "Code Review",
+              "description_preview": "Systematic code review workflow..."
+            }
+          ],
+          "tokens_used": 25
+        }
+      }
+    ]
+  },
+  "Skill.Get": {
+    "description": "Get skill by ID",
+    "endpoint": "GET /api/v1/skill/:id?session_id=xxx",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Skill ID"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt_template": {
+          "type": "string"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Get code review skill",
+        "input": {
+          "id": "skill_123",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "id": "skill_123",
+          "name": "Code Review",
+          "description": "Multi-agent code review workflow",
+          "trigger": "on PR creation",
+          "steps": [
+            "Static analysis",
+            "Security scan",
+            "Test coverage",
+            "Human review"
+          ],
+          "prompt_template": "Review the following code...",
+          "tokens_used": 150
+        }
+      }
+    ]
+  },
+  "Skill.Create": {
+    "description": "Create new skill",
+    "endpoint": "POST /api/v1/skill",
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Skill name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Skill description"
+        },
+        "trigger": {
+          "type": "string",
+          "description": "When to invoke this skill"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ordered list of steps"
+        },
+        "prompt_template": {
+          "type": "string",
+          "description": "Template for skill execution"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Scope: project, team, or org"
+        }
+      },
+      "required": [
+        "session_id",
+        "name",
+        "description",
+        "scope"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Create code review skill",
+        "input": {
+          "session_id": "sess_abc123",
+          "name": "Code Review",
+          "description": "Multi-agent code review",
+          "trigger": "on PR",
+          "steps": [
+            "Lint",
+            "Test",
+            "Review"
+          ],
+          "prompt_template": "Review code...",
+          "scope": "team"
+        },
+        "output": {
+          "id": "skill_123",
+          "tokens_used": 20
+        }
+      }
+    ]
+  },
+  "Skill.Update": {
+    "description": "Update skill",
+    "endpoint": "PUT /api/v1/skill/:id",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Skill ID"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt_template": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Update skill steps",
+        "input": {
+          "id": "skill_123",
+          "session_id": "sess_abc123",
+          "steps": [
+            "Lint",
+            "Test",
+            "Security scan",
+            "Review"
+          ]
+        },
+        "output": {
+          "tokens_used": 10
+        }
+      }
+    ]
+  },
+  "Skill.Delete": {
+    "description": "Delete skill",
+    "endpoint": "DELETE /api/v1/skill/:id?session_id=xxx",
+    "input": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Skill ID"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Active session ID"
+        }
+      },
+      "required": [
+        "id",
+        "session_id"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "tokens_used": {
+          "type": "integer"
+        }
+      }
+    },
+    "examples": [
+      {
+        "description": "Delete skill",
+        "input": {
+          "id": "skill_123",
+          "session_id": "sess_abc123"
+        },
+        "output": {
+          "tokens_used": 5
+        }
+      }
+    ]
+  }
+}

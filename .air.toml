@@ -1,0 +1,88 @@
+# Air configuration for contextd hot-reload development
+# See: https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Build command with version info
+cmd = """
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev") && \
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
+DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
+go build -ldflags="-X main.version=$VERSION -X main.commit=$COMMIT -X main.buildDate=$DATE" \
+  -o ./tmp/contextd ./cmd/contextd/
+"""
+
+# Binary location
+bin = "tmp/contextd"
+
+# Binary execution command (MCP mode by default)
+full_bin = "tmp/contextd --mcp --debug"
+
+# Watch these extensions
+include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "toml"]
+
+# Exclude these directories
+exclude_dir = ["tmp", "vendor", "dist", ".git", ".idea", "node_modules"]
+
+# Exclude these files
+exclude_file = []
+
+# Exclude patterns (regex)
+exclude_regex = ["_test\\.go$", ".*_templ\\.go$"]
+
+# Exclude unchanged files
+exclude_unchanged = true
+
+# Follow symlinks
+follow_symlink = false
+
+# Log file location
+log = "tmp/air.log"
+
+# Poll interval (0 for notify)
+poll = false
+poll_interval = 500
+
+# Delay before rebuild (ms)
+delay = 500
+
+# Stop on error
+stop_on_error = true
+
+# Send interrupt signal before killing
+send_interrupt = true
+
+# Delay after sending interrupt (ms)
+kill_delay = 500
+
+# Rerun binary on file change, even if build fails
+rerun = false
+
+# Delay before rerun (ms)
+rerun_delay = 500
+
+[log]
+# Log time
+time = true
+
+# Main log only (no stdout from binary)
+main_only = false
+
+[color]
+# Customize each part's color
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+# Delete tmp directory on exit
+clean_on_exit = true
+
+[screen]
+# Clear screen before each build
+clear_on_rebuild = true
+# Keep scroll position
+keep_scroll = true
