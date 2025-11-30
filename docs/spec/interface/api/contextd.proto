@@ -1,0 +1,513 @@
+syntax = "proto3";
+
+package contextd.v1;
+
+option go_package = "github.com/contextd/contextd/pkg/api/v1";
+
+// =============================================================================
+// SafeExecService - Filesystem and shell operations with secret scrubbing
+// =============================================================================
+
+service SafeExecService {
+  rpc Bash(BashRequest) returns (BashResponse);
+  rpc Read(ReadRequest) returns (ReadResponse);
+  rpc Write(WriteRequest) returns (WriteResponse);
+}
+
+message BashRequest {
+  string cmd = 1;
+  int32 timeout = 2;          // seconds, default 30
+  string session_id = 3;
+  string working_dir = 4;     // optional
+}
+
+message BashResponse {
+  string summary = 1;         // "Executed: ls -la (exit 0, 25 lines)"
+  string stdout_preview = 2;  // first 500 chars
+  string stderr_preview = 3;
+  string stdout_ref = 4;      // ref for full stdout
+  string stderr_ref = 5;      // ref for full stderr
+  int32 exit_code = 6;
+  int32 tokens_used = 7;
+}
+
+message ReadRequest {
+  string path = 1;
+  int32 offset = 2;           // line offset
+  int32 limit = 3;            // max lines
+  string session_id = 4;
+}
+
+message ReadResponse {
+  string summary = 1;         // "Read 150 lines from /etc/hosts"
+  string content_preview = 2; // first 500 chars
+  string content_ref = 3;     // ref for full content
+  int32 total_lines = 4;
+  int32 tokens_used = 5;
+}
+
+message WriteRequest {
+  string path = 1;
+  string content = 2;
+  bool append = 3;
+  string session_id = 4;
+}
+
+message WriteResponse {
+  string summary = 1;         // "Wrote 50 lines to /tmp/out.txt"
+  int32 bytes_written = 2;
+  int32 tokens_used = 3;
+}
+
+// =============================================================================
+// MemoryService - ReasoningBank operations
+// =============================================================================
+
+service MemoryService {
+  rpc Search(MemorySearchRequest) returns (MemorySearchResponse);
+  rpc Store(MemoryStoreRequest) returns (MemoryStoreResponse);
+  rpc Feedback(MemoryFeedbackRequest) returns (MemoryFeedbackResponse);
+  rpc Get(MemoryGetRequest) returns (MemoryGetResponse);
+}
+
+message MemorySearchRequest {
+  string query = 1;
+  string scope = 2;           // "project" | "team" | "org" | "all"
+  string outcome = 3;         // "success" | "failure" | "all"
+  int32 limit = 4;
+  float min_confidence = 5;
+  string session_id = 6;
+}
+
+message MemorySearchResponse {
+  repeated MemoryRef memories = 1;
+  int32 total_count = 2;
+  int32 tokens_used = 3;
+}
+
+message MemoryRef {
+  string id = 1;
+  string title = 2;
+  string description_preview = 3;  // first 100 chars
+  float confidence = 4;
+  string outcome = 5;
+}
+
+message MemoryStoreRequest {
+  string title = 1;
+  string description = 2;
+  string content = 3;
+  string outcome = 4;         // "success" | "failure"
+  repeated string tags = 5;
+  string session_id = 6;
+}
+
+message MemoryStoreResponse {
+  string id = 1;
+  int32 tokens_used = 2;
+}
+
+message MemoryFeedbackRequest {
+  string memory_id = 1;
+  bool helpful = 2;
+  string comment = 3;
+  string session_id = 4;
+}
+
+message MemoryFeedbackResponse {
+  float new_confidence = 1;
+  int32 tokens_used = 2;
+}
+
+message MemoryGetRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message MemoryGetResponse {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  string content = 4;
+  string outcome = 5;
+  float confidence = 6;
+  repeated string tags = 7;
+  int32 tokens_used = 8;
+}
+
+// =============================================================================
+// CheckpointService - Session persistence
+// =============================================================================
+
+service CheckpointService {
+  rpc Save(CheckpointSaveRequest) returns (CheckpointSaveResponse);
+  rpc List(CheckpointListRequest) returns (CheckpointListResponse);
+  rpc Resume(CheckpointResumeRequest) returns (CheckpointResumeResponse);
+}
+
+message CheckpointSaveRequest {
+  string summary = 1;
+  repeated string tags = 2;
+  string session_id = 3;
+}
+
+message CheckpointSaveResponse {
+  string checkpoint_id = 1;
+  int32 tokens_used = 2;
+}
+
+message CheckpointListRequest {
+  int32 limit = 1;
+  string session_id = 2;
+}
+
+message CheckpointListResponse {
+  repeated CheckpointRef checkpoints = 1;
+  int32 tokens_used = 2;
+}
+
+message CheckpointRef {
+  string id = 1;
+  string summary = 2;
+  string created_at = 3;
+  repeated string tags = 4;
+}
+
+message CheckpointResumeRequest {
+  string checkpoint_id = 1;
+  string level = 2;           // "summary" | "context" | "full"
+  string session_id = 3;
+}
+
+message CheckpointResumeResponse {
+  string summary = 1;
+  string context = 2;         // optimized context (if level >= context)
+  string context_ref = 3;     // ref for full context (if level == full)
+  int32 tokens_used = 4;
+}
+
+// =============================================================================
+// PolicyService - Governance
+// =============================================================================
+
+service PolicyService {
+  rpc Check(PolicyCheckRequest) returns (PolicyCheckResponse);
+  rpc List(PolicyListRequest) returns (PolicyListResponse);
+  rpc Get(PolicyGetRequest) returns (PolicyGetResponse);
+}
+
+message PolicyCheckRequest {
+  string action = 1;          // what the agent wants to do
+  string context = 2;         // additional context
+  string session_id = 3;
+}
+
+message PolicyCheckResponse {
+  bool compliant = 1;
+  repeated PolicyViolation violations = 2;
+  repeated string suggestions = 3;
+  int32 tokens_used = 4;
+}
+
+message PolicyViolation {
+  string policy_id = 1;
+  string policy_title = 2;
+  string reason = 3;
+  string severity = 4;        // "critical" | "warning" | "info"
+}
+
+message PolicyListRequest {
+  string scope = 1;           // "project" | "team" | "org"
+  string category = 2;        // "security" | "coding" | "repo"
+  string session_id = 3;
+}
+
+message PolicyListResponse {
+  repeated PolicyRef policies = 1;
+  int32 tokens_used = 2;
+}
+
+message PolicyRef {
+  string id = 1;
+  string title = 2;
+  string category = 3;
+  string severity = 4;
+}
+
+message PolicyGetRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message PolicyGetResponse {
+  string id = 1;
+  string title = 2;
+  string category = 3;
+  string severity = 4;
+  string requirement = 5;
+  string enforcement = 6;
+  int32 tokens_used = 7;
+}
+
+// =============================================================================
+// SkillService - Skill CRUD
+// =============================================================================
+
+service SkillService {
+  rpc List(SkillListRequest) returns (SkillListResponse);
+  rpc Get(SkillGetRequest) returns (SkillGetResponse);
+  rpc Create(SkillCreateRequest) returns (SkillCreateResponse);
+  rpc Update(SkillUpdateRequest) returns (SkillUpdateResponse);
+  rpc Delete(SkillDeleteRequest) returns (SkillDeleteResponse);
+}
+
+message SkillListRequest {
+  string scope = 1;
+  string session_id = 2;
+}
+
+message SkillListResponse {
+  repeated SkillRef skills = 1;
+  int32 tokens_used = 2;
+}
+
+message SkillRef {
+  string id = 1;
+  string name = 2;
+  string description_preview = 3;
+}
+
+message SkillGetRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message SkillGetResponse {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string trigger = 4;
+  repeated string steps = 5;
+  string prompt_template = 6;
+  int32 tokens_used = 7;
+}
+
+message SkillCreateRequest {
+  string name = 1;
+  string description = 2;
+  string trigger = 3;
+  repeated string steps = 4;
+  string prompt_template = 5;
+  string scope = 6;
+  string session_id = 7;
+}
+
+message SkillCreateResponse {
+  string id = 1;
+  int32 tokens_used = 2;
+}
+
+message SkillUpdateRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string trigger = 4;
+  repeated string steps = 5;
+  string prompt_template = 6;
+  string session_id = 7;
+}
+
+message SkillUpdateResponse {
+  int32 tokens_used = 1;
+}
+
+message SkillDeleteRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message SkillDeleteResponse {
+  int32 tokens_used = 1;
+}
+
+// =============================================================================
+// AgentService - Agent CRUD
+// =============================================================================
+
+service AgentService {
+  rpc List(AgentListRequest) returns (AgentListResponse);
+  rpc Get(AgentGetRequest) returns (AgentGetResponse);
+  rpc Create(AgentCreateRequest) returns (AgentCreateResponse);
+  rpc Update(AgentUpdateRequest) returns (AgentUpdateResponse);
+  rpc Delete(AgentDeleteRequest) returns (AgentDeleteResponse);
+}
+
+message AgentListRequest {
+  string scope = 1;
+  string session_id = 2;
+}
+
+message AgentListResponse {
+  repeated AgentRef agents = 1;
+  int32 tokens_used = 2;
+}
+
+message AgentRef {
+  string id = 1;
+  string name = 2;
+  string description_preview = 3;
+}
+
+message AgentGetRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message AgentGetResponse {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string system_prompt = 4;
+  repeated string skills = 5;
+  repeated string collections_access = 6;
+  string model_preference = 7;
+  float temperature = 8;
+  int32 tokens_used = 9;
+}
+
+message AgentCreateRequest {
+  string name = 1;
+  string description = 2;
+  string system_prompt = 3;
+  repeated string skills = 4;
+  repeated string collections_access = 5;
+  string model_preference = 6;
+  float temperature = 7;
+  string scope = 8;
+  string session_id = 9;
+}
+
+message AgentCreateResponse {
+  string id = 1;
+  int32 tokens_used = 2;
+}
+
+message AgentUpdateRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string system_prompt = 4;
+  repeated string skills = 5;
+  repeated string collections_access = 6;
+  string model_preference = 7;
+  float temperature = 8;
+  string session_id = 9;
+}
+
+message AgentUpdateResponse {
+  int32 tokens_used = 1;
+}
+
+message AgentDeleteRequest {
+  string id = 1;
+  string session_id = 2;
+}
+
+message AgentDeleteResponse {
+  int32 tokens_used = 1;
+}
+
+// =============================================================================
+// RemediationService - Error patterns
+// =============================================================================
+
+service RemediationService {
+  rpc Search(RemediationSearchRequest) returns (RemediationSearchResponse);
+  rpc Record(RemediationRecordRequest) returns (RemediationRecordResponse);
+}
+
+message RemediationSearchRequest {
+  string error = 1;
+  string context = 2;
+  int32 limit = 3;
+  string session_id = 4;
+}
+
+message RemediationSearchResponse {
+  repeated RemediationRef remediations = 1;
+  int32 tokens_used = 2;
+}
+
+message RemediationRef {
+  string id = 1;
+  string title = 2;
+  string problem_preview = 3;
+  string solution_preview = 4;
+  float confidence = 5;
+}
+
+message RemediationRecordRequest {
+  string title = 1;
+  string problem = 2;
+  repeated string symptoms = 3;
+  string root_cause = 4;
+  string solution = 5;
+  string code_diff = 6;
+  repeated string affected_files = 7;
+  string session_id = 8;
+}
+
+message RemediationRecordResponse {
+  string id = 1;
+  int32 tokens_used = 2;
+}
+
+// =============================================================================
+// RefService - Resolve content refs
+// =============================================================================
+
+service RefService {
+  rpc GetContent(RefGetContentRequest) returns (RefGetContentResponse);
+}
+
+message RefGetContentRequest {
+  string ref_id = 1;
+  string session_id = 2;
+}
+
+message RefGetContentResponse {
+  string content = 1;
+  string content_type = 2;    // "text" | "json" | "binary"
+  int32 tokens_used = 3;
+}
+
+// =============================================================================
+// SessionService - Session management
+// =============================================================================
+
+service SessionService {
+  rpc Start(SessionStartRequest) returns (SessionStartResponse);
+  rpc End(SessionEndRequest) returns (SessionEndResponse);
+}
+
+message SessionStartRequest {
+  string project_path = 1;
+  string task_description = 2;
+}
+
+message SessionStartResponse {
+  string session_id = 1;
+  string injected_context = 2;  // Tier 0 + relevant memories
+  int32 tokens_used = 3;
+}
+
+message SessionEndRequest {
+  string session_id = 1;
+  string outcome = 2;         // "success" | "failure" | "partial"
+  bool distill = 3;           // trigger async distillation
+}
+
+message SessionEndResponse {
+  int32 memories_extracted = 1;
+  int32 tokens_used = 2;
+}
