@@ -221,4 +221,26 @@ func applyDefaults(cfg *Config) {
 			cfg.PreFetch.CacheMaxEntries = 100
 		}
 	}
+
+	// Qdrant defaults
+	if cfg.Qdrant.Host == "" {
+		cfg.Qdrant.Host = "localhost"
+	}
+	if cfg.Qdrant.Port == 0 {
+		cfg.Qdrant.Port = 6334
+	}
+	if cfg.Qdrant.CollectionName == "" {
+		cfg.Qdrant.CollectionName = "contextd_default"
+	}
+	if cfg.Qdrant.VectorSize == 0 {
+		cfg.Qdrant.VectorSize = 384 // bge-small-en-v1.5 dimensions
+	}
+
+	// Embeddings defaults
+	if cfg.Embeddings.BaseURL == "" {
+		cfg.Embeddings.BaseURL = "http://localhost:8080"
+	}
+	if cfg.Embeddings.Model == "" {
+		cfg.Embeddings.Model = "BAAI/bge-small-en-v1.5"
+	}
 }

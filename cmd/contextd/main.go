@@ -153,12 +153,12 @@ func run() error {
 	var qdrantStore *vectorstore.QdrantStore
 	var embeddingSvc *embeddings.Service
 
-	// Determine Qdrant configuration
-	qdrantCfgHost := getEnvOrDefault("QDRANT_HOST", "localhost")
+	// Determine Qdrant configuration (flags override config file)
+	qdrantCfgHost := cfg.Qdrant.Host
 	if *qdrantHost != "" {
 		qdrantCfgHost = *qdrantHost
 	}
-	qdrantCfgPort := 6334
+	qdrantCfgPort := cfg.Qdrant.Port
 	if *qdrantPort != 0 {
 		qdrantCfgPort = *qdrantPort
 	}
@@ -185,8 +185,11 @@ func run() error {
 			zap.Int("port", qdrantCfgPort),
 		)
 
-		// Initialize embeddings service
-		embeddingCfg := embeddings.ConfigFromEnv()
+		// Initialize embeddings service using config values
+		embeddingCfg := embeddings.Config{
+			BaseURL: cfg.Embeddings.BaseURL,
+			Model:   cfg.Embeddings.Model,
+		}
 		embeddingSvc, err = embeddings.NewService(embeddingCfg)
 		if err != nil {
 			logger.Warn(ctx, "embeddings service initialization failed",
@@ -200,12 +203,12 @@ func run() error {
 				zap.String("model", embeddingCfg.Model),
 			)
 
-			// Initialize QdrantStore with embedder
+			// Initialize QdrantStore with embedder using config values
 			vectorStoreCfg := vectorstore.QdrantConfig{
 				Host:           qdrantCfgHost,
 				Port:           qdrantCfgPort,
-				CollectionName: "contextd_default",
-				VectorSize:     384, // bge-small-en-v1.5 dimensions
+				CollectionName: cfg.Qdrant.CollectionName,
+				VectorSize:     cfg.Qdrant.VectorSize,
 			}
 
 			qdrantStore, err = vectorstore.NewQdrantStore(vectorStoreCfg, embeddingSvc.Embedder())
@@ -235,7 +238,7 @@ func run() error {
 	// Initialize checkpoint service
 	if qdrantClient != nil {
 		checkpointCfg := checkpoint.DefaultServiceConfig()
-		checkpointCfg.VectorSize = 384
+		checkpointCfg.VectorSize = cfg.Qdrant.VectorSize
 		checkpointSvc, err = checkpoint.NewService(checkpointCfg, qdrantClient, logger.Underlying())
 		if err != nil {
 			logger.Warn(ctx, "checkpoint service initialization failed", zap.Error(err))
@@ -247,11 +250,11 @@ func run() error {
 	// Initialize remediation service
 	if qdrantClient != nil && embeddingSvc != nil {
 		remediationCfg := remediation.DefaultServiceConfig()
-		remediationCfg.VectorSize = 384
+		remediationCfg.VectorSize = cfg.Qdrant.VectorSize
 
 		// Create adapters for remediation service
 		remediationQdrant := qdrant.NewRemediationAdapter(qdrantClient)
-		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingSvc, 384)
+		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingSvc, int(cfg.Qdrant.VectorSize))
 
 		remediationSvc, err = remediation.NewService(remediationCfg, remediationQdrant, remediationEmbedder, logger.Underlying())
 		if err != nil {
@@ -428,12 +431,4 @@ func run() error {
 
 	logger.Info(ctx, "contextd stopped")
 	return nil
-}
-
-// getEnvOrDefault returns the environment variable value or a default.
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

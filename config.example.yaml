@@ -44,6 +44,18 @@ prefetch:
 checkpoint:
   max_content_size_kb: 1024    # Maximum content size in KB (default: 1024 = 1MB)
 
+# Qdrant Configuration (Vector Database)
+qdrant:
+  host: localhost              # Qdrant server host (default: localhost)
+  port: 6334                   # Qdrant gRPC port (default: 6334)
+  collection_name: contextd_default  # Collection name (default: contextd_default)
+  vector_size: 384             # Vector dimensions (default: 384 for bge-small-en-v1.5)
+
+# Embeddings Configuration (TEI Service)
+embeddings:
+  base_url: http://localhost:8080  # TEI server URL (default: http://localhost:8080)
+  model: BAAI/bge-small-en-v1.5    # Embedding model (default: BAAI/bge-small-en-v1.5)
+
 # Example environment variable overrides:
 # export SERVER_HTTP_PORT=8080
 # export SERVER_SHUTDOWN_TIMEOUT=30s
@@ -52,3 +64,7 @@ checkpoint:
 # export PREFETCH_ENABLED=false
 # export PREFETCH_CACHE_TTL=10m
 # export CHECKPOINT_MAX_CONTENT_SIZE_KB=2048
+# export QDRANT_HOST=qdrant.example.com
+# export QDRANT_PORT=6334
+# export EMBEDDINGS_BASE_URL=http://tei.example.com:8080
+# export EMBEDDINGS_MODEL=BAAI/bge-small-en-v1.5

@@ -18,6 +18,22 @@ type Config struct {
 	Observability ObservabilityConfig
 	PreFetch      PreFetchConfig
 	Checkpoint    CheckpointConfig
+	Qdrant        QdrantConfig
+	Embeddings    EmbeddingsConfig
+}
+
+// QdrantConfig holds Qdrant vector database configuration.
+type QdrantConfig struct {
+	Host           string `koanf:"host"`
+	Port           int    `koanf:"port"`
+	CollectionName string `koanf:"collection_name"`
+	VectorSize     uint64 `koanf:"vector_size"`
+}
+
+// EmbeddingsConfig holds TEI embeddings service configuration.
+type EmbeddingsConfig struct {
+	BaseURL string `koanf:"base_url"`
+	Model   string `koanf:"model"`
 }
 
 // CheckpointConfig holds checkpoint service configuration.
