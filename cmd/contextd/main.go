@@ -20,15 +20,18 @@ import (
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/config"
+	"github.com/fyrsmithlabs/contextd/internal/embeddings"
 	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
 	"github.com/fyrsmithlabs/contextd/internal/mcp"
+	"github.com/fyrsmithlabs/contextd/internal/qdrant"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/telemetry"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 // Version information (set at build time via ldflags)
@@ -51,6 +54,9 @@ func run() error {
 	showVersion := flag.Bool("version", false, "show version information")
 	httpPort := flag.Int("http-port", 0, "HTTP server port (overrides config, default: 9090)")
 	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
+	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
+	qdrantHost := flag.String("qdrant-host", "", "Qdrant server host (overrides config, default: localhost)")
+	qdrantPort := flag.Int("qdrant-port", 0, "Qdrant server gRPC port (overrides config, default: 6334)")
 	flag.Parse()
 
 	if *showVersion {
@@ -76,6 +82,7 @@ func run() error {
 		zap.String("version", version),
 		zap.String("commit", commit),
 		zap.String("build_date", buildDate),
+		zap.Bool("mcp_mode", *mcpMode),
 	)
 
 	// ============================================================================
@@ -129,16 +136,8 @@ func run() error {
 	}
 
 	// ============================================================================
-	// PHASE 3: MCP Server
+	// Initialize Secret Scrubber
 	// ============================================================================
-	// Initialize MCP server with stdio transport and core services.
-	// Note: Some dependencies (Qdrant, embedder) are stubs pending implementation.
-
-	// Initialize stub Qdrant client (TODO: replace with real implementation)
-	// For now, we'll skip services that require Qdrant since it's not yet implemented
-	logger.Warn(ctx, "Qdrant client not yet implemented, some services will be unavailable")
-
-	// Initialize secret scrubber
 	scrubCfg := secrets.DefaultConfig()
 	scrubCfg.Enabled = true
 	scrubber, err := secrets.New(scrubCfg)
@@ -146,6 +145,148 @@ func run() error {
 		return fmt.Errorf("initializing secret scrubber: %w", err)
 	}
 	logger.Info(ctx, "secret scrubber initialized")
+
+	// ============================================================================
+	// Initialize Infrastructure (Qdrant + Embeddings)
+	// ============================================================================
+	var qdrantClient *qdrant.GRPCClient
+	var qdrantStore *vectorstore.QdrantStore
+	var embeddingSvc *embeddings.Service
+
+	// Determine Qdrant configuration
+	qdrantCfgHost := getEnvOrDefault("QDRANT_HOST", "localhost")
+	if *qdrantHost != "" {
+		qdrantCfgHost = *qdrantHost
+	}
+	qdrantCfgPort := 6334
+	if *qdrantPort != 0 {
+		qdrantCfgPort = *qdrantPort
+	}
+
+	// Initialize Qdrant gRPC client
+	qdrantCfg := &qdrant.ClientConfig{
+		Host: qdrantCfgHost,
+		Port: qdrantCfgPort,
+	}
+	qdrantCfg.ApplyDefaults()
+
+	qdrantClient, err = qdrant.NewGRPCClient(qdrantCfg, logger)
+	if err != nil {
+		logger.Warn(ctx, "Qdrant client initialization failed, MCP services will be unavailable",
+			zap.String("host", qdrantCfgHost),
+			zap.Int("port", qdrantCfgPort),
+			zap.Error(err),
+		)
+		// Continue without Qdrant - HTTP server can still run
+	} else {
+		defer qdrantClient.Close()
+		logger.Info(ctx, "Qdrant client initialized",
+			zap.String("host", qdrantCfgHost),
+			zap.Int("port", qdrantCfgPort),
+		)
+
+		// Initialize embeddings service
+		embeddingCfg := embeddings.ConfigFromEnv()
+		embeddingSvc, err = embeddings.NewService(embeddingCfg)
+		if err != nil {
+			logger.Warn(ctx, "embeddings service initialization failed",
+				zap.String("base_url", embeddingCfg.BaseURL),
+				zap.Error(err),
+			)
+			// Continue without embedder - some services may be degraded
+		} else {
+			logger.Info(ctx, "embeddings service initialized",
+				zap.String("base_url", embeddingCfg.BaseURL),
+				zap.String("model", embeddingCfg.Model),
+			)
+
+			// Initialize QdrantStore with embedder
+			vectorStoreCfg := vectorstore.QdrantConfig{
+				Host:           qdrantCfgHost,
+				Port:           qdrantCfgPort,
+				CollectionName: "contextd_default",
+				VectorSize:     384, // bge-small-en-v1.5 dimensions
+			}
+
+			qdrantStore, err = vectorstore.NewQdrantStore(vectorStoreCfg, embeddingSvc.Embedder())
+			if err != nil {
+				logger.Warn(ctx, "QdrantStore initialization failed",
+					zap.Error(err),
+				)
+			} else {
+				defer qdrantStore.Close()
+				logger.Info(ctx, "QdrantStore initialized",
+					zap.String("collection", vectorStoreCfg.CollectionName),
+					zap.Uint64("vector_size", vectorStoreCfg.VectorSize),
+				)
+			}
+		}
+	}
+
+	// ============================================================================
+	// Initialize Services
+	// ============================================================================
+	var checkpointSvc checkpoint.Service
+	var remediationSvc remediation.Service
+	var repositorySvc *repository.Service
+	var troubleshootSvc *troubleshoot.Service
+	var reasoningbankSvc *reasoningbank.Service
+
+	// Initialize checkpoint service
+	if qdrantClient != nil {
+		checkpointCfg := checkpoint.DefaultServiceConfig()
+		checkpointCfg.VectorSize = 384
+		checkpointSvc, err = checkpoint.NewService(checkpointCfg, qdrantClient, logger.Underlying())
+		if err != nil {
+			logger.Warn(ctx, "checkpoint service initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "checkpoint service initialized")
+		}
+	}
+
+	// Initialize remediation service
+	if qdrantClient != nil && embeddingSvc != nil {
+		remediationCfg := remediation.DefaultServiceConfig()
+		remediationCfg.VectorSize = 384
+
+		// Create adapters for remediation service
+		remediationQdrant := qdrant.NewRemediationAdapter(qdrantClient)
+		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingSvc, 384)
+
+		remediationSvc, err = remediation.NewService(remediationCfg, remediationQdrant, remediationEmbedder, logger.Underlying())
+		if err != nil {
+			logger.Warn(ctx, "remediation service initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "remediation service initialized")
+		}
+	}
+
+	// Initialize repository service (depends on checkpoint service)
+	if checkpointSvc != nil {
+		repositorySvc = repository.NewService(checkpointSvc)
+		logger.Info(ctx, "repository service initialized")
+	}
+
+	// Initialize troubleshoot service
+	if qdrantStore != nil {
+		troubleshootAdapter := vectorstore.NewTroubleshootAdapter(qdrantStore)
+		troubleshootSvc, err = troubleshoot.NewService(troubleshootAdapter, logger.Underlying(), nil)
+		if err != nil {
+			logger.Warn(ctx, "troubleshoot service initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "troubleshoot service initialized")
+		}
+	}
+
+	// Initialize reasoningbank service
+	if qdrantStore != nil {
+		reasoningbankSvc, err = reasoningbank.NewService(qdrantStore, logger.Underlying())
+		if err != nil {
+			logger.Warn(ctx, "reasoningbank service initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "reasoningbank service initialized")
+		}
+	}
 
 	// ============================================================================
 	// Initialize HTTP Server
@@ -183,57 +324,86 @@ func run() error {
 		}
 	}()
 
-	// Initialize checkpoint service (stub - requires Qdrant)
-	// Using nil for now since Qdrant is not implemented
-	var checkpointSvc checkpoint.Service
-	logger.Warn(ctx, "checkpoint service unavailable (requires Qdrant implementation)")
+	// ============================================================================
+	// Initialize MCP Server (if all services available)
+	// ============================================================================
+	var mcpServer *mcp.Server
+	if *mcpMode {
+		// MCP mode requires all services
+		if checkpointSvc == nil || remediationSvc == nil || repositorySvc == nil ||
+			troubleshootSvc == nil || reasoningbankSvc == nil {
+			logger.Error(ctx, "MCP mode requires all services, but some are unavailable",
+				zap.Bool("checkpoint", checkpointSvc != nil),
+				zap.Bool("remediation", remediationSvc != nil),
+				zap.Bool("repository", repositorySvc != nil),
+				zap.Bool("troubleshoot", troubleshootSvc != nil),
+				zap.Bool("reasoningbank", reasoningbankSvc != nil),
+			)
+			return fmt.Errorf("MCP mode requires all services to be available")
+		}
 
-	// Initialize remediation service (stub - requires Qdrant + embedder)
-	var remediationSvc remediation.Service
-	logger.Warn(ctx, "remediation service unavailable (requires Qdrant + embedder)")
+		mcpCfg := &mcp.Config{
+			Name:    "contextd-v2",
+			Version: version,
+			Logger:  logger.Underlying(),
+		}
 
-	// Initialize repository service (requires checkpoint service)
-	var repositorySvc *repository.Service
-	logger.Warn(ctx, "repository service unavailable (requires checkpoint service)")
+		mcpServer, err = mcp.NewServer(
+			mcpCfg,
+			checkpointSvc,
+			remediationSvc,
+			repositorySvc,
+			troubleshootSvc,
+			reasoningbankSvc,
+			scrubber,
+		)
+		if err != nil {
+			return fmt.Errorf("initializing MCP server: %w", err)
+		}
+		defer mcpServer.Close()
 
-	// Initialize troubleshoot service (stub - requires vectorstore)
-	var troubleshootSvc *troubleshoot.Service
-	logger.Warn(ctx, "troubleshoot service unavailable (requires vectorstore)")
+		logger.Info(ctx, "MCP server initialized, starting stdio transport")
 
-	// Initialize reasoningbank service (stub - requires vectorstore)
-	var reasoningbankSvc *reasoningbank.Service
-	logger.Warn(ctx, "reasoningbank service unavailable (requires vectorstore)")
-
-	// Create MCP server with available services
-	// Note: Most tools will be unavailable until infrastructure is implemented
-	mcpCfg := &mcp.Config{
-		Name:    "contextd-v2",
-		Version: version,
-		Logger:  logger.Underlying(), // Get underlying *zap.Logger
+		// Run MCP server (blocks until context is cancelled)
+		if err := mcpServer.Run(ctx); err != nil {
+			return fmt.Errorf("MCP server error: %w", err)
+		}
+		return nil
 	}
 
-	// For now, skip MCP server creation since required services are unavailable
-	// This will be enabled once Qdrant and vectorstore are implemented
-	logger.Warn(ctx, "MCP server initialization skipped - required services unavailable")
-	logger.Info(ctx, "To enable MCP server, implement: Qdrant client, embedder, vectorstore")
+	// Log service availability summary
+	serviceStatus := make([]string, 0)
+	if checkpointSvc != nil {
+		serviceStatus = append(serviceStatus, "checkpoint:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "checkpoint:unavailable")
+	}
+	if remediationSvc != nil {
+		serviceStatus = append(serviceStatus, "remediation:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "remediation:unavailable")
+	}
+	if repositorySvc != nil {
+		serviceStatus = append(serviceStatus, "repository:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "repository:unavailable")
+	}
+	if troubleshootSvc != nil {
+		serviceStatus = append(serviceStatus, "troubleshoot:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "troubleshoot:unavailable")
+	}
+	if reasoningbankSvc != nil {
+		serviceStatus = append(serviceStatus, "reasoningbank:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "reasoningbank:unavailable")
+	}
 
-	// Keep the config for future use
-	_ = mcpCfg
-	_ = scrubber
-	_ = checkpointSvc
-	_ = remediationSvc
-	_ = repositorySvc
-	_ = troubleshootSvc
-	_ = reasoningbankSvc
-
-	logger.Info(ctx, "contextd initialized (infrastructure pending)",
+	logger.Info(ctx, "contextd initialized",
 		zap.String("http_host", httpServerHost),
 		zap.Int("http_port", httpServerPort),
-		zap.String("status", "Phase 4 complete, Phase 5-6 pending"),
+		zap.Strings("services", serviceStatus),
 	)
-
-	// Log config for debugging (will be redacted if contains secrets)
-	_ = cfg // Config loaded but not yet used by services
 
 	// Wait for shutdown signal or HTTP server error
 	select {
@@ -256,8 +426,14 @@ func run() error {
 		logger.Info(ctx, "HTTP server stopped")
 	}
 
-	// Shutdown is handled by deferred functions above
-
 	logger.Info(ctx, "contextd stopped")
 	return nil
+}
+
+// getEnvOrDefault returns the environment variable value or a default.
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
