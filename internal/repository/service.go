@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/tenant"
 )
 
 // defaultSkipDirs are directories that should always be skipped during indexing.
@@ -136,9 +137,16 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 			return nil
 		}
 
+		// Determine tenant ID (use default if not specified)
+		tenantID := opts.TenantID
+		if tenantID == "" {
+			tenantID = tenant.GetDefaultTenantID()
+		}
+
 		// Create checkpoint for file
 		// Note: In contextd-v2, checkpoint.Save() expects a SaveRequest instead of Checkpoint
 		req := &checkpoint.SaveRequest{
+			TenantID:    tenantID,
 			ProjectPath: cleanPath,
 			Summary:     fmt.Sprintf("Indexed: %s", relPath),
 			FullState:   string(content),

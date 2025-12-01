@@ -4,6 +4,10 @@ import "time"
 
 // IndexOptions configures repository indexing behavior.
 type IndexOptions struct {
+	// TenantID is the tenant identifier for multi-tenant isolation.
+	// If empty, uses default from git user.name or OS username.
+	TenantID string
+
 	// IncludePatterns are glob patterns for files to include (e.g., ["*.md", "*.go"]).
 	// If empty, all files are included (subject to exclude patterns and size limit).
 	IncludePatterns []string

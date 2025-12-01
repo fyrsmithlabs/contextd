@@ -352,6 +352,7 @@ func (s *Server) registerRemediationTools() {
 
 type repositoryIndexInput struct {
 	Path            string   `json:"path" jsonschema:"required,Repository path to index"`
+	TenantID        string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
 	IncludePatterns []string `json:"include_patterns,omitempty" jsonschema:"Glob patterns to include (e.g. *.go)"`
 	ExcludePatterns []string `json:"exclude_patterns,omitempty" jsonschema:"Glob patterns to exclude (e.g. vendor/**)"`
 	MaxFileSize     int64    `json:"max_file_size,omitempty" jsonschema:"Maximum file size in bytes (default 1MB)"`
@@ -372,6 +373,7 @@ func (s *Server) registerRepositoryTools() {
 		Description: "Index a repository for semantic code search",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
 		opts := repository.IndexOptions{
+			TenantID:        args.TenantID,
 			IncludePatterns: args.IncludePatterns,
 			ExcludePatterns: args.ExcludePatterns,
 			MaxFileSize:     args.MaxFileSize,

@@ -23,6 +23,7 @@ func NewRepositoryHandler(service *repository.Service) *RepositoryHandler {
 // RepositoryIndexInput represents input for repository_index tool.
 type RepositoryIndexInput struct {
 	Path            string   `json:"path"`
+	TenantID        string   `json:"tenant_id,omitempty"`
 	IncludePatterns []string `json:"include_patterns,omitempty"`
 	ExcludePatterns []string `json:"exclude_patterns,omitempty"`
 	MaxFileSize     int64    `json:"max_file_size,omitempty"`
@@ -37,6 +38,7 @@ func (h *RepositoryHandler) Index(ctx context.Context, input json.RawMessage) (i
 
 	// Convert to service options
 	opts := repository.IndexOptions{
+		TenantID:        req.TenantID,
 		IncludePatterns: req.IncludePatterns,
 		ExcludePatterns: req.ExcludePatterns,
 		MaxFileSize:     req.MaxFileSize,
