@@ -26,14 +26,17 @@ type Config struct {
 type QdrantConfig struct {
 	Host           string `koanf:"host"`
 	Port           int    `koanf:"port"`
+	HTTPPort       int    `koanf:"http_port"`
 	CollectionName string `koanf:"collection_name"`
 	VectorSize     uint64 `koanf:"vector_size"`
+	DataPath       string `koanf:"data_path"`
 }
 
-// EmbeddingsConfig holds TEI embeddings service configuration.
+// EmbeddingsConfig holds embeddings service configuration.
 type EmbeddingsConfig struct {
-	BaseURL string `koanf:"base_url"`
-	Model   string `koanf:"model"`
+	Provider string `koanf:"provider"` // "fastembed" or "tei"
+	BaseURL  string `koanf:"base_url"` // TEI URL (if using TEI)
+	Model    string `koanf:"model"`
 }
 
 // CheckpointConfig holds checkpoint service configuration.
@@ -79,21 +82,40 @@ type RuleConfig struct {
 // Load loads configuration from environment variables with defaults.
 //
 // Environment variables:
+//
+// Server:
 //   - SERVER_PORT: HTTP server port (default: 9090)
 //   - SERVER_SHUTDOWN_TIMEOUT: Graceful shutdown timeout (default: 10s)
+//
+// Qdrant:
+//   - QDRANT_HOST: Qdrant host (default: localhost)
+//   - QDRANT_PORT: Qdrant gRPC port (default: 6334)
+//   - QDRANT_HTTP_PORT: Qdrant HTTP port (default: 6333)
+//   - QDRANT_COLLECTION: Default collection name (default: contextd_default)
+//   - QDRANT_VECTOR_SIZE: Vector dimensions (default: 384 for FastEmbed)
+//   - CONTEXTD_DATA_PATH: Base data path (default: /data)
+//
+// Embeddings:
+//   - EMBEDDINGS_PROVIDER: Provider type: fastembed or tei (default: fastembed)
+//   - EMBEDDINGS_MODEL: Embedding model (default: BAAI/bge-small-en-v1.5)
+//   - EMBEDDING_BASE_URL: TEI URL if using TEI (default: http://localhost:8080)
+//
+// Checkpoint:
+//   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
+//
+// Telemetry:
 //   - OTEL_ENABLE: Enable OpenTelemetry (default: true)
 //   - OTEL_SERVICE_NAME: Service name for traces (default: contextd)
+//
+// Pre-fetch:
 //   - PREFETCH_ENABLED: Enable pre-fetch engine (default: true)
 //   - PREFETCH_CACHE_TTL: Cache TTL (default: 5m)
 //   - PREFETCH_CACHE_MAX_ENTRIES: Maximum cache entries (default: 100)
-//   - PREFETCH_BRANCH_DIFF_ENABLED: Enable branch diff rule (default: true)
-//   - PREFETCH_RECENT_COMMIT_ENABLED: Enable recent commit rule (default: true)
-//   - PREFETCH_COMMON_FILES_ENABLED: Enable common files rule (default: true)
 //
 // Example:
 //
 //	cfg := config.Load()
-//	fmt.Println("Server port:", cfg.Server.Port)
+//	fmt.Println("Qdrant host:", cfg.Qdrant.Host)
 func Load() *Config {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -134,6 +156,23 @@ func Load() *Config {
 	// Checkpoint configuration
 	cfg.Checkpoint = CheckpointConfig{
 		MaxContentSizeKB: getEnvInt("CHECKPOINT_MAX_CONTENT_SIZE_KB", 1024), // Default 1MB
+	}
+
+	// Qdrant configuration
+	cfg.Qdrant = QdrantConfig{
+		Host:           getEnvString("QDRANT_HOST", "localhost"),
+		Port:           getEnvInt("QDRANT_PORT", 6334),
+		HTTPPort:       getEnvInt("QDRANT_HTTP_PORT", 6333),
+		CollectionName: getEnvString("QDRANT_COLLECTION", "contextd_default"),
+		VectorSize:     uint64(getEnvInt("QDRANT_VECTOR_SIZE", 384)), // FastEmbed default
+		DataPath:       getEnvString("CONTEXTD_DATA_PATH", "/data"),
+	}
+
+	// Embeddings configuration
+	cfg.Embeddings = EmbeddingsConfig{
+		Provider: getEnvString("EMBEDDINGS_PROVIDER", "fastembed"),
+		BaseURL:  getEnvString("EMBEDDING_BASE_URL", "http://localhost:8080"),
+		Model:    getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
 	}
 
 	return cfg
