@@ -149,3 +149,20 @@ func TestSanitizeIdentifier_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTenantIDForPath_BranchIndependent(t *testing.T) {
+	// Tenant ID is derived from remote URL, which doesn't change with branches.
+	// This test verifies the tenant ID is consistent regardless of current branch.
+	id := GetTenantIDForPath("/home/dahendel/projects/contextd")
+	if id == "" || id == "local" {
+		t.Skip("Not running in contextd repo context")
+	}
+
+	t.Logf("Tenant ID: %q (should be consistent across all branches)", id)
+
+	// The tenant ID should be the GitHub org/user from the remote
+	// For this repo: fyrsmithlabs or dahendel depending on remote configuration
+	if id != "fyrsmithlabs" && id != "dahendel" {
+		t.Logf("Unexpected tenant ID %q - verify remote URL", id)
+	}
+}

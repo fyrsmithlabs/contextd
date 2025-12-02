@@ -209,9 +209,9 @@ func (s *Service) Diagnose(ctx context.Context, errorMsg, errorContext string) (
 	}
 
 	// 3. Query AI for hypothesis generation (if available)
-	var hypotheses []Hypothesis
+	hypotheses := []Hypothesis{}    // Initialize as empty slice, not nil (for JSON encoding)
+	recommendations := []string{}   // Initialize as empty slice, not nil (for JSON encoding)
 	var aiRootCause string
-	var aiRecommendations []string
 
 	if s.aiClient != nil {
 		aiResponse, err := s.generateHypotheses(ctx, errorMsg, errorContext, patterns)
@@ -229,7 +229,7 @@ func (s *Service) Diagnose(ctx context.Context, errorMsg, errorContext string) (
 		}
 		hypotheses = aiResponse.Hypotheses
 		aiRootCause = aiResponse.RootCause
-		aiRecommendations = aiResponse.Recommendations
+		recommendations = aiResponse.Recommendations
 	}
 
 	// 4. Build comprehensive diagnosis
@@ -237,7 +237,7 @@ func (s *Service) Diagnose(ctx context.Context, errorMsg, errorContext string) (
 		ErrorMessage:    errorMsg,
 		RootCause:       aiRootCause,
 		Hypotheses:      hypotheses,
-		Recommendations: aiRecommendations,
+		Recommendations: recommendations,
 		RelatedPatterns: patterns,
 		Confidence:      calculateConfidence(patterns, hypotheses),
 	}

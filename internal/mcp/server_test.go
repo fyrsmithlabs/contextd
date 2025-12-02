@@ -169,6 +169,10 @@ func (m *mockVectorStore) DeleteDocuments(ctx context.Context, ids []string) err
 	return nil
 }
 
+func (m *mockVectorStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	return nil
+}
+
 func (m *mockVectorStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
 	return nil
 }

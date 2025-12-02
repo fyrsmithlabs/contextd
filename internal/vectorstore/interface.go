@@ -107,10 +107,15 @@ type Store interface {
 	// Returns filtered search results from the specified collection, or an error.
 	SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]SearchResult, error)
 
-	// DeleteDocuments deletes documents by their IDs.
+	// DeleteDocuments deletes documents by their IDs from the default collection.
 	//
 	// Returns an error if deletion fails.
 	DeleteDocuments(ctx context.Context, ids []string) error
+
+	// DeleteDocumentsFromCollection deletes documents by their IDs from a specific collection.
+	//
+	// Returns an error if deletion fails.
+	DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error
 
 	// CreateCollection creates a new collection with the specified configuration.
 	//

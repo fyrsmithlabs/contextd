@@ -116,6 +116,28 @@ func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
 	return nil
 }
 
+func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	docs, exists := m.collections[collectionName]
+	if !exists {
+		return nil
+	}
+	filtered := []vectorstore.Document{}
+	for _, doc := range docs {
+		shouldKeep := true
+		for _, id := range ids {
+			if doc.ID == id {
+				shouldKeep = false
+				break
+			}
+		}
+		if shouldKeep {
+			filtered = append(filtered, doc)
+		}
+	}
+	m.collections[collectionName] = filtered
+	return nil
+}
+
 func (m *mockStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
 	if _, exists := m.collections[collectionName]; exists {
 		return vectorstore.ErrCollectionExists

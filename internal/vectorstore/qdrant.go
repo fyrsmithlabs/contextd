@@ -602,14 +602,19 @@ func (s *QdrantStore) SearchInCollection(ctx context.Context, collectionName str
 	return searchResults, nil
 }
 
-// DeleteDocuments deletes documents by their IDs.
+// DeleteDocuments deletes documents by their IDs from the default collection.
 func (s *QdrantStore) DeleteDocuments(ctx context.Context, ids []string) error {
-	ctx, span := tracer.Start(ctx, "QdrantStore.DeleteDocuments")
+	return s.DeleteDocumentsFromCollection(ctx, s.config.CollectionName, ids)
+}
+
+// DeleteDocumentsFromCollection deletes documents by their IDs from a specific collection.
+func (s *QdrantStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	ctx, span := tracer.Start(ctx, "QdrantStore.DeleteDocumentsFromCollection")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.Int("id_count", len(ids)),
-		attribute.String("collection", s.config.CollectionName),
+		attribute.String("collection", collectionName),
 	)
 
 	if len(ids) == 0 {
@@ -619,7 +624,7 @@ func (s *QdrantStore) DeleteDocuments(ctx context.Context, ids []string) error {
 	// Delete by filter matching document IDs
 	err := s.retryOperation(ctx, "delete", func() error {
 		_, err := s.client.Delete(ctx, &qdrant.DeletePoints{
-			CollectionName: s.config.CollectionName,
+			CollectionName: collectionName,
 			Points: &qdrant.PointsSelector{
 				PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
 					Filter: &qdrant.Filter{
@@ -646,7 +651,7 @@ func (s *QdrantStore) DeleteDocuments(ctx context.Context, ids []string) error {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("deleting documents: %w", err)
+		return fmt.Errorf("delete failed (permanent): %w", err)
 	}
 
 	span.SetStatus(codes.Ok, "success")

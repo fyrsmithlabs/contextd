@@ -222,8 +222,8 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return fmt.Errorf("getting collection name: %w", err)
 	}
 
-	// Delete old version
-	if err := s.store.DeleteDocuments(ctx, []string{memoryID}); err != nil {
+	// Delete old version from the correct collection
+	if err := s.store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		return fmt.Errorf("deleting old memory: %w", err)
 	}
 
