@@ -8,6 +8,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
+	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 )
 
@@ -25,6 +26,7 @@ func NewRegistry(
 	remediationSvc remediation.Service,
 	repositorySvc *repository.Service,
 	troubleshootSvc *troubleshoot.Service,
+	svcRegistry services.Registry,
 ) *Registry {
 	// Create handlers
 	checkpointHandler := NewCheckpointHandler(checkpointSvc)
@@ -50,6 +52,14 @@ func NewRegistry(
 		"troubleshoot":           troubleshootHandler.Diagnose,
 		"troubleshoot_pattern":   troubleshootHandler.SavePattern,
 		"troubleshoot_patterns":  troubleshootHandler.GetPatterns,
+	}
+
+	// Add session tools if registry provided
+	if svcRegistry != nil {
+		sessionHandler := NewSessionHandler(svcRegistry)
+		handlers["session_start"] = sessionHandler.Start
+		handlers["session_end"] = sessionHandler.End
+		handlers["context_threshold"] = sessionHandler.ContextThreshold
 	}
 
 	return &Registry{
