@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
@@ -372,10 +373,37 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
+		// Default include patterns to ["*"] for full indexing (explicit patterns for differential)
+		includePatterns := args.IncludePatterns
+		if len(includePatterns) == 0 {
+			includePatterns = []string{"*"}
+		}
+
+		// Get exclude patterns: use explicit args, or parse project's ignore files
+		excludePatterns := args.ExcludePatterns
+		if len(excludePatterns) == 0 {
+			// Parse project's ignore files (.gitignore, .dockerignore, etc.)
+			// Falls back to config defaults if no ignore files found
+			parsed, err := s.ignoreParser.ParseProject(args.Path)
+			if err != nil {
+				s.logger.Warn("failed to parse ignore files, using fallback",
+					zap.String("path", args.Path),
+					zap.Error(err))
+				excludePatterns = s.ignoreParser.FallbackPatterns
+			} else {
+				excludePatterns = parsed
+			}
+		}
+
+		// Ensure excludePatterns is never nil for output
+		if excludePatterns == nil {
+			excludePatterns = []string{}
+		}
+
 		opts := repository.IndexOptions{
 			TenantID:        args.TenantID,
-			IncludePatterns: args.IncludePatterns,
-			ExcludePatterns: args.ExcludePatterns,
+			IncludePatterns: includePatterns,
+			ExcludePatterns: excludePatterns,
 			MaxFileSize:     args.MaxFileSize,
 		}
 
@@ -384,11 +412,21 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositoryIndexOutput{}, fmt.Errorf("repository index failed: %w", err)
 		}
 
+		// Ensure output arrays are never nil (MCP schema validation requires arrays, not null)
+		outputInclude := result.IncludePatterns
+		if outputInclude == nil {
+			outputInclude = includePatterns
+		}
+		outputExclude := result.ExcludePatterns
+		if outputExclude == nil {
+			outputExclude = excludePatterns
+		}
+
 		output := repositoryIndexOutput{
 			Path:            result.Path,
 			FilesIndexed:    result.FilesIndexed,
-			IncludePatterns: result.IncludePatterns,
-			ExcludePatterns: result.ExcludePatterns,
+			IncludePatterns: outputInclude,
+			ExcludePatterns: outputExclude,
 			MaxFileSize:     result.MaxFileSize,
 		}
 

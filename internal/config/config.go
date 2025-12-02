@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,19 @@ type Config struct {
 	Checkpoint    CheckpointConfig
 	Qdrant        QdrantConfig
 	Embeddings    EmbeddingsConfig
+	Repository    RepositoryConfig
+}
+
+// RepositoryConfig holds repository indexing configuration.
+type RepositoryConfig struct {
+	// IgnoreFiles is a list of ignore file names to parse from project root.
+	// Patterns from these files are used as exclude patterns during indexing.
+	// Default: [".gitignore", ".dockerignore", ".contextdignore"]
+	IgnoreFiles []string `koanf:"ignore_files"`
+
+	// FallbackExcludes are used when no ignore files are found in the project.
+	// Default: [".git/**", "node_modules/**", "vendor/**", "__pycache__/**"]
+	FallbackExcludes []string `koanf:"fallback_excludes"`
 }
 
 // QdrantConfig holds Qdrant vector database configuration.
@@ -175,6 +189,21 @@ func Load() *Config {
 		Model:    getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
 	}
 
+	// Repository indexing configuration
+	cfg.Repository = RepositoryConfig{
+		IgnoreFiles: getEnvStringSlice("REPOSITORY_IGNORE_FILES", []string{
+			".gitignore",
+			".dockerignore",
+			".contextdignore",
+		}),
+		FallbackExcludes: getEnvStringSlice("REPOSITORY_FALLBACK_EXCLUDES", []string{
+			".git/**",
+			"node_modules/**",
+			"vendor/**",
+			"__pycache__/**",
+		}),
+	}
+
 	return cfg
 }
 
@@ -238,4 +267,29 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		// Split by comma, trim whitespace
+		parts := make([]string, 0)
+		for _, part := range splitAndTrim(value, ",") {
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) > 0 {
+			return parts
+		}
+	}
+	return defaultValue
+}
+
+func splitAndTrim(s, sep string) []string {
+	var result []string
+	for _, part := range strings.Split(s, sep) {
+		trimmed := strings.TrimSpace(part)
+		result = append(result, trimmed)
+	}
+	return result
 }

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/ignore"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
@@ -28,6 +29,7 @@ type Server struct {
 	troubleshootSvc  *troubleshoot.Service
 	reasoningbankSvc *reasoningbank.Service
 	scrubber         secrets.Scrubber
+	ignoreParser     *ignore.Parser
 	logger           *zap.Logger
 }
 
@@ -41,6 +43,14 @@ type Config struct {
 
 	// Logger for structured logging
 	Logger *zap.Logger
+
+	// IgnoreFiles is the list of ignore file names to parse from project root.
+	// Default: [".gitignore", ".dockerignore", ".contextdignore"]
+	IgnoreFiles []string
+
+	// FallbackExcludes are used when no ignore files are found.
+	// Default: [".git/**", "node_modules/**", "vendor/**", "__pycache__/**"]
+	FallbackExcludes []string
 }
 
 // DefaultConfig returns sensible defaults.
@@ -49,6 +59,17 @@ func DefaultConfig() *Config {
 		Name:    "contextd-v2",
 		Version: "1.0.0",
 		Logger:  zap.NewNop(),
+		IgnoreFiles: []string{
+			".gitignore",
+			".dockerignore",
+			".contextdignore",
+		},
+		FallbackExcludes: []string{
+			".git/**",
+			"node_modules/**",
+			"vendor/**",
+			"__pycache__/**",
+		},
 	}
 }
 
@@ -93,6 +114,9 @@ func NewServer(
 		nil,
 	)
 
+	// Create ignore parser for repository indexing
+	ignoreParser := ignore.NewParser(cfg.IgnoreFiles, cfg.FallbackExcludes)
+
 	s := &Server{
 		mcp:              mcpServer,
 		checkpointSvc:    checkpointSvc,
@@ -101,6 +125,7 @@ func NewServer(
 		troubleshootSvc:  troubleshootSvc,
 		reasoningbankSvc: reasoningbankSvc,
 		scrubber:         scrubber,
+		ignoreParser:     ignoreParser,
 		logger:           cfg.Logger,
 	}
 
