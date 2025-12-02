@@ -153,7 +153,7 @@ func run() error {
 	// ============================================================================
 	var qdrantClient *qdrant.GRPCClient
 	var qdrantStore *vectorstore.QdrantStore
-	var embeddingSvc *embeddings.Service
+	var embeddingProvider embeddings.Provider
 
 	// Determine Qdrant configuration (flags override config file)
 	qdrantCfgHost := cfg.Qdrant.Host
@@ -187,22 +187,37 @@ func run() error {
 			zap.Int("port", qdrantCfgPort),
 		)
 
-		// Initialize embeddings service using config values
-		embeddingCfg := embeddings.Config{
-			BaseURL: cfg.Embeddings.BaseURL,
-			Model:   cfg.Embeddings.Model,
+		// Initialize embeddings provider using config values
+		embeddingCfg := embeddings.ProviderConfig{
+			Provider: cfg.Embeddings.Provider,
+			Model:    cfg.Embeddings.Model,
+			BaseURL:  cfg.Embeddings.BaseURL,
+			CacheDir: cfg.Qdrant.DataPath,
 		}
-		embeddingSvc, err = embeddings.NewService(embeddingCfg)
+		embeddingProvider, err = embeddings.NewProvider(embeddingCfg)
 		if err != nil {
-			logger.Warn(ctx, "embeddings service initialization failed",
-				zap.String("base_url", embeddingCfg.BaseURL),
+			logger.Warn(ctx, "embeddings provider initialization failed",
+				zap.String("provider", embeddingCfg.Provider),
 				zap.Error(err),
 			)
 			// Continue without embedder - some services may be degraded
 		} else {
-			logger.Info(ctx, "embeddings service initialized",
-				zap.String("base_url", embeddingCfg.BaseURL),
-				zap.String("model", embeddingCfg.Model),
+			defer embeddingProvider.Close()
+
+			// Validate and override dimension if provider reports different value
+			providerDim := embeddingProvider.Dimension()
+			if providerDim != int(cfg.Qdrant.VectorSize) {
+				logger.Warn(ctx, "dimension mismatch - using provider dimension",
+					zap.Int("config_dimension", int(cfg.Qdrant.VectorSize)),
+					zap.Int("provider_dimension", providerDim),
+				)
+				cfg.Qdrant.VectorSize = uint64(providerDim)
+			}
+
+			logger.Info(ctx, "embeddings provider initialized",
+				zap.String("provider", cfg.Embeddings.Provider),
+				zap.String("model", cfg.Embeddings.Model),
+				zap.Int("dimension", providerDim),
 			)
 
 			// Initialize QdrantStore with embedder using config values
@@ -213,7 +228,7 @@ func run() error {
 				VectorSize:     cfg.Qdrant.VectorSize,
 			}
 
-			qdrantStore, err = vectorstore.NewQdrantStore(vectorStoreCfg, embeddingSvc.Embedder())
+			qdrantStore, err = vectorstore.NewQdrantStore(vectorStoreCfg, embeddingProvider)
 			if err != nil {
 				logger.Warn(ctx, "QdrantStore initialization failed",
 					zap.Error(err),
@@ -250,13 +265,13 @@ func run() error {
 	}
 
 	// Initialize remediation service
-	if qdrantClient != nil && embeddingSvc != nil {
+	if qdrantClient != nil && embeddingProvider != nil {
 		remediationCfg := remediation.DefaultServiceConfig()
 		remediationCfg.VectorSize = cfg.Qdrant.VectorSize
 
 		// Create adapters for remediation service
 		remediationQdrant := qdrant.NewRemediationAdapter(qdrantClient)
-		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingSvc, int(cfg.Qdrant.VectorSize))
+		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingProvider, int(cfg.Qdrant.VectorSize))
 
 		remediationSvc, err = remediation.NewService(remediationCfg, remediationQdrant, remediationEmbedder, logger.Underlying())
 		if err != nil {

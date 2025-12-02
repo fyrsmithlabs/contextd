@@ -76,6 +76,38 @@ All configuration is optional. Sensible defaults are provided.
 | `EMBEDDINGS_PROVIDER` | `fastembed` | Provider: `fastembed` or `tei` |
 | `EMBEDDINGS_MODEL` | `BAAI/bge-small-en-v1.5` | Embedding model |
 | `EMBEDDING_BASE_URL` | `http://localhost:8080` | TEI URL (if using TEI) |
+| `ONNX_PATH` | (auto-detected) | Path to libonnxruntime.so (FastEmbed only) |
+
+**Supported FastEmbed Models:**
+
+| Model | Dimensions | Notes |
+|-------|------------|-------|
+| `BAAI/bge-small-en-v1.5` | 384 | Default, fast, English |
+| `BAAI/bge-base-en-v1.5` | 768 | Higher quality, English |
+| `sentence-transformers/all-MiniLM-L6-v2` | 384 | General purpose |
+| `BAAI/bge-small-zh-v1.5` | 512 | Chinese |
+
+### ONNX Runtime Setup (FastEmbed only)
+
+FastEmbed requires ONNX Runtime. The Docker image includes it automatically.
+
+**For local development:**
+
+```bash
+# Ubuntu/Debian
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.16.3/onnxruntime-linux-x64-1.16.3.tgz
+tar xzf onnxruntime-linux-x64-1.16.3.tgz
+sudo cp onnxruntime-linux-x64-1.16.3/lib/libonnxruntime.so* /usr/lib/
+sudo ldconfig
+
+# macOS
+brew install onnxruntime
+
+# Or set ONNX_PATH manually
+export ONNX_PATH=/path/to/libonnxruntime.so
+```
+
+**Fallback to TEI:** If ONNX is unavailable, set `EMBEDDINGS_PROVIDER=tei` and run a TEI server.
 
 ### Server Settings
 
@@ -395,10 +427,10 @@ docker pull fyrsmithlabs/contextd:latest
 - [ ] Add Embeddings env var loading
 - [ ] Add data path configuration
 
-### Phase 2: FastEmbed Integration
-- [ ] Replace TEI with Qdrant FastEmbed
-- [ ] Update embeddings service
-- [ ] Test vector dimensions
+### Phase 2: FastEmbed Integration ✅
+- [x] Replace TEI with Qdrant FastEmbed
+- [x] Update embeddings service (provider pattern)
+- [x] Test vector dimensions
 
 ### Phase 3: Docker Image
 - [ ] Create Dockerfile

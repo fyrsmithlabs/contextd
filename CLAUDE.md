@@ -48,6 +48,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | Language | Go 1.24+ |
 | MCP | github.com/modelcontextprotocol/go-sdk |
 | Vector DB | Qdrant (gRPC client) |
+| Embeddings | FastEmbed (local ONNX) or TEI |
 | Config | Koanf |
 | Logging | Zap |
 | Telemetry | OpenTelemetry |
@@ -121,6 +122,8 @@ Migrated from `contextd-v2` on 2025-11-30.
 |------|---------|
 | `internal/mcp/server.go` | MCP server setup |
 | `internal/mcp/tools.go` | Tool registration |
+| `internal/embeddings/provider.go` | Embedding provider factory |
+| `internal/embeddings/fastembed.go` | FastEmbed local ONNX embeddings |
 | `internal/reasoningbank/service.go` | Memory operations |
 | `internal/secrets/scrubber.go` | gitleaks integration |
 | `cmd/contextd/main.go` | Entry point |
