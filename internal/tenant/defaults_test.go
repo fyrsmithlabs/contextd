@@ -94,3 +94,58 @@ func TestGetTenantIDForPath(t *testing.T) {
 		t.Error("GetTenantIDForPath returned empty for valid repo")
 	}
 }
+
+func TestGetTenantIDForPath_Fallbacks(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"empty path", ""},
+		{"nonexistent path", "/tmp/this-does-not-exist-12345"},
+		{"invalid git repo", "/tmp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id := GetTenantIDForPath(tt.path)
+			// Should fall back to git config or $USER
+			if id == "" {
+				t.Error("GetTenantIDForPath returned empty, should use fallback")
+			}
+			// Verify it's sanitized
+			for _, r := range id {
+				if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+					t.Errorf("Invalid character %q in tenant ID", r)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizeIdentifier_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// sanitizeIdentifier only keeps lowercase letters, numbers, and underscores
+		// It does NOT convert to lowercase - that's done by caller
+		{"uppercase letters", "JohnDoe", "ohnoe"}, // J and D are uppercase, filtered out
+		{"special characters", "john-doe@example.com", "johndoeexamplecom"},
+		{"spaces", "John Doe", "ohnoe"},          // Uppercase and spaces filtered
+		{"mixed", "John_Doe-123!", "ohn_oe123"}, // Uppercase letters filtered
+		{"all invalid", "!@#$%", "local"},
+		{"numbers only", "12345", "12345"},
+		{"underscores", "test_user_123", "test_user_123"},
+		{"already sanitized", "test_collection_1", "test_collection_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeIdentifier(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
