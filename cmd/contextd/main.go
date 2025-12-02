@@ -21,6 +21,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/embeddings"
+	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
 	"github.com/fyrsmithlabs/contextd/internal/mcp"
@@ -29,6 +30,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
+	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/fyrsmithlabs/contextd/internal/telemetry"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
@@ -291,6 +293,30 @@ func run() error {
 		}
 	}
 
+	// Initialize hooks manager
+	hooksCfg := &hooks.Config{
+		AutoCheckpointOnClear: true,
+		AutoResumeOnStart:     false,
+		CheckpointThreshold:   70,
+		VerifyBeforeClear:     true,
+	}
+	hooksMgr := hooks.NewHookManager(hooksCfg)
+	logger.Info(ctx, "hooks manager initialized",
+		zap.Int("checkpoint_threshold", hooksCfg.CheckpointThreshold))
+
+	// Create services registry
+	registry := services.NewRegistry(services.Options{
+		Checkpoint:   checkpointSvc,
+		Remediation:  remediationSvc,
+		Memory:       reasoningbankSvc,
+		Repository:   repositorySvc,
+		Troubleshoot: troubleshootSvc,
+		Hooks:        hooksMgr,
+		Distiller:    nil, // Distiller not yet implemented
+		Scrubber:     scrubber,
+	})
+	logger.Info(ctx, "services registry initialized")
+
 	// ============================================================================
 	// Initialize HTTP Server
 	// ============================================================================
@@ -310,7 +336,7 @@ func run() error {
 		Port: httpServerPort,
 	}
 
-	httpSrv, err := httpserver.NewServer(scrubber, logger.Underlying(), httpCfg)
+	httpSrv, err := httpserver.NewServer(registry, logger.Underlying(), httpCfg)
 	if err != nil {
 		return fmt.Errorf("initializing HTTP server: %w", err)
 	}
