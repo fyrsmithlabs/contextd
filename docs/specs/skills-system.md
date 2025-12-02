@@ -82,6 +82,8 @@ Each skill has specific triggers and covers a distinct workflow:
 - `memory_search` at task start - "Have I solved something like this before?"
 - `memory_record` at task completion - "What did I learn?"
 - `memory_feedback` when a memory helped/didn't help - reinforcement learning
+- **Search before assuming** - Always search collections before re-deriving
+- **Capture the WHY** - Design decisions need rejected alternatives, tradeoffs, consequences
 
 #### `contextd:checkpoint-workflow`
 
