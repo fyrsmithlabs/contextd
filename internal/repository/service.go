@@ -137,10 +137,10 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 			return nil
 		}
 
-		// Determine tenant ID (use default if not specified)
+		// Determine tenant ID (use GitHub username from repo if not specified)
 		tenantID := opts.TenantID
 		if tenantID == "" {
-			tenantID = tenant.GetDefaultTenantID()
+			tenantID = tenant.GetTenantIDForPath(cleanPath)
 		}
 
 		// Create checkpoint for file

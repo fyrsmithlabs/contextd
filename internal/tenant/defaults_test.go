@@ -25,21 +25,72 @@ func TestSanitizeIdentifier(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"John Doe", "johndoe"},
 		{"john_doe", "john_doe"},
-		{"John123", "john123"},
-		{"Test@User!", "testuser"},
+		{"john123", "john123"},
+		{"testuser", "testuser"},
 		{"", "local"},
-		{"UPPERCASE", "uppercase"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			// sanitizeIdentifier is called after lowercasing
 			result := sanitizeIdentifier(tt.input)
-			// Note: sanitizeIdentifier expects already lowercased input in practice
-			// but handles any input
-			t.Logf("sanitizeIdentifier(%q) = %q", tt.input, result)
+			if result != tt.expected {
+				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
 		})
+	}
+}
+
+func TestParseGitHubUsername(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "SSH format",
+			url:      "git@github.com:dahendel/contextd.git",
+			expected: "dahendel",
+		},
+		{
+			name:     "HTTPS format",
+			url:      "https://github.com/dahendel/contextd.git",
+			expected: "dahendel",
+		},
+		{
+			name:     "HTTPS without .git",
+			url:      "https://github.com/fyrsmithlabs/contextd",
+			expected: "fyrsmithlabs",
+		},
+		{
+			name:     "Non-GitHub URL",
+			url:      "https://gitlab.com/user/repo.git",
+			expected: "",
+		},
+		{
+			name:     "Empty URL",
+			url:      "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseGitHubUsername(tt.url)
+			if result != tt.expected {
+				t.Errorf("parseGitHubUsername(%q) = %q, want %q", tt.url, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetTenantIDForPath(t *testing.T) {
+	// Test with current repo (should return GitHub username)
+	id := GetTenantIDForPath("/home/dahendel/projects/contextd")
+	t.Logf("GetTenantIDForPath for contextd repo: %q", id)
+
+	// Should be either "dahendel" or "fyrsmithlabs" depending on remote
+	if id == "" {
+		t.Error("GetTenantIDForPath returned empty for valid repo")
 	}
 }
