@@ -9,24 +9,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/hooks"
+	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
+	"github.com/fyrsmithlabs/contextd/internal/remediation"
+	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
+	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// Ensure mock implements the interface
+var _ = (*mockRegistry)(nil)
 
 func TestNewServer(t *testing.T) {
 	t.Run("creates server with valid config", func(t *testing.T) {
 		scrubber, err := secrets.New(nil)
 		require.NoError(t, err)
 
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+
 		cfg := &Config{
 			Host: "localhost",
 			Port: 9090,
 		}
 
-		server, err := NewServer(scrubber, zap.NewNop(), cfg)
+		server, err := NewServer(registry, zap.NewNop(), cfg)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
 		assert.NotNil(t, server.echo)
@@ -37,7 +50,10 @@ func TestNewServer(t *testing.T) {
 		scrubber, err := secrets.New(nil)
 		require.NoError(t, err)
 
-		server, err := NewServer(scrubber, zap.NewNop(), nil)
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+
+		server, err := NewServer(registry, zap.NewNop(), nil)
 		require.NoError(t, err)
 		assert.NotNil(t, server)
 		assert.Equal(t, "localhost", server.config.Host)
@@ -48,15 +64,18 @@ func TestNewServer(t *testing.T) {
 		scrubber, err := secrets.New(nil)
 		require.NoError(t, err)
 
-		_, err = NewServer(scrubber, nil, nil)
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+
+		_, err = NewServer(registry, nil, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "logger is required")
 	})
 
-	t.Run("returns error when scrubber is nil", func(t *testing.T) {
+	t.Run("returns error when registry is nil", func(t *testing.T) {
 		_, err := NewServer(nil, zap.NewNop(), nil)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "scrubber cannot be nil")
+		assert.Contains(t, err.Error(), "registry cannot be nil")
 	})
 }
 
@@ -236,12 +255,15 @@ func TestServerLifecycle(t *testing.T) {
 		scrubber, err := secrets.New(nil)
 		require.NoError(t, err)
 
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+
 		cfg := &Config{
 			Host: "localhost",
 			Port: 0, // Use random available port
 		}
 
-		server, err := NewServer(scrubber, zap.NewNop(), cfg)
+		server, err := NewServer(registry, zap.NewNop(), cfg)
 		require.NoError(t, err)
 
 		// Start server in background
@@ -311,12 +333,15 @@ func TestScrubWithDisabledScrubber(t *testing.T) {
 	scrubber, err := secrets.New(cfg)
 	require.NoError(t, err)
 
+	registry := &mockRegistry{}
+	registry.On("Scrubber").Return(scrubber)
+
 	serverCfg := &Config{
 		Host: "localhost",
 		Port: 9090,
 	}
 
-	server, err := NewServer(scrubber, zap.NewNop(), serverCfg)
+	server, err := NewServer(registry, zap.NewNop(), serverCfg)
 	require.NoError(t, err)
 
 	reqBody := ScrubRequest{
@@ -343,6 +368,259 @@ func TestScrubWithDisabledScrubber(t *testing.T) {
 	assert.Equal(t, 0, resp.FindingsCount)
 }
 
+// mockRegistry is a mock implementation of services.Registry
+type mockRegistry struct {
+	mock.Mock
+}
+
+func (m *mockRegistry) Checkpoint() checkpoint.Service {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(checkpoint.Service)
+}
+
+func (m *mockRegistry) Remediation() remediation.Service {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(remediation.Service)
+}
+
+func (m *mockRegistry) Memory() *reasoningbank.Service {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*reasoningbank.Service)
+}
+
+func (m *mockRegistry) Repository() *repository.Service {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*repository.Service)
+}
+
+func (m *mockRegistry) Troubleshoot() *troubleshoot.Service {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*troubleshoot.Service)
+}
+
+func (m *mockRegistry) Hooks() *hooks.HookManager {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*hooks.HookManager)
+}
+
+func (m *mockRegistry) Distiller() *reasoningbank.Distiller {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*reasoningbank.Distiller)
+}
+
+func (m *mockRegistry) Scrubber() secrets.Scrubber {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(secrets.Scrubber)
+}
+
+// mockCheckpointService is a mock implementation of checkpoint.Service
+type mockCheckpointService struct {
+	mock.Mock
+}
+
+func (m *mockCheckpointService) Save(ctx context.Context, req *checkpoint.SaveRequest) (*checkpoint.Checkpoint, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*checkpoint.Checkpoint), args.Error(1)
+}
+
+func (m *mockCheckpointService) List(ctx context.Context, req *checkpoint.ListRequest) ([]*checkpoint.Checkpoint, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*checkpoint.Checkpoint), args.Error(1)
+}
+
+func (m *mockCheckpointService) Resume(ctx context.Context, req *checkpoint.ResumeRequest) (*checkpoint.ResumeResponse, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*checkpoint.ResumeResponse), args.Error(1)
+}
+
+func (m *mockCheckpointService) Get(ctx context.Context, tenantID, checkpointID string) (*checkpoint.Checkpoint, error) {
+	args := m.Called(ctx, tenantID, checkpointID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*checkpoint.Checkpoint), args.Error(1)
+}
+
+func (m *mockCheckpointService) Delete(ctx context.Context, tenantID, checkpointID string) error {
+	args := m.Called(ctx, tenantID, checkpointID)
+	return args.Error(0)
+}
+
+func (m *mockCheckpointService) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func TestHandleThreshold(t *testing.T) {
+	t.Run("creates auto-checkpoint and executes hook", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Hooks").Return(mockHooks)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		// Mock checkpoint save
+		mockCp.On("Save", mock.Anything, mock.MatchedBy(func(req *checkpoint.SaveRequest) bool {
+			return req.SessionID == "sess_123" &&
+				req.TenantID == "tenant_456" &&
+				req.AutoCreated == true
+		})).Return(&checkpoint.Checkpoint{
+			ID:        "cp_auto_123",
+			SessionID: "sess_123",
+			TenantID:  "tenant_456",
+		}, nil)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp ThresholdResponse
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "cp_auto_123", resp.CheckpointID)
+		assert.Contains(t, resp.Message, "Auto-checkpoint created")
+
+		mockCp.AssertExpectations(t)
+	})
+
+	t.Run("handles missing fields", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		reqBody := ThresholdRequest{
+			SessionID: "sess_123",
+			// Missing ProjectID and Percent
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("handles checkpoint save error", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Hooks").Return(mockHooks)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		// Mock checkpoint save error
+		mockCp.On("Save", mock.Anything, mock.Anything).Return(nil, assert.AnError)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+
+	t.Run("handles invalid json", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader([]byte("invalid json")))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
 // setupTestServer creates a test server with default configuration.
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -350,12 +628,15 @@ func setupTestServer(t *testing.T) *Server {
 	scrubber, err := secrets.New(nil)
 	require.NoError(t, err)
 
+	registry := &mockRegistry{}
+	registry.On("Scrubber").Return(scrubber)
+
 	cfg := &Config{
 		Host: "localhost",
 		Port: 9090,
 	}
 
-	server, err := NewServer(scrubber, zap.NewNop(), cfg)
+	server, err := NewServer(registry, zap.NewNop(), cfg)
 	require.NoError(t, err)
 
 	return server

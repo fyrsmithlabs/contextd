@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fyrsmithlabs/contextd/internal/secrets"
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/hooks"
+	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
@@ -16,7 +18,7 @@ import (
 // Server provides HTTP endpoints for contextd.
 type Server struct {
 	echo     *echo.Echo
-	scrubber secrets.Scrubber
+	registry services.Registry
 	logger   *zap.Logger
 	config   *Config
 }
@@ -28,9 +30,9 @@ type Config struct {
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(scrubber secrets.Scrubber, logger *zap.Logger, cfg *Config) (*Server, error) {
-	if scrubber == nil {
-		return nil, fmt.Errorf("scrubber cannot be nil")
+func NewServer(registry services.Registry, logger *zap.Logger, cfg *Config) (*Server, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("registry cannot be nil")
 	}
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required for request tracking and debugging")
@@ -69,7 +71,7 @@ func NewServer(scrubber secrets.Scrubber, logger *zap.Logger, cfg *Config) (*Ser
 
 	s := &Server{
 		echo:     e,
-		scrubber: scrubber,
+		registry: registry,
 		logger:   logger,
 		config:   cfg,
 	}
@@ -88,6 +90,7 @@ func (s *Server) registerRoutes() {
 	// API v1 routes
 	v1 := s.echo.Group("/api/v1")
 	v1.POST("/scrub", s.handleScrub)
+	v1.POST("/threshold", s.handleThreshold)
 }
 
 // ScrubRequest is the request body for POST /api/v1/scrub.
@@ -99,6 +102,19 @@ type ScrubRequest struct {
 type ScrubResponse struct {
 	Content       string `json:"content"`
 	FindingsCount int    `json:"findings_count"`
+}
+
+// ThresholdRequest is the request body for POST /api/v1/threshold.
+type ThresholdRequest struct {
+	ProjectID string `json:"project_id"`
+	SessionID string `json:"session_id"`
+	Percent   int    `json:"percent"`
+}
+
+// ThresholdResponse is the response body for POST /api/v1/threshold.
+type ThresholdResponse struct {
+	CheckpointID string `json:"checkpoint_id"`
+	Message      string `json:"message"`
 }
 
 // HealthResponse is the response body for GET /health.
@@ -124,7 +140,7 @@ func (s *Server) handleScrub(c echo.Context) error {
 	}
 
 	// Scrub the content
-	result := s.scrubber.Scrub(req.Content)
+	result := s.registry.Scrubber().Scrub(req.Content)
 
 	s.logger.Debug("scrubbed content",
 		zap.Int("findings", result.TotalFindings),
@@ -134,6 +150,70 @@ func (s *Server) handleScrub(c echo.Context) error {
 	return c.JSON(http.StatusOK, ScrubResponse{
 		Content:       result.Scrubbed,
 		FindingsCount: result.TotalFindings,
+	})
+}
+
+// handleThreshold handles context threshold reached event.
+func (s *Server) handleThreshold(c echo.Context) error {
+	var req ThresholdRequest
+	if err := c.Bind(&req); err != nil {
+		s.logger.Warn("invalid threshold request", zap.Error(err))
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	if req.ProjectID == "" || req.SessionID == "" || req.Percent == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "project_id, session_id, and percent fields are required")
+	}
+
+	// Create auto-checkpoint via checkpoint service
+	ctx := c.Request().Context()
+	checkpoint, err := s.registry.Checkpoint().Save(ctx, &checkpoint.SaveRequest{
+		SessionID:   req.SessionID,
+		TenantID:    req.ProjectID,
+		ProjectPath: req.ProjectID,
+		Name:        fmt.Sprintf("Auto-checkpoint at %d%%", req.Percent),
+		Description: fmt.Sprintf("Automatic checkpoint created when context reached %d%% threshold", req.Percent),
+		Summary:     fmt.Sprintf("Context at %d%% threshold", req.Percent),
+		Context:     "",
+		FullState:   "",
+		TokenCount:  0,
+		Threshold:   float64(req.Percent) / 100.0,
+		AutoCreated: true,
+		Metadata:    map[string]string{"trigger": "threshold"},
+	})
+
+	if err != nil {
+		s.logger.Error("failed to create auto-checkpoint",
+			zap.Error(err),
+			zap.String("session_id", req.SessionID),
+			zap.Int("percent", req.Percent),
+		)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create checkpoint")
+	}
+
+	s.logger.Info("created auto-checkpoint",
+		zap.String("checkpoint_id", checkpoint.ID),
+		zap.String("session_id", req.SessionID),
+		zap.Int("percent", req.Percent),
+	)
+
+	// Execute threshold hook
+	if err := s.registry.Hooks().Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
+		"session_id":    req.SessionID,
+		"project_id":    req.ProjectID,
+		"percent":       req.Percent,
+		"checkpoint_id": checkpoint.ID,
+	}); err != nil {
+		s.logger.Warn("threshold hook failed",
+			zap.Error(err),
+			zap.String("checkpoint_id", checkpoint.ID),
+		)
+		// Don't fail the request if hook fails
+	}
+
+	return c.JSON(http.StatusOK, ThresholdResponse{
+		CheckpointID: checkpoint.ID,
+		Message:      fmt.Sprintf("Auto-checkpoint created at %d%% context threshold", req.Percent),
 	})
 }
 

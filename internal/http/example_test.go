@@ -7,6 +7,7 @@ import (
 
 	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
+	"github.com/fyrsmithlabs/contextd/internal/services"
 	"go.uber.org/zap"
 )
 
@@ -17,6 +18,13 @@ func ExampleServer() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Create a services registry with minimal configuration
+	// In a real application, you would initialize all services
+	registry := services.NewRegistry(services.Options{
+		Scrubber: scrubber,
+		// Other services would be initialized here
+	})
 
 	// Create logger
 	logger, _ := zap.NewProduction()
@@ -29,7 +37,7 @@ func ExampleServer() {
 	}
 
 	// Create the server
-	server, err := httpserver.NewServer(scrubber, logger, cfg)
+	server, err := httpserver.NewServer(registry, logger, cfg)
 	if err != nil {
 		panic(err)
 	}
