@@ -74,6 +74,22 @@ docker run -it --rm ghcr.io/fyrsmithlabs/contextd:latest
 
 ---
 
+### Qdrant Client Version Warning
+
+**Symptom:** Log message like:
+```
+WARN Client version is not compatible with server version. Major versions should match...
+clientVersion=v1.16.2 serverVersion=1.12.1
+```
+
+**Cause:** The Go Qdrant client (v1.16.2) is newer than the bundled Qdrant server (v1.12.1).
+
+**Impact:** This is a **warning only** - the system works correctly. The client maintains backward compatibility.
+
+**Solution:** No action needed. This warning can be safely ignored.
+
+---
+
 ### Qdrant Connection Failed
 
 **Symptom:** Error like `connection refused: dial tcp 127.0.0.1:6334`
@@ -211,6 +227,19 @@ docker run -i --rm \
 ```
 
 ---
+
+### Slow First Startup
+
+**Symptom:** Container takes 30-40 seconds to respond on first run.
+
+**Cause:** Multiple initialization steps on first startup:
+1. Qdrant database initialization (~10s)
+2. Embedding model download (~5s on first run, cached after)
+3. Service initialization (~5s)
+
+**Solution:** This is expected behavior. Subsequent startups are faster because:
+- The embedding model is cached in the Docker volume
+- Qdrant data is persisted
 
 ### Slow Embedding Performance
 
