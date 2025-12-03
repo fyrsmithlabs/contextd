@@ -1,5 +1,7 @@
 # Stage 1: Build contextd
-FROM --platform=$BUILDPLATFORM golang:1.24rc1-bookworm AS builder
+# Use TARGETPLATFORM (not BUILDPLATFORM) because CGO requires native compilation
+# Multi-arch builds will use QEMU emulation for arm64
+FROM --platform=$TARGETPLATFORM golang:1.24rc1-bookworm AS builder
 
 ARG TARGETARCH
 ARG TARGETOS
@@ -37,13 +39,10 @@ COPY . .
 
 # Build with CGO for ONNX support
 ENV CGO_ENABLED=1
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o contextd ./cmd/contextd
+RUN go build -o contextd ./cmd/contextd
 
-# Pre-download FastEmbed model during build (skip on cross-compile)
-RUN mkdir -p /models && \
-    if [ "${TARGETARCH}" = "$(go env GOARCH)" ]; then \
-        ./contextd --download-models 2>/dev/null || true; \
-    fi
+# Pre-download FastEmbed model during build
+RUN mkdir -p /models && ./contextd --download-models 2>/dev/null || true
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
