@@ -66,11 +66,11 @@ RUN set -ex; \
     ldconfig && \
     rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
-# Install Qdrant (architecture-aware) - v1.16.1 latest with arm64 support
+# Install Qdrant (architecture-aware) - use musl builds for static linking (no glibc deps)
 RUN set -ex; \
     QDRANT_VERSION="1.16.1"; \
     case "${TARGETARCH}" in \
-        amd64) QDRANT_ARCH="x86_64-unknown-linux-gnu" ;; \
+        amd64) QDRANT_ARCH="x86_64-unknown-linux-musl" ;; \
         arm64) QDRANT_ARCH="aarch64-unknown-linux-musl" ;; \
         *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac; \
