@@ -97,22 +97,14 @@ brew tap fyrsmithlabs/homebrew-tap
 brew install contextd
 ```
 
-**Start Qdrant** (required for Homebrew installation):
+**Start Qdrant** (required for vector search):
 
 ```bash
-# Option 1: Docker with persistence (recommended)
 docker run -d --name contextd-qdrant \
   -p 6333:6333 -p 6334:6334 \
   -v contextd-qdrant-data:/qdrant/storage \
-  --restart unless-stopped \
+  --restart always \
   qdrant/qdrant:v1.12.1
-
-# Option 2: Docker Compose (clone repo first)
-curl -O https://raw.githubusercontent.com/fyrsmithlabs/contextd/main/docker-compose.qdrant.yml
-docker compose -f docker-compose.qdrant.yml up -d
-
-# Option 3: Helper script (clone repo first)
-./scripts/start-qdrant.sh start
 ```
 
 **Add to Claude Code MCP config** (`~/.claude.json`):
