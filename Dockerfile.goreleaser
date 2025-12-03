@@ -1,0 +1,46 @@
+# Dockerfile for GoReleaser - uses pre-built binaries
+# Supports both amd64 and arm64/v8 architectures
+FROM debian:bookworm-slim
+
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Qdrant (architecture-aware)
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        amd64) QDRANT_ARCH="x86_64-unknown-linux-gnu" ;; \
+        arm64) QDRANT_ARCH="aarch64-unknown-linux-gnu" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    wget -q "https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-${QDRANT_ARCH}.tar.gz" && \
+    tar xzf "qdrant-${QDRANT_ARCH}.tar.gz" && \
+    mv qdrant /usr/local/bin/ && \
+    rm "qdrant-${QDRANT_ARCH}.tar.gz"
+
+# Copy pre-built binaries from GoReleaser
+COPY contextd /usr/local/bin/contextd
+COPY ctxd /usr/local/bin/ctxd
+
+# Copy entrypoint
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Data volume
+VOLUME /data
+
+# Expose ports
+EXPOSE 6333 6334 9090
+
+# Environment defaults
+ENV QDRANT_HOST=localhost \
+    QDRANT_PORT=6334 \
+    CONTEXTD_DATA_PATH=/data \
+    EMBEDDINGS_PROVIDER=tei \
+    EMBEDDINGS_BASE_URL=http://localhost:8080
+
+ENTRYPOINT ["/entrypoint.sh"]

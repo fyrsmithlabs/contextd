@@ -1,5 +1,7 @@
 # ContextD
 
+> **⚠️ ALPHA** - This project is in active development. APIs may change.
+
 **A developer-first AI context and reasoning engine.**
 
 > **Note:** This README describes our vision and roadmap. See [Current Status](#current-status) for what's implemented today.
@@ -50,7 +52,34 @@ ContextD is in active development. Here's what works today:
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Using Homebrew (macOS/Linux)
+
+```bash
+brew tap fyrsmithlabs/tap
+brew install contextd
+```
+
+You'll also need Qdrant running:
+
+```bash
+brew install qdrant
+qdrant &
+```
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "contextd",
+      "args": ["-mcp"]
+    }
+  }
+}
+```
+
+### Using Docker (Recommended for All-in-One)
 
 ```bash
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
@@ -75,12 +104,25 @@ Add to `~/.claude/claude_desktop_config.json`:
 
 Restart Claude Code. That's it.
 
+### Download Binary
+
+Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases):
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
+| macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
+| Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
+| Linux | ARM64 | `contextd_*_linux_arm64.tar.gz` |
+| Windows | x64 | `contextd_*_windows_amd64.zip` |
+
 ### Building from Source
 
 ```bash
 git clone https://github.com/fyrsmithlabs/contextd.git
 cd contextd
-docker build -t contextd:latest .
+go build -o contextd ./cmd/contextd
+go build -o ctxd ./cmd/ctxd
 ```
 
 ---

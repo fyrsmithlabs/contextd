@@ -1,23 +1,32 @@
 # Stage 1: Build contextd
-FROM golang:1.24rc1-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24rc1-bookworm AS builder
+
+ARG TARGETARCH
+ARG TARGETOS
 
 # Allow toolchain upgrade
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /build
 
-# Install ONNX runtime for CGO build
+# Install ONNX runtime for CGO build (architecture-aware)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Download ONNX runtime (v1.23.2 matches onnxruntime_go v1.23.0)
-RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz \
-    && tar xzf onnxruntime-linux-x64-1.23.2.tgz \
-    && cp onnxruntime-linux-x64-1.23.2/lib/*.so* /usr/lib/ \
-    && ldconfig \
-    && rm -rf onnxruntime-linux-x64-1.23.2*
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        amd64) ONNX_ARCH="x64" ;; \
+        arm64) ONNX_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    wget -q "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    tar xzf "onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/lib/ && \
+    ldconfig && \
+    rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
 # Copy go modules first for caching
 COPY go.mod go.sum ./
@@ -28,42 +37,56 @@ COPY . .
 
 # Build with CGO for ONNX support
 ENV CGO_ENABLED=1
-RUN go build -o contextd ./cmd/contextd
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o contextd ./cmd/contextd
 
-# Pre-download FastEmbed model during build
+# Pre-download FastEmbed model during build (skip on cross-compile)
 RUN mkdir -p /models && \
-    ./contextd --download-models 2>/dev/null || true
+    if [ "${TARGETARCH}" = "$(go env GOARCH)" ]; then \
+        ./contextd --download-models 2>/dev/null || true; \
+    fi
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
+ARG TARGETARCH
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    supervisor \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ONNX runtime (v1.23.2 matches onnxruntime_go v1.23.0)
-RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz \
-    && tar xzf onnxruntime-linux-x64-1.23.2.tgz \
-    && cp onnxruntime-linux-x64-1.23.2/lib/*.so* /usr/lib/ \
-    && ldconfig \
-    && rm -rf onnxruntime-linux-x64-1.23.2*
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        amd64) ONNX_ARCH="x64" ;; \
+        arm64) ONNX_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    wget -q "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    tar xzf "onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/lib/ && \
+    ldconfig && \
+    rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
-# Install Qdrant
-RUN wget -q https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-x86_64-unknown-linux-gnu.tar.gz \
-    && tar xzf qdrant-x86_64-unknown-linux-gnu.tar.gz \
-    && mv qdrant /usr/local/bin/ \
-    && rm qdrant-x86_64-unknown-linux-gnu.tar.gz
+# Install Qdrant (architecture-aware)
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        amd64) QDRANT_ARCH="x86_64-unknown-linux-gnu" ;; \
+        arm64) QDRANT_ARCH="aarch64-unknown-linux-gnu" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    wget -q "https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-${QDRANT_ARCH}.tar.gz" && \
+    tar xzf "qdrant-${QDRANT_ARCH}.tar.gz" && \
+    mv qdrant /usr/local/bin/ && \
+    rm "qdrant-${QDRANT_ARCH}.tar.gz"
 
 # Copy contextd binary
 COPY --from=builder /build/contextd /usr/local/bin/contextd
 
-# Copy pre-downloaded models
+# Copy pre-downloaded models (may be empty on cross-compile)
 COPY --from=builder /models /root/.cache/contextd/models
 
 # Copy config files
-COPY deploy/supervisord.conf /etc/supervisor/conf.d/contextd.conf
 COPY deploy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
