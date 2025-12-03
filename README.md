@@ -1,5 +1,9 @@
 # ContextD
 
+[![Release](https://img.shields.io/github/v/release/fyrsmithlabs/contextd?include_prereleases)](https://github.com/fyrsmithlabs/contextd/releases)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Ffyrsmithlabs%2Fcontextd-blue)](https://ghcr.io/fyrsmithlabs/contextd)
+[![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Ftap-orange)](https://github.com/fyrsmithlabs/homebrew-tap)
+
 > **⚠️ ALPHA** - This project is in active development. APIs may change.
 
 **A developer-first AI context and reasoning engine.**
@@ -52,40 +56,16 @@ ContextD is in active development. Here's what works today:
 
 ## Quick Start
 
-### Using Homebrew (macOS/Linux)
+### Using Docker (Recommended)
+
+The Docker image includes everything: ContextD, Qdrant, and FastEmbed embeddings.
 
 ```bash
-brew tap fyrsmithlabs/tap
-brew install contextd
+# Pull the image (multi-arch: amd64 and arm64)
+docker pull ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha
 ```
 
-You'll also need Qdrant running:
-
-```bash
-brew install qdrant
-qdrant &
-```
-
-Add to `~/.claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "contextd": {
-      "command": "contextd",
-      "args": ["-mcp"]
-    }
-  }
-}
-```
-
-### Using Docker (Recommended for All-in-One)
-
-```bash
-docker pull ghcr.io/fyrsmithlabs/contextd:latest
-```
-
-Add to `~/.claude/claude_desktop_config.json`:
+Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
 
 ```json
 {
@@ -95,7 +75,7 @@ Add to `~/.claude/claude_desktop_config.json`:
       "args": [
         "run", "-i", "--rm",
         "-v", "contextd-data:/data",
-        "ghcr.io/fyrsmithlabs/contextd:latest"
+        "ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha"
       ]
     }
   }
@@ -103,6 +83,50 @@ Add to `~/.claude/claude_desktop_config.json`:
 ```
 
 Restart Claude Code. That's it.
+
+### Using Homebrew (macOS/Linux)
+
+```bash
+brew install fyrsmithlabs/tap/contextd
+```
+
+Or tap first:
+
+```bash
+brew tap fyrsmithlabs/homebrew-tap
+brew install contextd
+```
+
+**Note:** Homebrew installs the binary only. You'll need Qdrant running separately:
+
+```bash
+# Option 1: Homebrew
+brew install qdrant && qdrant &
+
+# Option 2: Docker
+docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant
+```
+
+Add to your Claude Code MCP config:
+
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "contextd",
+      "args": ["-mcp"],
+      "env": {
+        "QDRANT_HOST": "localhost",
+        "QDRANT_PORT": "6334",
+        "EMBEDDINGS_PROVIDER": "tei",
+        "TEI_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+```
+
+> **Note:** The Homebrew binary doesn't include FastEmbed (requires CGO). Use TEI for embeddings or the Docker image for full functionality.
 
 ### Download Binary
 
@@ -116,13 +140,36 @@ Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/release
 | Linux | ARM64 | `contextd_*_linux_arm64.tar.gz` |
 | Windows | x64 | `contextd_*_windows_amd64.zip` |
 
+> **Note:** Pre-built binaries use TEI for embeddings (no CGO). For FastEmbed support, use Docker or build from source with CGO enabled.
+
 ### Building from Source
 
 ```bash
 git clone https://github.com/fyrsmithlabs/contextd.git
 cd contextd
+
+# Without CGO (uses TEI for embeddings)
 go build -o contextd ./cmd/contextd
 go build -o ctxd ./cmd/ctxd
+
+# With CGO + FastEmbed (requires ONNX runtime)
+CGO_ENABLED=1 go build -o contextd ./cmd/contextd
+```
+
+---
+
+## Docker Image Tags
+
+| Tag | Description |
+|-----|-------------|
+| `0.1.0-alpha` | Current alpha release |
+| `latest` | Latest stable release (not yet available) |
+
+Multi-arch support: `linux/amd64` and `linux/arm64`
+
+```bash
+# Explicit platform
+docker pull --platform linux/arm64 ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha
 ```
 
 ---
@@ -219,12 +266,14 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## License
 
-[License TBD]
+MIT License - See [LICENSE](LICENSE) for details.
 
 ---
 
 ## Links
 
 - [GitHub Repository](https://github.com/fyrsmithlabs/contextd)
+- [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases)
 - [Docker Image](https://ghcr.io/fyrsmithlabs/contextd)
+- [Homebrew Tap](https://github.com/fyrsmithlabs/homebrew-tap)
 - [Issue Tracker](https://github.com/fyrsmithlabs/contextd/issues)
