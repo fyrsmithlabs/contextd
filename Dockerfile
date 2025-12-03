@@ -1,7 +1,6 @@
 # Stage 1: Build contextd
-# Use TARGETPLATFORM (not BUILDPLATFORM) because CGO requires native compilation
-# Multi-arch builds will use QEMU emulation for arm64
-FROM --platform=$TARGETPLATFORM golang:1.24rc1-bookworm AS builder
+# Multi-arch builds use QEMU emulation for arm64 because CGO requires native compilation
+FROM golang:1.24rc1-bookworm AS builder
 
 ARG TARGETARCH
 ARG TARGETOS
@@ -67,14 +66,15 @@ RUN set -ex; \
     ldconfig && \
     rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
-# Install Qdrant (architecture-aware)
+# Install Qdrant (architecture-aware) - v1.16.1 latest with arm64 support
 RUN set -ex; \
+    QDRANT_VERSION="1.16.1"; \
     case "${TARGETARCH}" in \
         amd64) QDRANT_ARCH="x86_64-unknown-linux-gnu" ;; \
-        arm64) QDRANT_ARCH="aarch64-unknown-linux-gnu" ;; \
+        arm64) QDRANT_ARCH="aarch64-unknown-linux-musl" ;; \
         *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac; \
-    wget -q "https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-${QDRANT_ARCH}.tar.gz" && \
+    wget -q "https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}/qdrant-${QDRANT_ARCH}.tar.gz" && \
     tar xzf "qdrant-${QDRANT_ARCH}.tar.gz" && \
     mv qdrant /usr/local/bin/ && \
     rm "qdrant-${QDRANT_ARCH}.tar.gz"
