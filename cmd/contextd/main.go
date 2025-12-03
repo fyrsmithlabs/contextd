@@ -92,8 +92,10 @@ func run() error {
 	// ============================================================================
 	telCfg := telemetry.NewDefaultConfig()
 	telCfg.ServiceName = "contextd"
-	// Disabled by default until OTEL collector is available
-	// Set OTEL_EXPORTER_OTLP_ENDPOINT to enable
+	// Disable telemetry if OTEL_SDK_DISABLED=true or TELEMETRY_ENABLED=false
+	if os.Getenv("OTEL_SDK_DISABLED") == "true" || os.Getenv("TELEMETRY_ENABLED") == "false" {
+		telCfg.Enabled = false
+	}
 	tel, err := telemetry.New(ctx, telCfg)
 	if err != nil {
 		logger.Warn(ctx, "telemetry initialization failed, continuing without telemetry",

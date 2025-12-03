@@ -8,8 +8,9 @@ mkdir -p /data/logs
 # Set Qdrant storage path
 export QDRANT__STORAGE__STORAGE_PATH=/data/qdrant/storage
 
-# Disable telemetry by default (can be overridden with -e OTEL_ENABLE=true)
-export OTEL_ENABLE=${OTEL_ENABLE:-false}
+# Disable telemetry by default (no OTEL collector in container)
+# Override with -e TELEMETRY_ENABLED=true to enable
+export TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-false}
 
 # Start Qdrant in background first
 /usr/local/bin/qdrant &
