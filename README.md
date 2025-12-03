@@ -97,17 +97,25 @@ brew tap fyrsmithlabs/homebrew-tap
 brew install contextd
 ```
 
-**Note:** Homebrew installs the binary only. You'll need Qdrant running separately:
+**Start Qdrant** (required for Homebrew installation):
 
 ```bash
-# Option 1: Homebrew
-brew install qdrant && qdrant &
+# Option 1: Docker with persistence (recommended)
+docker run -d --name contextd-qdrant \
+  -p 6333:6333 -p 6334:6334 \
+  -v contextd-qdrant-data:/qdrant/storage \
+  --restart unless-stopped \
+  qdrant/qdrant:v1.12.1
 
-# Option 2: Docker
-docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant
+# Option 2: Docker Compose (clone repo first)
+curl -O https://raw.githubusercontent.com/fyrsmithlabs/contextd/main/docker-compose.qdrant.yml
+docker compose -f docker-compose.qdrant.yml up -d
+
+# Option 3: Helper script (clone repo first)
+./scripts/start-qdrant.sh start
 ```
 
-Add to your Claude Code MCP config:
+**Add to Claude Code MCP config** (`~/.claude.json`):
 
 ```json
 {
@@ -117,16 +125,14 @@ Add to your Claude Code MCP config:
       "args": ["-mcp"],
       "env": {
         "QDRANT_HOST": "localhost",
-        "QDRANT_PORT": "6334",
-        "EMBEDDINGS_PROVIDER": "tei",
-        "TEI_URL": "http://localhost:8080"
+        "QDRANT_PORT": "6334"
       }
     }
   }
 }
 ```
 
-> **Note:** The Homebrew binary doesn't include FastEmbed (requires CGO). Use TEI for embeddings or the Docker image for full functionality.
+> **Note:** Homebrew binaries use the TEI embedding provider by default. Set `TEI_URL` if you have a TEI server, or use the Docker image for built-in FastEmbed support.
 
 ### Download Binary
 
