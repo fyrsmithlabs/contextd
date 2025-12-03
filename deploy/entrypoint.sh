@@ -8,6 +8,9 @@ mkdir -p /data/logs
 # Set Qdrant storage path
 export QDRANT__STORAGE__STORAGE_PATH=/data/qdrant/storage
 
+# Disable telemetry by default (can be overridden with -e OTEL_ENABLE=true)
+export OTEL_ENABLE=${OTEL_ENABLE:-false}
+
 # Start Qdrant in background first
 /usr/local/bin/qdrant &
 QDRANT_PID=$!
@@ -23,4 +26,4 @@ for i in $(seq 1 30); do
 done
 
 # Start contextd (stdio mode for MCP)
-exec /usr/local/bin/contextd
+exec /usr/local/bin/contextd -mcp
