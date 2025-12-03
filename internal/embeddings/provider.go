@@ -32,10 +32,8 @@ type ProviderConfig struct {
 // Falls back to 384 if model is unknown.
 func detectDimensionFromModel(model string) int {
 	// Check FastEmbed model mapping first
-	if feModel, ok := modelMapping[model]; ok {
-		if dim, ok := modelDimensions[feModel]; ok {
-			return dim
-		}
+	if dim, ok := fastEmbedModelDimension(model); ok {
+		return dim
 	}
 	// Common model dimension patterns
 	switch {

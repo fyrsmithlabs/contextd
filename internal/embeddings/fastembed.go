@@ -1,3 +1,5 @@
+//go:build cgo
+
 // Package embeddings provides embedding generation via multiple providers.
 package embeddings
 
@@ -182,4 +184,14 @@ func (p *FastEmbedProvider) Close() error {
 		return p.model.Destroy()
 	}
 	return nil
+}
+
+// fastEmbedModelDimension returns dimensions for known models.
+func fastEmbedModelDimension(model string) (int, bool) {
+	if feModel, ok := modelMapping[model]; ok {
+		if dim, ok := modelDimensions[feModel]; ok {
+			return dim, true
+		}
+	}
+	return 0, false
 }
