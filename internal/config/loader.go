@@ -236,6 +236,23 @@ func applyDefaults(cfg *Config) {
 		cfg.Qdrant.VectorSize = 384 // bge-small-en-v1.5 dimensions
 	}
 
+	// VectorStore defaults
+	if cfg.VectorStore.Provider == "" {
+		cfg.VectorStore.Provider = "chroma"
+	}
+	if cfg.VectorStore.Chroma.Path == "" {
+		cfg.VectorStore.Chroma.Path = "~/.config/contextd/chroma.db"
+	}
+	if cfg.VectorStore.Chroma.Model == "" {
+		cfg.VectorStore.Chroma.Model = "sentence-transformers/all-mpnet-base-v2"
+	}
+	if cfg.VectorStore.Chroma.Dimension == 0 {
+		cfg.VectorStore.Chroma.Dimension = 768
+	}
+	if cfg.VectorStore.Chroma.Distance == "" {
+		cfg.VectorStore.Chroma.Distance = "cosine"
+	}
+
 	// Embeddings defaults
 	if cfg.Embeddings.BaseURL == "" {
 		cfg.Embeddings.BaseURL = "http://localhost:8080"

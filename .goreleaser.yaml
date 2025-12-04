@@ -115,13 +115,6 @@ brews:
     license: "MIT"
     dependencies:
       - name: onnxruntime
-      - name: qdrant
-    service: |
-      run [opt_bin/"qdrant", "--uri", "0.0.0.0:6334"]
-      keep_alive true
-      working_dir HOMEBREW_PREFIX
-      environment_variables:
-        QDRANT__STORAGE__STORAGE_PATH: "#{var}/qdrant/storage"
     install: |
       bin.install "contextd"
       bin.install "ctxd"

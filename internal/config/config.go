@@ -19,6 +19,7 @@ type Config struct {
 	Observability ObservabilityConfig
 	PreFetch      PreFetchConfig
 	Checkpoint    CheckpointConfig
+	VectorStore   VectorStoreConfig
 	Qdrant        QdrantConfig
 	Embeddings    EmbeddingsConfig
 	Repository    RepositoryConfig
@@ -34,6 +35,20 @@ type RepositoryConfig struct {
 	// FallbackExcludes are used when no ignore files are found in the project.
 	// Default: [".git/**", "node_modules/**", "vendor/**", "__pycache__/**"]
 	FallbackExcludes []string `koanf:"fallback_excludes"`
+}
+
+// VectorStoreConfig holds vectorstore provider configuration.
+type VectorStoreConfig struct {
+	Provider string       `koanf:"provider"` // "chroma" or "qdrant" (default: "chroma")
+	Chroma   ChromaConfig `koanf:"chroma"`
+}
+
+// ChromaConfig holds Chroma vector database configuration.
+type ChromaConfig struct {
+	Path      string `koanf:"path"`      // SQLite database path (default: "~/.config/contextd/chroma.db")
+	Model     string `koanf:"model"`     // Embedding model (default: "sentence-transformers/all-mpnet-base-v2")
+	Dimension int    `koanf:"dimension"` // Embedding dimension (default: 768)
+	Distance  string `koanf:"distance"`  // Distance metric (default: "cosine")
 }
 
 // QdrantConfig holds Qdrant vector database configuration.
