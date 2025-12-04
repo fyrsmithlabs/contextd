@@ -1,6 +1,6 @@
 # CLAUDE.md - contextd
 
-**Status**: Active Development (Phase 4 complete, Phase 5-6 pending)
+**Status**: Active Development (Phase 5 complete, Phase 6 pending)
 **Last Updated**: 2025-12-04
 
 ---
@@ -37,16 +37,20 @@ Simplified MCP server for AI agent memory and context management. Calls internal
 ## Architecture
 
 ```
-cmd/contextd/          # Entry point (stdio MCP server)
+cmd/contextd/          # Entry point (stdio MCP server + HTTP server)
+cmd/ctxd/              # CLI binary for manual operations
 internal/
 ├── mcp/               # MCP server + tool handlers
+├── http/              # HTTP API server (scrub, threshold, status endpoints)
 ├── reasoningbank/     # Cross-session memory (82% coverage)
 ├── checkpoint/        # Context snapshots
 ├── remediation/       # Error patterns
+├── repository/        # Repository indexing + semantic search
 ├── vectorstore/       # Qdrant interface
 ├── secrets/           # gitleaks scrubbing (97% coverage)
 ├── compression/       # Context compression (extractive, abstractive, hybrid)
 ├── hooks/             # Lifecycle hooks (session, clear, threshold)
+├── services/          # Service registry pattern
 ├── config/            # Koanf configuration
 ├── logging/           # Zap + OTEL bridge
 └── telemetry/         # OpenTelemetry
@@ -59,7 +63,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 
 | Component | Technology |
 |-----------|------------|
-| Language | Go 1.24+ |
+| Language | Go 1.25+ |
 | MCP | github.com/modelcontextprotocol/go-sdk |
 | Vector DB | Qdrant (gRPC client) |
 | Embeddings | FastEmbed (local ONNX) or TEI |
@@ -82,6 +86,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
 | `repository_index` | Repository | Index repo for semantic search |
+| `repository_search` | Repository | Semantic search over indexed code |
 | `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
 
 ---
@@ -92,15 +97,11 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 2. **Core Services** - vectorstore, embeddings, checkpoint, remediation, repository, troubleshoot, project, secrets
 3. **MCP Integration** - simplified server, tool handlers, scrubbing
 4. **ReasoningBank** - memory package, MCP tools, distiller stub
+5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/scrub`, `/api/v1/threshold`, `/api/v1/status` endpoints; `ctxd` CLI binary
 
 ---
 
 ## Pending Phases
-
-### Phase 5: HTTP + ctxd CLI
-- HTTP server for `/api/scrub` endpoint (Claude Code hooks)
-- `ctxd` CLI binary for manual operations
-- Hook integration guide
 
 ### Phase 6: Documentation
 - CONTEXTD.md briefing doc

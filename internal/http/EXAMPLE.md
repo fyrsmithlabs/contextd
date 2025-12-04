@@ -130,7 +130,7 @@ go run cmd/http-server/main.go
 Create a `Dockerfile`:
 
 ```dockerfile
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./

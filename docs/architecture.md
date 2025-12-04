@@ -265,7 +265,7 @@ Three layers of protection:
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Language | Go 1.24+ | Core application |
+| Language | Go 1.25+ | Core application |
 | MCP | github.com/modelcontextprotocol/go-sdk | Protocol implementation |
 | Vector DB | Qdrant | Semantic storage and search |
 | Embeddings | FastEmbed (ONNX) | Local text embeddings |

@@ -6,7 +6,7 @@
 
 **Architecture:** Service Registry interface provides dependency injection. MCP tools (session_start, session_end, context_threshold) trigger hooks and Distiller. HTTP endpoint provides alternative threshold trigger.
 
-**Tech Stack:** Go 1.24+, Echo v4, MCP SDK, Qdrant
+**Tech Stack:** Go 1.25+, Echo v4, MCP SDK, Qdrant
 
 ---
 

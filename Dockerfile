@@ -1,6 +1,6 @@
 # Stage 1: Build contextd
 # Multi-arch builds use QEMU emulation for arm64 because CGO requires native compilation
-FROM golang:1.24rc1-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 
 ARG TARGETARCH
 ARG TARGETOS
@@ -25,7 +25,7 @@ RUN set -ex; \
     esac; \
     wget -q "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
     tar xzf "onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
-    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/lib/ && \
+    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/local/lib/ && \
     ldconfig && \
     rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
@@ -62,7 +62,7 @@ RUN set -ex; \
     esac; \
     wget -q "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
     tar xzf "onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
-    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/lib/ && \
+    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/local/lib/ && \
     ldconfig && \
     rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
 
@@ -101,6 +101,6 @@ ENV QDRANT_HOST=localhost \
     CONTEXTD_DATA_PATH=/data \
     EMBEDDINGS_PROVIDER=fastembed \
     EMBEDDINGS_MODEL=BAAI/bge-small-en-v1.5 \
-    ONNX_PATH=/usr/lib/libonnxruntime.so
+    ONNX_PATH=/usr/local/lib/onnxruntime.so
 
 ENTRYPOINT ["/entrypoint.sh"]

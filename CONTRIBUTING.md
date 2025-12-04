@@ -27,7 +27,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 ### Prerequisites
 
-- **Go 1.24+** - Required for building
+- **Go 1.25+** - Required for building
 - **Docker** - For running the full stack
 - **Qdrant** - Vector database (included in Docker image)
 

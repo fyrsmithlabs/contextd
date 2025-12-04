@@ -101,24 +101,26 @@ changelog:
     - title: Others
       order: 999
 
-brews:
-  - name: contextd
-    ids:
-      - contextd-archive
-    repository:
-      owner: fyrsmithlabs
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/fyrsmithlabs/contextd"
-    description: "AI context and reasoning engine for Claude Code"
-    license: "MIT"
-    install: |
-      bin.install "contextd"
-      bin.install "ctxd"
-    test: |
-      system "#{bin}/contextd", "--help"
-      system "#{bin}/ctxd", "--help"
+ brews:
+   - name: contextd
+     ids:
+       - contextd-archive
+     repository:
+       owner: fyrsmithlabs
+       name: homebrew-tap
+       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+     directory: Formula
+     homepage: "https://github.com/fyrsmithlabs/contextd"
+     description: "AI context and reasoning engine for Claude Code"
+     license: "MIT"
+     dependencies:
+       - name: onnxruntime
+     install: |
+       bin.install "contextd"
+       bin.install "ctxd"
+     test: |
+       system "#{bin}/contextd", "--help"
+       system "#{bin}/ctxd", "--help"
 
 release:
   github:
