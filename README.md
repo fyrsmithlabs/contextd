@@ -97,7 +97,11 @@ brew tap fyrsmithlabs/homebrew-tap
 brew install contextd
 ```
 
-**Start Qdrant** (required for vector search):
+**Qdrant Service** (automatically managed by Homebrew):
+
+Homebrew installs and starts Qdrant as a system service. No manual setup required.
+
+For Docker users, start Qdrant manually:
 
 ```bash
 docker run -d --name contextd-qdrant \
