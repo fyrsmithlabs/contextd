@@ -1,7 +1,21 @@
 # CLAUDE.md - contextd
 
 **Status**: Active Development (Phase 4 complete, Phase 5-6 pending)
-**Last Updated**: 2025-11-30
+**Last Updated**: 2025-12-04
+
+---
+
+## ⚠️ CRITICAL: Contextd-First Search (Priority #1)
+
+**ALWAYS use contextd MCP tools before filesystem search. ALWAYS.**
+
+**Required Order:**
+1. ✅ `mcp__contextd__memory_search` - Search past learnings/strategies first
+2. ✅ `mcp__contextd__remediation_search` - Check for known error fixes
+3. ✅ Semantic search via indexed repository
+4. ⏳ Only THEN use Grep/Glob/Read if contextd doesn't have what you need
+
+**Why:** This project IS contextd. Use your own tools. Semantic search is faster, more accurate, and builds the knowledge base.
 
 ---
 
