@@ -78,9 +78,11 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `memory_feedback` | ReasoningBank | Rate memory helpfulness |
 | `checkpoint_save` | Checkpoint | Save context snapshot |
 | `checkpoint_list` | Checkpoint | List available checkpoints |
-| `checkpoint_load` | Checkpoint | Resume from checkpoint |
+| `checkpoint_resume` | Checkpoint | Resume from checkpoint |
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
+| `repository_index` | Repository | Index repo for semantic search |
+| `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
 
 ---
 
