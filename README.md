@@ -99,57 +99,63 @@ brew install contextd
 
 **Install and Start Qdrant** (required for vector search):
 
-**Option 1: Install via Cargo** (recommended):
+**Option 1: Docker** (recommended for development):
 
 ```bash
-# Install Rust/Cargo if not already installed
+# Pull the latest Qdrant image
+docker pull qdrant/qdrant
+
+# Run Qdrant with persistent storage
+docker run -d --name contextd-qdrant \
+  -p 6333:6333 -p 6334:6334 \
+  -v $(pwd)/qdrant_data:/qdrant/storage \
+  qdrant/qdrant
+```
+
+**Option 2: Docker Compose** (for more control):
+
+Create `docker-compose.qdrant.yml`:
+
+```yaml
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: always
+    ports:
+      - 6333:6333
+      - 6334:6334
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+```
+
+Then run:
+
+```bash
+docker-compose -f docker-compose.qdrant.yml up -d
+```
+
+**Option 3: Build from source** (advanced users):
+
+```bash
+# Install Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# Install Qdrant
-cargo install qdrant --version 1.12.1
+# Clone and build Qdrant
+git clone https://github.com/qdrant/qdrant.git
+cd qdrant
+cargo build --release --bin qdrant
 
-# Create storage directory and start Qdrant
+# Run Qdrant
 mkdir -p ~/qdrant/storage
-qdrant --uri 0.0.0.0:6334 &
+./target/release/qdrant --uri 0.0.0.0:6334 &
 ```
 
-**Option 2: Pre-built binaries** (alternative):
+**Verify Qdrant is running:**
 
 ```bash
-# macOS (Intel)
-curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-x86_64-apple-darwin.tar.gz | tar xz
-sudo mv qdrant /usr/local/bin/
-mkdir -p ~/qdrant/storage
-qdrant --uri 0.0.0.0:6334 &
-
-# macOS (Apple Silicon)
-curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-aarch64-apple-darwin.tar.gz | tar xz
-sudo mv qdrant /usr/local/bin/
-mkdir -p ~/qdrant/storage
-qdrant --uri 0.0.0.0:6334 &
-
-# Linux (amd64)
-curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-x86_64-unknown-linux-gnu.tar.gz | tar xz
-sudo mv qdrant /usr/local/bin/
-mkdir -p ~/qdrant/storage
-qdrant --uri 0.0.0.0:6334 &
-
-# Linux (arm64)
-curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-aarch64-unknown-linux-gnu.tar.gz | tar xz
-sudo mv qdrant /usr/local/bin/
-mkdir -p ~/qdrant/storage
-qdrant --uri 0.0.0.0:6334 &
-```
-
-**Option 3: Docker** (for development/testing):
-
-```bash
-docker run -d --name contextd-qdrant \
-  -p 6333:6333 -p 6334:6334 \
-  -v contextd-qdrant-data:/qdrant/storage \
-  --restart always \
-  qdrant/qdrant:v1.12.1
+curl http://localhost:6333/
+# Should return: "Welcome to Qdrant!"
 ```
 
 **Add to Claude Code MCP config** (`~/.claude.json`):
