@@ -97,11 +97,52 @@ brew tap fyrsmithlabs/homebrew-tap
 brew install contextd
 ```
 
-**Qdrant Service** (automatically managed by Homebrew):
+**Install and Start Qdrant** (required for vector search):
 
-Homebrew installs and starts Qdrant as a system service. No manual setup required.
+**Option 1: Install via Cargo** (recommended):
 
-For Docker users, start Qdrant manually:
+```bash
+# Install Rust/Cargo if not already installed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Install Qdrant
+cargo install qdrant --version 1.12.1
+
+# Create storage directory and start Qdrant
+mkdir -p ~/qdrant/storage
+qdrant --uri 0.0.0.0:6334 &
+```
+
+**Option 2: Pre-built binaries** (alternative):
+
+```bash
+# macOS (Intel)
+curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv qdrant /usr/local/bin/
+mkdir -p ~/qdrant/storage
+qdrant --uri 0.0.0.0:6334 &
+
+# macOS (Apple Silicon)
+curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv qdrant /usr/local/bin/
+mkdir -p ~/qdrant/storage
+qdrant --uri 0.0.0.0:6334 &
+
+# Linux (amd64)
+curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv qdrant /usr/local/bin/
+mkdir -p ~/qdrant/storage
+qdrant --uri 0.0.0.0:6334 &
+
+# Linux (arm64)
+curl -L https://github.com/qdrant/qdrant/releases/download/v1.12.1/qdrant-aarch64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv qdrant /usr/local/bin/
+mkdir -p ~/qdrant/storage
+qdrant --uri 0.0.0.0:6334 &
+```
+
+**Option 3: Docker** (for development/testing):
 
 ```bash
 docker run -d --name contextd-qdrant \
