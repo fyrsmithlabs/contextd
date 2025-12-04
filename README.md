@@ -124,7 +124,7 @@ docker run -d --name contextd-qdrant \
 }
 ```
 
-> **Note:** Homebrew binaries use the TEI embedding provider by default. Set `TEI_URL` if you have a TEI server, or use the Docker image for built-in FastEmbed support.
+> **Note:** Homebrew binaries now include ONNX runtime for FastEmbed support. If ONNX is unavailable, set `EMBEDDINGS_PROVIDER=tei` and configure `TEI_URL`.
 
 ### Download Binary
 
