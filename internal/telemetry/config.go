@@ -36,9 +36,11 @@ type ShutdownConfig struct {
 }
 
 // NewDefaultConfig returns production-ready telemetry defaults.
+// Telemetry is disabled by default for new users who don't have an OTEL collector.
+// Set OTEL_ENABLE=true or configure telemetry in config.yaml to enable.
 func NewDefaultConfig() *Config {
 	return &Config{
-		Enabled:     true,
+		Enabled:     false,
 		Endpoint:    "localhost:4317",
 		ServiceName: "contextd",
 		Sampling: SamplingConfig{

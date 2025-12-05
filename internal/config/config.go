@@ -167,7 +167,7 @@ type RuleConfig struct {
 //   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
 //
 // Telemetry:
-//   - OTEL_ENABLE: Enable OpenTelemetry (default: true)
+//   - OTEL_ENABLE: Enable OpenTelemetry (default: false, requires OTEL collector)
 //   - OTEL_SERVICE_NAME: Service name for traces (default: contextd)
 //
 // Pre-fetch:
@@ -186,7 +186,7 @@ func Load() *Config {
 			ShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 10*time.Second),
 		},
 		Observability: ObservabilityConfig{
-			EnableTelemetry: getEnvBool("OTEL_ENABLE", true),
+			EnableTelemetry: getEnvBool("OTEL_ENABLE", false),
 			ServiceName:     getEnvString("OTEL_SERVICE_NAME", "contextd"),
 		},
 		PreFetch: PreFetchConfig{

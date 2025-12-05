@@ -112,6 +112,11 @@ func run() error {
 	// ============================================================================
 	// Load Configuration
 	// ============================================================================
+	// Ensure config directory exists for new users
+	if err := config.EnsureConfigDir(); err != nil {
+		logger.Warn(ctx, "failed to create config directory", zap.Error(err))
+	}
+
 	// Always try to load from file first (default: ~/.config/contextd/config.yaml)
 	// Falls back to environment-only config if file doesn't exist
 	var cfg *config.Config

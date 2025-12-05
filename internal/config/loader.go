@@ -137,6 +137,23 @@ func LoadWithFile(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
+// EnsureConfigDir creates the contextd config directory if it doesn't exist.
+// This is called during startup to ensure new users have the config directory ready.
+// The directory is created with 0700 permissions (owner read/write/execute only).
+func EnsureConfigDir() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	configDir := filepath.Join(home, ".config", "contextd")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return fmt.Errorf("failed to create config directory %s: %w", configDir, err)
+	}
+
+	return nil
+}
+
 // validateConfigPath checks if path is in allowed directories.
 // This validation runs even if the file doesn't exist yet.
 func validateConfigPath(path string) error {

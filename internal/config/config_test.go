@@ -26,8 +26,8 @@ func TestLoad(t *testing.T) {
 				if cfg.Server.ShutdownTimeout != 10*time.Second {
 					t.Errorf("Server.ShutdownTimeout = %v, want 10s", cfg.Server.ShutdownTimeout)
 				}
-				if !cfg.Observability.EnableTelemetry {
-					t.Error("Observability.EnableTelemetry = false, want true")
+				if cfg.Observability.EnableTelemetry {
+					t.Error("Observability.EnableTelemetry = true, want false (disabled by default)")
 				}
 				if cfg.Observability.ServiceName != "contextd" {
 					t.Errorf("Observability.ServiceName = %q, want contextd", cfg.Observability.ServiceName)
