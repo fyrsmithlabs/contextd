@@ -77,13 +77,13 @@ help:
 
 # Build targets
 build:
-	@echo "🔨 Building contextd..."
+	@echo "🔨 Building contextd (with CGO for FastEmbed)..."
 	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
 	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
 	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-	go build -ldflags="-X main.version=$$VERSION -X main.commit=$$COMMIT -X main.buildDate=$$DATE" \
+	CGO_ENABLED=1 go build -ldflags="-X main.version=$$VERSION -X main.commit=$$COMMIT -X main.buildDate=$$DATE" \
 		-o contextd ./cmd/contextd/
-	@echo "✓ Built contextd"
+	@echo "✓ Built contextd (FastEmbed enabled)"
 
 build-ctxd:
 	@echo "🔨 Building ctxd CLI..."
@@ -95,12 +95,12 @@ build-ctxd:
 build-all: build build-ctxd
 
 go-install:
-	@echo "📦 Installing contextd binaries with go install..."
+	@echo "📦 Installing contextd binaries with go install (CGO enabled for FastEmbed)..."
 	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
 	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
 	DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-	go install -ldflags="-X main.version=$$VERSION -X main.commit=$$COMMIT -X main.buildDate=$$DATE" ./cmd/contextd
-	@echo "✓ Installed contextd to $(shell go env GOPATH)/bin"
+	CGO_ENABLED=1 go install -ldflags="-X main.version=$$VERSION -X main.commit=$$COMMIT -X main.buildDate=$$DATE" ./cmd/contextd
+	@echo "✓ Installed contextd to $(shell go env GOPATH)/bin (FastEmbed enabled)"
 	@go install -ldflags="-X main.version=$$VERSION" ./cmd/ctxd
 	@echo "✓ Installed ctxd to $(shell go env GOPATH)/bin"
 	@echo "  Make sure $(shell go env GOPATH)/bin is in your PATH"
@@ -111,28 +111,28 @@ clean:
 	@rm -f coverage.out coverage.html
 	@echo "✓ Cleaned build artifacts"
 
-# Cross-platform build targets
+# Cross-platform build targets (NO FastEmbed - requires TEI for embeddings)
 build-linux:
-	@echo "🔨 Building for Linux..."
+	@echo "🔨 Building for Linux (without FastEmbed - use TEI provider)..."
 	@mkdir -p dist/linux
-	@GOOS=linux GOARCH=amd64 go build -o dist/linux/contextd-linux-amd64 ./cmd/contextd
-	@GOOS=linux GOARCH=arm64 go build -o dist/linux/contextd-linux-arm64 ./cmd/contextd
-	@echo "✓ Linux binaries built in dist/linux/"
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/linux/contextd-linux-amd64 ./cmd/contextd
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/linux/contextd-linux-arm64 ./cmd/contextd
+	@echo "✓ Linux binaries built in dist/linux/ (TEI provider only)"
 	@ls -lh dist/linux/
 
 build-darwin:
-	@echo "🔨 Building for macOS..."
+	@echo "🔨 Building for macOS (without FastEmbed - use TEI provider)..."
 	@mkdir -p dist/darwin
-	@GOOS=darwin GOARCH=amd64 go build -o dist/darwin/contextd-darwin-amd64 ./cmd/contextd
-	@GOOS=darwin GOARCH=arm64 go build -o dist/darwin/contextd-darwin-arm64 ./cmd/contextd
-	@echo "✓ macOS binaries built in dist/darwin/"
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o dist/darwin/contextd-darwin-amd64 ./cmd/contextd
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/darwin/contextd-darwin-arm64 ./cmd/contextd
+	@echo "✓ macOS binaries built in dist/darwin/ (TEI provider only)"
 	@ls -lh dist/darwin/
 
 build-windows:
-	@echo "🔨 Building for Windows..."
+	@echo "🔨 Building for Windows (without FastEmbed - use TEI provider)..."
 	@mkdir -p dist/windows
-	@GOOS=windows GOARCH=amd64 go build -o dist/windows/contextd-windows-amd64.exe ./cmd/contextd
-	@echo "✓ Windows binaries built in dist/windows/"
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/windows/contextd-windows-amd64.exe ./cmd/contextd
+	@echo "✓ Windows binaries built in dist/windows/ (TEI provider only)"
 	@ls -lh dist/windows/
 
 build-all-platforms: build-linux build-darwin build-windows
