@@ -111,28 +111,28 @@ clean:
 	@rm -f coverage.out coverage.html
 	@echo "✓ Cleaned build artifacts"
 
-# Cross-platform build targets (NO FastEmbed - requires TEI for embeddings)
+# Cross-platform build targets
 build-linux:
-	@echo "🔨 Building for Linux (without FastEmbed - use TEI provider)..."
+	@echo "🔨 Building for Linux..."
 	@mkdir -p dist/linux
-	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/linux/contextd-linux-amd64 ./cmd/contextd
-	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/linux/contextd-linux-arm64 ./cmd/contextd
-	@echo "✓ Linux binaries built in dist/linux/ (TEI provider only)"
+	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o dist/linux/contextd-linux-amd64 ./cmd/contextd
+	@CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o dist/linux/contextd-linux-arm64 ./cmd/contextd
+	@echo "✓ Linux binaries built in dist/linux/"
 	@ls -lh dist/linux/
 
 build-darwin:
-	@echo "🔨 Building for macOS (without FastEmbed - use TEI provider)..."
+	@echo "🔨 Building for macOS..."
 	@mkdir -p dist/darwin
-	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o dist/darwin/contextd-darwin-amd64 ./cmd/contextd
-	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/darwin/contextd-darwin-arm64 ./cmd/contextd
-	@echo "✓ macOS binaries built in dist/darwin/ (TEI provider only)"
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o dist/darwin/contextd-darwin-amd64 ./cmd/contextd
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o dist/darwin/contextd-darwin-arm64 ./cmd/contextd
+	@echo "✓ macOS binaries built in dist/darwin/"
 	@ls -lh dist/darwin/
 
 build-windows:
-	@echo "🔨 Building for Windows (without FastEmbed - use TEI provider)..."
+	@echo "🔨 Building for Windows..."
 	@mkdir -p dist/windows
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/windows/contextd-windows-amd64.exe ./cmd/contextd
-	@echo "✓ Windows binaries built in dist/windows/ (TEI provider only)"
+	@CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o dist/windows/contextd-windows-amd64.exe ./cmd/contextd
+	@echo "✓ Windows binaries built in dist/windows/"
 	@ls -lh dist/windows/
 
 build-all-platforms: build-linux build-darwin build-windows
