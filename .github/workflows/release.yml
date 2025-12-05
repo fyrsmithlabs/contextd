@@ -141,7 +141,7 @@ jobs:
 
       - name: Update Homebrew formula
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           # Get source tarball SHA
