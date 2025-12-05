@@ -18,9 +18,11 @@ jobs:
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
+            onnx_arch: x64
           - runner: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
+            onnx_arch: aarch64
           - runner: macos-13
             goos: darwin
             goarch: amd64
@@ -31,9 +33,6 @@ jobs:
             goos: windows
             goarch: amd64
     runs-on: ${{ matrix.runner }}
-    env:
-      MATRIX_GOOS: ${{ matrix.goos }}
-      MATRIX_GOARCH: ${{ matrix.goarch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,12 +48,8 @@ jobs:
         if: matrix.goos == 'linux'
         env:
           ONNX_VERSION: "1.23.2"
+          ONNX_ARCH: ${{ matrix.onnx_arch }}
         run: |
-          if [ "$MATRIX_GOARCH" = "amd64" ]; then
-            ONNX_ARCH="x64"
-          else
-            ONNX_ARCH="aarch64"
-          fi
           wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
           tar xzf "onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
           sudo cp onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
@@ -73,19 +68,16 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${env:ONNX_VERSION}/onnxruntime-win-x64-${env:ONNX_VERSION}.zip" -OutFile "onnxruntime.zip"
           Expand-Archive -Path "onnxruntime.zip" -DestinationPath "onnxruntime"
-          $libPath = "${{ github.workspace }}\onnxruntime\onnxruntime-win-x64-${env:ONNX_VERSION}\lib"
-          echo $libPath >> $env:GITHUB_PATH
+          echo "${{ github.workspace }}\onnxruntime\onnxruntime-win-x64-$env:ONNX_VERSION\lib" >> $env:GITHUB_PATH
 
-      - name: Run GoReleaser
+      - name: Build with GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean --split
+          args: build --clean --single-target
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -114,12 +106,15 @@ jobs:
           pattern: dist-*
           merge-multiple: true
 
-      - name: Run GoReleaser (merge)
+      - name: List artifacts
+        run: find dist/ -type f | head -50
+
+      - name: Run GoReleaser (release)
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: continue --merge
+          args: release --clean --skip=build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
