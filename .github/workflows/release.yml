@@ -11,37 +11,51 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  # Build Linux binaries using goreleaser-cross
+  build-linux:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install ONNX Runtime
+        env:
+          ONNX_VERSION: "1.23.2"
+        run: |
+          cd /tmp
+          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          tar xzf "onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          sudo cp onnxruntime-linux-x64-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
+          sudo ldconfig
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --skip=publish --config .goreleaser-linux.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*.tar.gz
+
+  # Build macOS binaries on native runners
+  build-macos:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            onnx_arch: x64
-            ext: ""
-            archive: tar.gz
-          - runner: ubuntu-24.04-arm
-            goos: linux
-            goarch: arm64
-            onnx_arch: aarch64
-            ext: ""
-            archive: tar.gz
           - runner: macos-13
-            goos: darwin
             goarch: amd64
-            ext: ""
-            archive: tar.gz
           - runner: macos-14
-            goos: darwin
             goarch: arm64
-            ext: ""
-            archive: tar.gz
-          - runner: windows-latest
-            goos: windows
-            goarch: amd64
-            ext: ".exe"
-            archive: zip
     runs-on: ${{ matrix.runner }}
     env:
       CGO_ENABLED: "1"
@@ -54,85 +68,42 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.24'
 
-      - name: Install ONNX Runtime (Linux)
-        if: matrix.goos == 'linux'
-        env:
-          ONNX_VERSION: "1.23.2"
-          ONNX_ARCH: ${{ matrix.onnx_arch }}
-        run: |
-          cd /tmp
-          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
-          tar xzf "onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz"
-          sudo cp onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
-          sudo ldconfig
-
-      - name: Install ONNX Runtime (macOS)
-        if: matrix.goos == 'darwin'
-        run: |
-          brew install onnxruntime
-
-      - name: Install ONNX Runtime (Windows)
-        if: matrix.goos == 'windows'
-        shell: pwsh
-        env:
-          ONNX_VERSION: "1.23.2"
-        run: |
-          $tempDir = "$env:RUNNER_TEMP\onnxruntime"
-          New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${env:ONNX_VERSION}/onnxruntime-win-x64-${env:ONNX_VERSION}.zip" -OutFile "$tempDir\onnxruntime.zip"
-          Expand-Archive -Path "$tempDir\onnxruntime.zip" -DestinationPath $tempDir
-          echo "$tempDir\onnxruntime-win-x64-$env:ONNX_VERSION\lib" >> $env:GITHUB_PATH
+      - name: Install ONNX Runtime
+        run: brew install onnxruntime
 
       - name: Get version
         id: version
-        shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Build binaries
-        shell: bash
         env:
-          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          EXT: ${{ matrix.ext }}
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           mkdir -p dist
-          go build -ldflags="-s -w -X main.version=${VERSION}" -o "dist/contextd${EXT}" ./cmd/contextd
-          go build -ldflags="-s -w -X main.version=${VERSION}" -o "dist/ctxd${EXT}" ./cmd/ctxd
+          go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/contextd ./cmd/contextd
+          go build -ldflags="-s -w -X main.version=${VERSION}" -o dist/ctxd ./cmd/ctxd
 
-      - name: Create archive (tar.gz)
-        if: matrix.archive == 'tar.gz'
-        shell: bash
+      - name: Create archive
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
-          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           cd dist
           cp ../README.md ../LICENSE* . 2>/dev/null || true
-          tar czf "contextd_${VERSION}_${GOOS}_${GOARCH}.tar.gz" contextd ctxd README.md LICENSE* 2>/dev/null || tar czf "contextd_${VERSION}_${GOOS}_${GOARCH}.tar.gz" contextd ctxd README.md
-
-      - name: Create archive (zip)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          Copy-Item README.md, LICENSE* dist/ -ErrorAction SilentlyContinue
-          Compress-Archive -Path dist/contextd.exe, dist/ctxd.exe, dist/README.md -DestinationPath "dist/contextd_${env:VERSION}_${env:GOOS}_${env:GOARCH}.zip"
+          tar czf "contextd_${VERSION}_darwin_${GOARCH}.tar.gz" contextd ctxd README.md LICENSE* 2>/dev/null || tar czf "contextd_${VERSION}_darwin_${GOARCH}.tar.gz" contextd ctxd README.md
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/contextd_*
+          name: dist-darwin-${{ matrix.goarch }}
+          path: dist/*.tar.gz
 
+  # Create release with all artifacts
   release:
-    needs: build
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -168,6 +139,62 @@ jobs:
             --generate-notes \
             artifacts/*
 
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          # Get source tarball SHA
+          SOURCE_SHA=$(curl -sL "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${VERSION}.tar.gz" | sha256sum | cut -d' ' -f1)
+
+          # Generate formula
+          FORMULA=$(cat << EOF
+          # typed: false
+          # frozen_string_literal: true
+
+          class Contextd < Formula
+            desc "AI context and reasoning engine for Claude Code"
+            homepage "https://github.com/fyrsmithlabs/contextd"
+            version "${VERSION}"
+            license "MIT"
+
+            url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${VERSION}.tar.gz"
+            sha256 "${SOURCE_SHA}"
+
+            depends_on "go" => :build
+            depends_on "onnxruntime"
+
+            def install
+              ENV["CGO_ENABLED"] = "1"
+
+              ldflags = %W[
+                -s -w
+                -X main.version=#{version}
+              ]
+
+              system "go", "build", *std_go_args(ldflags:), "-o", bin/"contextd", "./cmd/contextd"
+              system "go", "build", *std_go_args(ldflags:), "-o", bin/"ctxd", "./cmd/ctxd"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/contextd --version")
+              assert_match version.to_s, shell_output("#{bin}/ctxd --version")
+            end
+          end
+          EOF
+          )
+
+          # Get current file SHA
+          FILE_SHA=$(gh api repos/fyrsmithlabs/homebrew-tap/contents/Formula/contextd.rb --jq '.sha')
+
+          # Update formula
+          gh api repos/fyrsmithlabs/homebrew-tap/contents/Formula/contextd.rb \
+            -X PUT \
+            -f message="chore: update contextd formula to v${VERSION}" \
+            -f content="$(echo "$FORMULA" | base64 -w0)" \
+            -f sha="$FILE_SHA"
+
+  # Build and push Docker image
   docker:
     runs-on: ubuntu-latest
     needs: release
@@ -190,9 +217,7 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        env:
-          GH_REF: ${{ github.ref }}
-        run: echo "VERSION=${GH_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Determine if prerelease
         id: prerelease
@@ -212,7 +237,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/fyrsmithlabs/contextd:${{ steps.version.outputs.VERSION }}

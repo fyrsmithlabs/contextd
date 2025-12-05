@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Linux-only goreleaser config for CI
+version: 2
+
+project_name: contextd
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: contextd
+    main: ./cmd/contextd
+    binary: contextd
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  - id: ctxd
+    main: ./cmd/ctxd
+    binary: ctxd
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: contextd-archive
+    ids:
+      - contextd
+      - ctxd
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  disable: true
+
+changelog:
+  disable: true
+
+release:
+  disable: true
