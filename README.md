@@ -39,7 +39,7 @@ ContextD is in active development. Here's what works today:
 | **Checkpoints** | Save and resume context snapshots | Working |
 | **Remediation Tracking** | Store error patterns and fixes | Working |
 | **Secret Scrubbing** | Automatic detection via gitleaks | Working |
-| **Vector Search** | Semantic search via Qdrant | Working |
+| **Vector Search** | Semantic search via chromem (embedded) or Qdrant | Working |
 | **Local Embeddings** | FastEmbed with ONNX (no API calls) | Working |
 | **MCP Integration** | Works with Claude Code out of the box | Working |
 
@@ -58,11 +58,11 @@ ContextD is in active development. Here's what works today:
 
 ### Using Docker (Recommended)
 
-The Docker image includes everything: ContextD, Qdrant, and FastEmbed embeddings.
+The Docker image includes everything: ContextD with embedded chromem vectorstore and FastEmbed embeddings (zero external dependencies).
 
 ```bash
 # Pull the image (multi-arch: amd64 and arm64)
-docker pull ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha
+docker pull ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha
 ```
 
 Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
@@ -75,7 +75,7 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
       "args": [
         "run", "-i", "--rm",
         "-v", "contextd-data:/data",
-        "ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha"
+        "ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha"
       ]
     }
   }
@@ -97,7 +97,7 @@ brew tap fyrsmithlabs/homebrew-tap
 brew install contextd
 ```
 
-**Install and Start Qdrant** (required for vector search):
+**Optional: External Qdrant** (contextd uses embedded chromem by default, but you can use external Qdrant if preferred):
 
 **Option 1: Docker** (recommended for development):
 
@@ -165,8 +165,22 @@ curl http://localhost:6333/
   "mcpServers": {
     "contextd": {
       "command": "contextd",
+      "args": ["-mcp"]
+    }
+  }
+}
+```
+
+To use Qdrant instead of the embedded chromem:
+
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "contextd",
       "args": ["-mcp"],
       "env": {
+        "VECTORSTORE_PROVIDER": "qdrant",
         "QDRANT_HOST": "localhost",
         "QDRANT_PORT": "6334"
       }
@@ -211,14 +225,15 @@ CGO_ENABLED=1 go build -o contextd ./cmd/contextd
 
 | Tag | Description |
 |-----|-------------|
-| `0.1.0-alpha` | Current alpha release |
+| `0.2.0-alpha` | Current alpha release |
+| `0.1.0-alpha` | Previous alpha release |
 | `latest` | Latest stable release (not yet available) |
 
 Multi-arch support: `linux/amd64` and `linux/arm64`
 
 ```bash
 # Explicit platform
-docker pull --platform linux/arm64 ghcr.io/fyrsmithlabs/contextd:0.1.0-alpha
+docker pull --platform linux/arm64 ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha
 ```
 
 ---
@@ -239,6 +254,7 @@ ContextD exposes these tools to Claude Code:
 | `remediation_record` | Record a new error fix |
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
 | `repository_index` | Index a codebase for semantic search |
+| `repository_search` | Semantic search over indexed code |
 
 ---
 
@@ -260,8 +276,8 @@ ContextD exposes these tools to Claude Code:
 │  │         └────────────────┼───────────────┘       │    │
 │  │                          │                       │    │
 │  │                   ┌──────▼──────┐                │    │
-│  │                   │   Qdrant    │                │    │
-│  │                   │  (Vectors)  │                │    │
+│  │                   │   chromem   │                │    │
+│  │                   │  (Vectors)  │  or Qdrant     │    │
 │  │                   └─────────────┘                │    │
 │  └──────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────┘
@@ -269,8 +285,9 @@ ContextD exposes these tools to Claude Code:
 
 **All-in-one container includes:**
 - ContextD MCP server
-- Qdrant vector database
+- chromem embedded vector database (zero external dependencies)
 - FastEmbed for local embeddings (ONNX-based, no API calls)
+- Optional: Configure `VECTORSTORE_PROVIDER=qdrant` for external Qdrant
 
 ---
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,10 +76,9 @@ func DefaultServiceConfig() *Config {
 
 // service implements the Service interface.
 type service struct {
-	config   *Config
-	qdrant   QdrantClient
-	embedder Embedder
-	logger   *zap.Logger
+	config *Config
+	store  vectorstore.Store
+	logger *zap.Logger
 
 	// Telemetry
 	tracer          trace.Tracer
@@ -92,27 +92,23 @@ type service struct {
 }
 
 // NewService creates a new remediation service.
-func NewService(cfg *Config, qc QdrantClient, embedder Embedder, logger *zap.Logger) (Service, error) {
+func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Service, error) {
 	if cfg == nil {
 		cfg = DefaultServiceConfig()
 	}
-	if qc == nil {
-		return nil, errors.New("qdrant client is required")
-	}
-	if embedder == nil {
-		return nil, errors.New("embedder is required")
+	if store == nil {
+		return nil, errors.New("vector store is required")
 	}
 	if logger == nil {
 		return nil, errors.New("logger is required for remediation service")
 	}
 
 	s := &service{
-		config:   cfg,
-		qdrant:   qc,
-		embedder: embedder,
-		logger:   logger,
-		tracer:   otel.Tracer(instrumentationName),
-		meter:    otel.Meter(instrumentationName),
+		config: cfg,
+		store:  store,
+		logger: logger,
+		tracer: otel.Tracer(instrumentationName),
+		meter:  otel.Meter(instrumentationName),
 	}
 
 	s.initMetrics()
@@ -200,29 +196,17 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	}
 	s.mu.RUnlock()
 
-	// Generate embedding if not provided
-	var vector []float32
-	if len(req.Vector) > 0 {
-		vector = req.Vector
-	} else if req.Query != "" {
-		var err error
-		vector, err = s.embedder.Embed(ctx, req.Query)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("failed to embed query: %w", err)
-		}
-	} else {
-		return nil, errors.New("either query or vector is required")
+	if req.Query == "" {
+		return nil, errors.New("query is required")
 	}
 
-	limit := uint64(req.Limit)
+	limit := req.Limit
 	if limit == 0 {
 		limit = 10
 	}
 
-	// Build filter
-	filter := s.buildSearchFilter(req)
+	// Build metadata filters
+	filters := s.buildSearchFilters(req)
 
 	// Determine which collections to search
 	collections := s.getSearchCollections(req)
@@ -231,7 +215,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 
 	for _, collection := range collections {
 		// Check if collection exists
-		exists, err := s.qdrant.CollectionExists(ctx, collection)
+		exists, err := s.store.CollectionExists(ctx, collection)
 		if err != nil {
 			s.logger.Warn("failed to check collection", zap.String("collection", collection), zap.Error(err))
 			continue
@@ -240,16 +224,15 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 			continue
 		}
 
-		results, err := s.qdrant.Search(ctx, collection, vector, limit, filter)
+		results, err := s.store.SearchInCollection(ctx, collection, req.Query, limit, filters)
 		if err != nil {
 			s.logger.Warn("search failed", zap.String("collection", collection), zap.Error(err))
 			continue
 		}
 
 		for _, r := range results {
-			rem := payloadToRemediation(r.Payload)
+			rem := s.resultToRemediation(r)
 			if rem != nil {
-				rem.ID = r.ID
 				allResults = append(allResults, &ScoredRemediation{
 					Remediation: *rem,
 					Score:       float64(r.Score),
@@ -259,7 +242,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	}
 
 	// Sort by score and limit
-	allResults = sortAndLimit(allResults, int(limit))
+	allResults = sortAndLimit(allResults, limit)
 
 	// Record metrics
 	if s.searchCounter != nil {
@@ -273,31 +256,27 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	return allResults, nil
 }
 
-// buildSearchFilter creates a Qdrant filter from search request.
-func (s *service) buildSearchFilter(req *SearchRequest) *QdrantFilter {
-	filter := &QdrantFilter{}
+// buildSearchFilters creates metadata filters from search request.
+func (s *service) buildSearchFilters(req *SearchRequest) map[string]interface{} {
+	filters := make(map[string]interface{})
 
-	// Confidence filter
+	// Confidence filter (for vector stores that support range filters)
 	if req.MinConfidence > 0 {
-		filter.Must = append(filter.Must, QdrantCondition{
-			Field: "confidence",
-			Range: &QdrantRangeCondition{Gte: &req.MinConfidence},
-		})
+		filters["confidence"] = map[string]interface{}{
+			"$gte": req.MinConfidence,
+		}
 	}
 
 	// Category filter
 	if req.Category != "" {
-		filter.Must = append(filter.Must, QdrantCondition{
-			Field: "category",
-			Match: string(req.Category),
-		})
+		filters["category"] = string(req.Category)
 	}
 
-	if len(filter.Must) == 0 && len(filter.Should) == 0 && len(filter.MustNot) == 0 {
+	if len(filters) == 0 {
 		return nil
 	}
 
-	return filter
+	return filters
 }
 
 // getSearchCollections returns the collections to search based on scope and hierarchy.
@@ -350,21 +329,6 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	}
 	s.mu.RUnlock()
 
-	// Generate embedding from problem + symptoms + root_cause
-	text := req.Title + " " + req.Problem + " " + req.RootCause
-	if len(req.Symptoms) > 0 {
-		for _, symptom := range req.Symptoms {
-			text += " " + symptom
-		}
-	}
-
-	vector, err := s.embedder.Embed(ctx, text)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, fmt.Errorf("failed to embed remediation: %w", err)
-	}
-
 	// Create remediation
 	now := time.Now()
 	confidence := req.Confidence
@@ -392,33 +356,29 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 		SessionID:     req.SessionID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
-		Vector:        vector,
 	}
 
 	// Get collection name
 	collection := s.collectionName(req.TenantID, req.Scope, req.TeamID, req.ProjectPath)
 
 	// Ensure collection exists
-	exists, err := s.qdrant.CollectionExists(ctx, collection)
+	exists, err := s.store.CollectionExists(ctx, collection)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
-		if err := s.qdrant.CreateCollection(ctx, collection, s.config.VectorSize); err != nil {
+		// Use store's configured vector size (0 = use default from embedder)
+		if err := s.store.CreateCollection(ctx, collection, 0); err != nil {
 			span.RecordError(err)
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
 	}
 
-	// Store in Qdrant
-	point := &QdrantPoint{
-		ID:      rem.ID,
-		Vector:  vector,
-		Payload: remediationToPayload(rem),
-	}
+	// Convert to document for storage (Store handles embedding internally)
+	doc := s.remediationToDocument(rem, collection)
 
-	if err := s.qdrant.Upsert(ctx, collection, []*QdrantPoint{point}); err != nil {
+	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to store remediation: %w", err)
@@ -464,20 +424,23 @@ func (s *service) Get(ctx context.Context, tenantID, remediationID string) (*Rem
 	scopes := []Scope{ScopeProject, ScopeTeam, ScopeOrg}
 	for _, scope := range scopes {
 		collection := s.collectionName(tenantID, scope, "", "")
-		exists, err := s.qdrant.CollectionExists(ctx, collection)
+		exists, err := s.store.CollectionExists(ctx, collection)
 		if err != nil || !exists {
 			continue
 		}
 
-		points, err := s.qdrant.Get(ctx, collection, []string{remediationID})
+		// Search by ID using filter
+		filters := map[string]interface{}{
+			"id": remediationID,
+		}
+
+		results, err := s.store.SearchInCollection(ctx, collection, "remediation", 1, filters)
 		if err != nil {
 			continue
 		}
-		if len(points) > 0 {
-			rem := payloadToRemediation(points[0].Payload)
+		if len(results) > 0 {
+			rem := s.resultToRemediation(results[0])
 			if rem != nil {
-				rem.ID = points[0].ID
-				rem.Vector = points[0].Vector
 				return rem, nil
 			}
 		}
@@ -524,15 +487,18 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	rem.UsageCount++
 	rem.UpdatedAt = time.Now()
 
-	// Update in storage
+	// Update in storage (delete and re-add with new confidence)
 	collection := s.collectionName(req.TenantID, rem.Scope, rem.TeamID, rem.ProjectPath)
-	point := &QdrantPoint{
-		ID:      rem.ID,
-		Vector:  rem.Vector,
-		Payload: remediationToPayload(rem),
+
+	// Delete old version
+	if err := s.store.DeleteDocumentsFromCollection(ctx, collection, []string{rem.ID}); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("failed to delete old remediation: %w", err)
 	}
 
-	if err := s.qdrant.Upsert(ctx, collection, []*QdrantPoint{point}); err != nil {
+	// Re-add with updated confidence
+	doc := s.remediationToDocument(rem, collection)
+	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to update remediation: %w", err)
@@ -575,12 +541,12 @@ func (s *service) Delete(ctx context.Context, tenantID, remediationID string) er
 	scopes := []Scope{ScopeProject, ScopeTeam, ScopeOrg}
 	for _, scope := range scopes {
 		collection := s.collectionName(tenantID, scope, "", "")
-		exists, err := s.qdrant.CollectionExists(ctx, collection)
+		exists, err := s.store.CollectionExists(ctx, collection)
 		if err != nil || !exists {
 			continue
 		}
 
-		if err := s.qdrant.Delete(ctx, collection, []string{remediationID}); err == nil {
+		if err := s.store.DeleteDocumentsFromCollection(ctx, collection, []string{remediationID}); err == nil {
 			s.logger.Info("deleted remediation", zap.String("id", remediationID))
 			return nil
 		}
@@ -602,6 +568,153 @@ func (s *service) Close() error {
 }
 
 // Helper functions
+
+// remediationToDocument converts a Remediation to a vectorstore Document.
+func (s *service) remediationToDocument(r *Remediation, collectionName string) vectorstore.Document {
+	// Combine title, problem, symptoms, and root_cause for embedding
+	content := fmt.Sprintf("%s\n\n%s\n\n%s", r.Title, r.Problem, r.RootCause)
+	if len(r.Symptoms) > 0 {
+		content += "\n\nSymptoms: " + joinStrings(r.Symptoms, ", ")
+	}
+
+	metadata := map[string]interface{}{
+		"id":           r.ID,
+		"title":        r.Title,
+		"problem":      r.Problem,
+		"root_cause":   r.RootCause,
+		"solution":     r.Solution,
+		"category":     string(r.Category),
+		"confidence":   r.Confidence,
+		"usage_count":  r.UsageCount,
+		"scope":        string(r.Scope),
+		"tenant_id":    r.TenantID,
+		"team_id":      r.TeamID,
+		"project_path": r.ProjectPath,
+		"session_id":   r.SessionID,
+		"created_at":   r.CreatedAt.Unix(),
+		"updated_at":   r.UpdatedAt.Unix(),
+	}
+
+	if r.CodeDiff != "" {
+		metadata["code_diff"] = r.CodeDiff
+	}
+
+	if len(r.Symptoms) > 0 {
+		metadata["symptoms"] = joinStrings(r.Symptoms, "||")
+	}
+
+	if len(r.AffectedFiles) > 0 {
+		metadata["affected_files"] = joinStrings(r.AffectedFiles, "||")
+	}
+
+	if len(r.Tags) > 0 {
+		metadata["tags"] = joinStrings(r.Tags, "||")
+	}
+
+	return vectorstore.Document{
+		ID:         r.ID,
+		Content:    content,
+		Metadata:   metadata,
+		Collection: collectionName,
+	}
+}
+
+// resultToRemediation converts a vectorstore SearchResult to a Remediation.
+func (s *service) resultToRemediation(result vectorstore.SearchResult) *Remediation {
+	if result.Metadata == nil {
+		return nil
+	}
+
+	r := &Remediation{}
+
+	// Extract ID
+	if id, ok := result.Metadata["id"].(string); ok {
+		r.ID = id
+	} else {
+		r.ID = result.ID
+	}
+
+	if v, ok := result.Metadata["title"].(string); ok {
+		r.Title = v
+	}
+	if v, ok := result.Metadata["problem"].(string); ok {
+		r.Problem = v
+	}
+	if v, ok := result.Metadata["root_cause"].(string); ok {
+		r.RootCause = v
+	}
+	if v, ok := result.Metadata["solution"].(string); ok {
+		r.Solution = v
+	}
+	if v, ok := result.Metadata["code_diff"].(string); ok {
+		r.CodeDiff = v
+	}
+	if v, ok := result.Metadata["category"].(string); ok {
+		r.Category = ErrorCategory(v)
+	}
+	if v, ok := result.Metadata["confidence"].(float64); ok {
+		r.Confidence = v
+	}
+	if v, ok := result.Metadata["usage_count"].(int64); ok {
+		r.UsageCount = v
+	} else if v, ok := result.Metadata["usage_count"].(float64); ok {
+		r.UsageCount = int64(v)
+	}
+	if v, ok := result.Metadata["scope"].(string); ok {
+		r.Scope = Scope(v)
+	}
+	if v, ok := result.Metadata["tenant_id"].(string); ok {
+		r.TenantID = v
+	}
+	if v, ok := result.Metadata["team_id"].(string); ok {
+		r.TeamID = v
+	}
+	if v, ok := result.Metadata["project_path"].(string); ok {
+		r.ProjectPath = v
+	}
+	if v, ok := result.Metadata["session_id"].(string); ok {
+		r.SessionID = v
+	}
+	if v, ok := result.Metadata["created_at"].(int64); ok {
+		r.CreatedAt = time.Unix(v, 0)
+	} else if v, ok := result.Metadata["created_at"].(float64); ok {
+		r.CreatedAt = time.Unix(int64(v), 0)
+	}
+	if v, ok := result.Metadata["updated_at"].(int64); ok {
+		r.UpdatedAt = time.Unix(v, 0)
+	} else if v, ok := result.Metadata["updated_at"].(float64); ok {
+		r.UpdatedAt = time.Unix(int64(v), 0)
+	}
+
+	// Parse symptoms
+	if v, ok := result.Metadata["symptoms"].(string); ok && v != "" {
+		r.Symptoms = splitByDelimiter(v, "||")
+	}
+
+	// Parse affected_files
+	if v, ok := result.Metadata["affected_files"].(string); ok && v != "" {
+		r.AffectedFiles = splitByDelimiter(v, "||")
+	}
+
+	// Parse tags
+	if v, ok := result.Metadata["tags"].(string); ok && v != "" {
+		r.Tags = splitByDelimiter(v, "||")
+	}
+
+	return r
+}
+
+// joinStrings joins strings with a delimiter.
+func joinStrings(strs []string, delimiter string) string {
+	result := ""
+	for i, s := range strs {
+		if i > 0 {
+			result += delimiter
+		}
+		result += s
+	}
+	return result
+}
 
 func remediationToPayload(r *Remediation) map[string]interface{} {
 	payload := map[string]interface{}{

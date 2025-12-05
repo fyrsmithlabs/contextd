@@ -8,6 +8,10 @@ type IndexOptions struct {
 	// If empty, uses default from git user.name or OS username.
 	TenantID string
 
+	// Branch is the git branch to associate with indexed files.
+	// If empty, auto-detects current branch from repository.
+	Branch string
+
 	// IncludePatterns are glob patterns for files to include (e.g., ["*.md", "*.go"]).
 	// If empty, all files are included (subject to exclude patterns and size limit).
 	IncludePatterns []string
@@ -25,6 +29,12 @@ type IndexOptions struct {
 type IndexResult struct {
 	// Path is the repository path that was indexed.
 	Path string
+
+	// Branch is the git branch that was indexed.
+	Branch string
+
+	// CollectionName is the Qdrant collection where files were stored.
+	CollectionName string
 
 	// FilesIndexed is the number of files successfully indexed.
 	FilesIndexed int

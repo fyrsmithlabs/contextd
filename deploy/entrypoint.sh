@@ -12,6 +12,9 @@ export QDRANT__STORAGE__STORAGE_PATH=/data/qdrant/storage
 # Override with -e TELEMETRY_ENABLED=true to enable
 export TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-false}
 
+# Set ONNX runtime path for FastEmbed
+export ONNX_PATH=/usr/local/lib/onnxruntime.so
+
 # Start Qdrant in background first
 /usr/local/bin/qdrant &
 QDRANT_PID=$!

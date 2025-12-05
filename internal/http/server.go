@@ -91,6 +91,7 @@ func (s *Server) registerRoutes() {
 	v1 := s.echo.Group("/api/v1")
 	v1.POST("/scrub", s.handleScrub)
 	v1.POST("/threshold", s.handleThreshold)
+	v1.GET("/status", s.handleStatus)
 }
 
 // ScrubRequest is the request body for POST /api/v1/scrub.
@@ -122,9 +123,96 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+// StatusResponse is the response body for GET /api/v1/status.
+type StatusResponse struct {
+	Status   string            `json:"status"`
+	Services map[string]string `json:"services"`
+	Counts   StatusCounts      `json:"counts"`
+}
+
+// StatusCounts contains count information for various resources.
+type StatusCounts struct {
+	Checkpoints int `json:"checkpoints"`
+	Memories    int `json:"memories"`
+}
+
 // handleHealth returns a simple health check response.
 func (s *Server) handleHealth(c echo.Context) error {
 	return c.JSON(http.StatusOK, HealthResponse{Status: "ok"})
+}
+
+// handleStatus returns service status and resource counts.
+func (s *Server) handleStatus(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// Build service status map
+	services := make(map[string]string)
+
+	// Check checkpoint service
+	if s.registry.Checkpoint() != nil {
+		services["checkpoint"] = "ok"
+	} else {
+		services["checkpoint"] = "unavailable"
+	}
+
+	// Check memory service (ReasoningBank)
+	if s.registry.Memory() != nil {
+		services["memory"] = "ok"
+	} else {
+		services["memory"] = "unavailable"
+	}
+
+	// Check remediation service
+	if s.registry.Remediation() != nil {
+		services["remediation"] = "ok"
+	} else {
+		services["remediation"] = "unavailable"
+	}
+
+	// Check repository service
+	if s.registry.Repository() != nil {
+		services["repository"] = "ok"
+	} else {
+		services["repository"] = "unavailable"
+	}
+
+	// Check troubleshoot service
+	if s.registry.Troubleshoot() != nil {
+		services["troubleshoot"] = "ok"
+	} else {
+		services["troubleshoot"] = "unavailable"
+	}
+
+	// Check scrubber
+	if s.registry.Scrubber() != nil {
+		services["scrubber"] = "ok"
+	} else {
+		services["scrubber"] = "unavailable"
+	}
+
+	// Get counts (best effort - don't fail if services unavailable)
+	counts := StatusCounts{}
+
+	// Get checkpoint count
+	if s.registry.Checkpoint() != nil {
+		// List checkpoints for count (use empty tenant for global count)
+		checkpoints, err := s.registry.Checkpoint().List(ctx, &checkpoint.ListRequest{
+			Limit: 1000, // reasonable max for counting
+		})
+		if err == nil {
+			counts.Checkpoints = len(checkpoints)
+		}
+	}
+
+	// Note: Memory count would require a Count method on ReasoningBank
+	// For now, we report 0 if not available
+	counts.Memories = 0
+
+	return c.JSON(http.StatusOK, StatusResponse{
+		Status:   "ok",
+		Services: services,
+		Counts:   counts,
+	})
 }
 
 // handleScrub scrubs secrets from the provided content.

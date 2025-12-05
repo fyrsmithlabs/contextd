@@ -171,8 +171,8 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		return fmt.Errorf("checking collection existence: %w", err)
 	}
 	if !exists {
-		// Create collection with default vector size (384 for bge-small-en-v1.5)
-		if err := s.store.CreateCollection(ctx, collectionName, 384); err != nil {
+		// Create collection with store's configured vector size (0 = use default)
+		if err := s.store.CreateCollection(ctx, collectionName, 0); err != nil {
 			return fmt.Errorf("creating collection: %w", err)
 		}
 		s.logger.Info("created memories collection",

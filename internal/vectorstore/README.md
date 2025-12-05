@@ -1,10 +1,27 @@
 # vectorstore
 
-Interface-based vector storage package for contextd-v2.
+Interface-based vector storage package for contextd.
 
 ## Overview
 
-The vectorstore package provides an abstraction layer for vector storage operations, with a Qdrant gRPC implementation. It supports the hierarchical collection architecture defined in the contextd specification.
+The vectorstore package provides an abstraction layer for vector storage operations with multiple provider implementations:
+
+- **ChromaStore** (default) - Embedded SQLite-based storage with built-in embeddings
+- **QdrantStore** - External Qdrant service via gRPC
+
+Both providers implement the `Store` interface and support the hierarchical collection architecture defined in the contextd specification.
+
+## Provider Selection
+
+```yaml
+vectorstore:
+  provider: chroma  # "chroma" (default) or "qdrant"
+```
+
+| Provider | Use Case | Dependencies |
+|----------|----------|--------------|
+| Chroma | Local dev, simple setups | None (embedded) |
+| Qdrant | Production, high scale | External Qdrant + ONNX |
 
 ## Collection Naming Convention
 
@@ -27,6 +44,17 @@ The `Store` interface provides:
 
 ## Implementation
 
+### ChromaStore (Default)
+
+Embedded Chroma implementation with:
+
+- **SQLite-based persistence** - stores at `~/.config/contextd/chroma.db`
+- **Built-in embeddings** - sentence-transformers models (no ONNX needed)
+- **768d default** - `all-mpnet-base-v2` for balanced performance
+- **Model validation** - strict dimension/model compatibility checks
+- **Telemetry** - search latency, query count, index size metrics
+- **Zero external deps** - works out of the box
+
 ### QdrantStore
 
 Qdrant gRPC client implementation with:
@@ -40,8 +68,47 @@ Qdrant gRPC client implementation with:
 
 ## Usage
 
+### ChromaStore (Default - Zero Config)
+
 ```go
-import "github.com/fyrsmithlabs/contextd-v2/internal/vectorstore"
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
+
+// Configure Chroma (embedded)
+config := vectorstore.ChromaConfig{
+    Path:      "~/.config/contextd/chroma.db",
+    Model:     "sentence-transformers/all-mpnet-base-v2",
+    Dimension: 768,
+    Distance:  "cosine",
+}
+
+// Create store (no external dependencies)
+store, err := vectorstore.NewChromaStore(config, logger)
+if err != nil {
+    // Handle error
+}
+defer store.Close()
+
+// Add documents
+docs := []vectorstore.Document{
+    {
+        ID:      "doc1",
+        Content: "example content",
+        Metadata: map[string]interface{}{
+            "owner": "alice",
+            "project": "contextd",
+        },
+    },
+}
+ids, err := store.AddDocuments(ctx, docs)
+
+// Search
+results, err := store.Search(ctx, "query text", 10)
+```
+
+### QdrantStore (External Service)
+
+```go
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
 
 // Configure Qdrant connection
 config := vectorstore.QdrantConfig{
@@ -52,7 +119,7 @@ config := vectorstore.QdrantConfig{
     UseTLS:         false,
 }
 
-// Create store with embedder
+// Create store with embedder (requires ONNX runtime)
 store, err := vectorstore.NewQdrantStore(config, embedder)
 if err != nil {
     // Handle error
@@ -79,6 +146,17 @@ results, err := store.SearchInCollection(ctx,
     "query text",
     10,
     map[string]interface{}{"owner": "alice"})
+```
+
+### Provider Factory (Recommended)
+
+```go
+// Use factory for config-driven provider selection
+store, err := vectorstore.NewStore(cfg.VectorStore, logger)
+if err != nil {
+    // Handle error
+}
+defer store.Close()
 ```
 
 ## Configuration
@@ -114,6 +192,11 @@ go test ./internal/vectorstore/...
 
 ## Dependencies
 
+### ChromaStore
+- `github.com/amikos-tech/chroma-go` - Chroma Go client
+- `go.opentelemetry.io/otel` - Observability instrumentation
+
+### QdrantStore
 - `github.com/qdrant/go-client` - Official Qdrant gRPC client
 - `github.com/google/uuid` - UUID generation
 - `go.opentelemetry.io/otel` - Observability instrumentation

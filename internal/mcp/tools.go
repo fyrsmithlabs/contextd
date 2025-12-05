@@ -354,6 +354,7 @@ func (s *Server) registerRemediationTools() {
 type repositoryIndexInput struct {
 	Path            string   `json:"path" jsonschema:"required,Repository path to index"`
 	TenantID        string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch          string   `json:"branch,omitempty" jsonschema:"Git branch to index (auto-detects if empty)"`
 	IncludePatterns []string `json:"include_patterns,omitempty" jsonschema:"Glob patterns to include (e.g. *.go)"`
 	ExcludePatterns []string `json:"exclude_patterns,omitempty" jsonschema:"Glob patterns to exclude (e.g. vendor/**)"`
 	MaxFileSize     int64    `json:"max_file_size,omitempty" jsonschema:"Maximum file size in bytes (default 1MB)"`
@@ -361,13 +362,82 @@ type repositoryIndexInput struct {
 
 type repositoryIndexOutput struct {
 	Path            string   `json:"path" jsonschema:"Indexed path"`
+	Branch          string   `json:"branch" jsonschema:"Git branch indexed"`
+	CollectionName  string   `json:"collection_name" jsonschema:"Qdrant collection name"`
 	FilesIndexed    int      `json:"files_indexed" jsonschema:"Number of files indexed"`
 	IncludePatterns []string `json:"include_patterns" jsonschema:"Include patterns used"`
 	ExcludePatterns []string `json:"exclude_patterns" jsonschema:"Exclude patterns used"`
 	MaxFileSize     int64    `json:"max_file_size" jsonschema:"Max file size used"`
 }
 
+type repositorySearchInput struct {
+	Query       string `json:"query" jsonschema:"required,Semantic search query"`
+	ProjectPath string `json:"project_path" jsonschema:"required,Project path to search within"`
+	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch      string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+}
+
+type repositorySearchOutput struct {
+	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
+	Count   int                      `json:"count" jsonschema:"Number of results returned"`
+	Query   string                   `json:"query" jsonschema:"Original search query"`
+	Branch  string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+}
+
 func (s *Server) registerRepositoryTools() {
+	// repository_search
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "repository_search",
+		Description: "Semantic search over indexed repository code in _codebase collection",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
+		// Default tenant ID from project path if not specified
+		tenantID := args.TenantID
+		if tenantID == "" {
+			tenantID = "default"
+		}
+
+		opts := repository.SearchOptions{
+			ProjectPath: args.ProjectPath,
+			TenantID:    tenantID,
+			Branch:      args.Branch,
+			Limit:       args.Limit,
+		}
+
+		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
+		if err != nil {
+			return nil, repositorySearchOutput{}, fmt.Errorf("repository search failed: %w", err)
+		}
+
+		// Convert to output format
+		outputResults := make([]map[string]interface{}, 0, len(results))
+		for _, r := range results {
+			// Scrub content before returning
+			scrubbedContent := s.scrubber.Scrub(r.Content).Scrubbed
+
+			outputResults = append(outputResults, map[string]interface{}{
+				"file_path": r.FilePath,
+				"content":   scrubbedContent,
+				"score":     r.Score,
+				"branch":    r.Branch,
+				"metadata":  r.Metadata,
+			})
+		}
+
+		output := repositorySearchOutput{
+			Results: outputResults,
+			Count:   len(outputResults),
+			Query:   args.Query,
+			Branch:  args.Branch,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s", output.Count, args.Query)},
+			},
+		}, output, nil
+	})
+
 	// repository_index
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "repository_index",
@@ -402,6 +472,7 @@ func (s *Server) registerRepositoryTools() {
 
 		opts := repository.IndexOptions{
 			TenantID:        args.TenantID,
+			Branch:          args.Branch,
 			IncludePatterns: includePatterns,
 			ExcludePatterns: excludePatterns,
 			MaxFileSize:     args.MaxFileSize,
@@ -424,6 +495,8 @@ func (s *Server) registerRepositoryTools() {
 
 		output := repositoryIndexOutput{
 			Path:            result.Path,
+			Branch:          result.Branch,
+			CollectionName:  result.CollectionName,
 			FilesIndexed:    result.FilesIndexed,
 			IncludePatterns: outputInclude,
 			ExcludePatterns: outputExclude,
@@ -432,7 +505,7 @@ func (s *Server) registerRepositoryTools() {
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Indexed %d files from %s", output.FilesIndexed, output.Path)},
+				&mcp.TextContent{Text: fmt.Sprintf("Indexed %d files from %s (branch: %s, collection: %s)", output.FilesIndexed, output.Path, output.Branch, output.CollectionName)},
 			},
 		}, output, nil
 	})

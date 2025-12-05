@@ -5,13 +5,13 @@ import (
 	"context"
 )
 
-// TroubleshootAdapter adapts QdrantStore to implement troubleshoot.VectorStore interface.
+// TroubleshootAdapter adapts Store to implement troubleshoot.VectorStore interface.
 type TroubleshootAdapter struct {
-	store *QdrantStore
+	store Store
 }
 
 // NewTroubleshootAdapter creates an adapter for troubleshoot service.
-func NewTroubleshootAdapter(store *QdrantStore) *TroubleshootAdapter {
+func NewTroubleshootAdapter(store Store) *TroubleshootAdapter {
 	return &TroubleshootAdapter{store: store}
 }
 

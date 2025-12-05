@@ -30,7 +30,49 @@ server:
 
 ---
 
-## Qdrant Configuration
+## Vector Store Configuration
+
+```yaml
+vectorstore:
+  provider: chroma                 # "chroma" (default) or "qdrant"
+
+  chroma:
+    path: ~/.config/contextd/chroma.db  # SQLite database path
+    model: sentence-transformers/all-mpnet-base-v2  # Embedding model
+    dimension: 768                 # Must match model (768 for mpnet)
+    distance: cosine               # cosine, l2, ip
+
+  qdrant:
+    host: localhost                # Qdrant host
+    port: 6334                     # Qdrant gRPC port
+    api_key: ""                    # API key (use env: CONTEXTD_QDRANT_API_KEY)
+    vector_size: 384               # Embedding dimensions
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+    timeout: 30s                   # Operation timeout
+    pool:
+      max_connections: 10
+      min_connections: 2
+```
+
+### Chroma Model/Dimension Mapping
+
+| Model | Dimension | Notes |
+|-------|-----------|-------|
+| `sentence-transformers/all-MiniLM-L6-v2` | 384 | Fast, lightweight |
+| `sentence-transformers/all-mpnet-base-v2` | 768 | **Default**, balanced |
+| `sentence-transformers/all-roberta-large-v1` | 1024 | Highest accuracy |
+
+**Validation**: Dimension must match model output. Mismatches return error.
+
+---
+
+## Qdrant Configuration (Legacy)
+
+> **Note**: Use `vectorstore.qdrant` instead. This section preserved for backward compatibility.
 
 ```yaml
 qdrant:

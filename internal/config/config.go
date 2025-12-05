@@ -39,16 +39,50 @@ type RepositoryConfig struct {
 
 // VectorStoreConfig holds vectorstore provider configuration.
 type VectorStoreConfig struct {
-	Provider string       `koanf:"provider"` // "chroma" or "qdrant" (default: "chroma")
-	Chroma   ChromaConfig `koanf:"chroma"`
+	Provider string        `koanf:"provider"` // "chromem" or "qdrant" (default: "chromem")
+	Chromem  ChromemConfig `koanf:"chromem"`
 }
 
-// ChromaConfig holds Chroma vector database configuration.
-type ChromaConfig struct {
-	Path      string `koanf:"path"`      // SQLite database path (default: "~/.config/contextd/chroma.db")
-	Model     string `koanf:"model"`     // Embedding model (default: "sentence-transformers/all-mpnet-base-v2")
-	Dimension int    `koanf:"dimension"` // Embedding dimension (default: 768)
-	Distance  string `koanf:"distance"`  // Distance metric (default: "cosine")
+// Validate validates VectorStoreConfig.
+func (c *VectorStoreConfig) Validate() error {
+	switch c.Provider {
+	case "chromem":
+		return c.Chromem.Validate()
+	case "qdrant":
+		// Qdrant validation handled elsewhere
+		return nil
+	default:
+		return fmt.Errorf("unsupported provider: %s (supported: chromem, qdrant)", c.Provider)
+	}
+}
+
+// ChromemConfig holds chromem-go embedded vector database configuration.
+// chromem-go is a pure Go, embedded vector database with zero third-party dependencies.
+type ChromemConfig struct {
+	// Path is the directory for persistent storage.
+	// Default: "~/.config/contextd/vectorstore"
+	Path string `koanf:"path"`
+
+	// Compress enables gzip compression for stored data.
+	// Default: true
+	Compress bool `koanf:"compress"`
+
+	// DefaultCollection is the default collection name.
+	// Default: "contextd_default"
+	DefaultCollection string `koanf:"default_collection"`
+
+	// VectorSize is the expected embedding dimension.
+	// Must match the embedder's output dimension.
+	// Default: 384 (for FastEmbed bge-small-en-v1.5)
+	VectorSize int `koanf:"vector_size"`
+}
+
+// Validate validates ChromemConfig.
+func (c *ChromemConfig) Validate() error {
+	if c.VectorSize <= 0 {
+		return fmt.Errorf("vector_size must be positive, got %d", c.VectorSize)
+	}
+	return nil
 }
 
 // QdrantConfig holds Qdrant vector database configuration.
@@ -217,6 +251,17 @@ func Load() *Config {
 			"vendor/**",
 			"__pycache__/**",
 		}),
+	}
+
+	// VectorStore configuration (chromem is default - embedded, no external deps)
+	cfg.VectorStore = VectorStoreConfig{
+		Provider: getEnvString("CONTEXTD_VECTORSTORE_PROVIDER", "chromem"),
+		Chromem: ChromemConfig{
+			Path:              getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_PATH", "~/.config/contextd/vectorstore"),
+			Compress:          getEnvBool("CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS", true),
+			DefaultCollection: getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_COLLECTION", "contextd_default"),
+			VectorSize:        getEnvInt("CONTEXTD_VECTORSTORE_CHROMEM_VECTOR_SIZE", 384),
+		},
 	}
 
 	return cfg

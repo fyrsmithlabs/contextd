@@ -1,7 +1,7 @@
 # CLAUDE.md - contextd
 
 **Status**: Active Development (Phase 5 complete, Phase 6 pending)
-**Last Updated**: 2025-12-04
+**Last Updated**: 2025-12-05
 
 ---
 
@@ -28,7 +28,7 @@ Simplified MCP server for AI agent memory and context management. Calls internal
 - Checkpoints: Context persistence and recovery
 - Remediation: Error pattern tracking
 - Secret scrubbing: gitleaks SDK on all tool responses
-- Vectorstore: Qdrant with collection-per-project isolation
+- Vectorstore: chromem (embedded, default) or Qdrant (external) with collection-per-project isolation
 - Compression: Extractive, abstractive, and hybrid context compression
 - Hooks: Lifecycle hooks for session management and auto-checkpoint
 
@@ -46,7 +46,7 @@ internal/
 ├── checkpoint/        # Context snapshots
 ├── remediation/       # Error patterns
 ├── repository/        # Repository indexing + semantic search
-├── vectorstore/       # Qdrant interface
+├── vectorstore/       # Store interface (chromem default, Qdrant optional)
 ├── secrets/           # gitleaks scrubbing (97% coverage)
 ├── compression/       # Context compression (extractive, abstractive, hybrid)
 ├── hooks/             # Lifecycle hooks (session, clear, threshold)
@@ -65,7 +65,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 |-----------|------------|
 | Language | Go 1.25+ |
 | MCP | github.com/modelcontextprotocol/go-sdk |
-| Vector DB | Qdrant (gRPC client) |
+| Vector DB | chromem (default, embedded) or Qdrant (external) |
 | Embeddings | FastEmbed (local ONNX) or TEI |
 | Config | Koanf |
 | Logging | Zap |
@@ -139,6 +139,9 @@ Migrated from `contextd-v2` on 2025-11-30.
 |------|---------|
 | `internal/mcp/server.go` | MCP server setup |
 | `internal/mcp/tools.go` | Tool registration |
+| `internal/vectorstore/interface.go` | Store interface definition |
+| `internal/vectorstore/chromem.go` | chromem (embedded) implementation |
+| `internal/vectorstore/factory.go` | Provider factory |
 | `internal/embeddings/provider.go` | Embedding provider factory |
 | `internal/embeddings/fastembed.go` | FastEmbed local ONNX embeddings |
 | `internal/reasoningbank/service.go` | Memory operations |

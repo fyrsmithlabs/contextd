@@ -1,5 +1,15 @@
-
 # Build artifacts
 dist/
 contextd
 ctxd
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache
+local_cache/
+internal/embeddings/local_cache/
+*.cache

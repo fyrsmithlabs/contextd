@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
-	"github.com/fyrsmithlabs/contextd/internal/qdrant"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
@@ -16,120 +15,6 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
-
-// mockQdrantClient is a mock implementation for testing.
-type mockQdrantClient struct{}
-
-func (m *mockQdrantClient) CollectionExists(ctx context.Context, name string) (bool, error) {
-	return true, nil
-}
-
-func (m *mockQdrantClient) CreateCollection(ctx context.Context, name string, vectorSize uint64) error {
-	return nil
-}
-
-func (m *mockQdrantClient) DeleteCollection(ctx context.Context, name string) error {
-	return nil
-}
-
-func (m *mockQdrantClient) ListCollections(ctx context.Context) ([]string, error) {
-	return []string{}, nil
-}
-
-func (m *mockQdrantClient) Upsert(ctx context.Context, collection string, points []*qdrant.Point) error {
-	return nil
-}
-
-func (m *mockQdrantClient) Search(ctx context.Context, collection string, vector []float32, limit uint64, filter *qdrant.Filter) ([]*qdrant.ScoredPoint, error) {
-	return []*qdrant.ScoredPoint{}, nil
-}
-
-func (m *mockQdrantClient) Get(ctx context.Context, collection string, ids []string) ([]*qdrant.Point, error) {
-	return []*qdrant.Point{}, nil
-}
-
-func (m *mockQdrantClient) Delete(ctx context.Context, collection string, ids []string) error {
-	return nil
-}
-
-func (m *mockQdrantClient) Health(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockQdrantClient) Close() error {
-	return nil
-}
-
-// mockEmbedder is a mock implementation for testing.
-type mockEmbedder struct{}
-
-func (m *mockEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	// Return a dummy embedding vector
-	vector := make([]float32, 1536)
-	for i := range vector {
-		vector[i] = 0.5
-	}
-	return vector, nil
-}
-
-func (m *mockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	results := make([][]float32, len(texts))
-	for i := range texts {
-		vector := make([]float32, 1536)
-		for j := range vector {
-			vector[j] = 0.5
-		}
-		results[i] = vector
-	}
-	return results, nil
-}
-
-func (m *mockEmbedder) Dimension() int {
-	return 1536
-}
-
-// mockRemediationQdrant is a mock implementation for remediation service.
-type mockRemediationQdrant struct{}
-
-func (m *mockRemediationQdrant) CollectionExists(ctx context.Context, name string) (bool, error) {
-	return true, nil
-}
-
-func (m *mockRemediationQdrant) CreateCollection(ctx context.Context, name string, vectorSize uint64) error {
-	return nil
-}
-
-func (m *mockRemediationQdrant) DeleteCollection(ctx context.Context, name string) error {
-	return nil
-}
-
-func (m *mockRemediationQdrant) ListCollections(ctx context.Context) ([]string, error) {
-	return []string{}, nil
-}
-
-func (m *mockRemediationQdrant) Upsert(ctx context.Context, collection string, points []*remediation.QdrantPoint) error {
-	return nil
-}
-
-func (m *mockRemediationQdrant) Search(ctx context.Context, collection string, vector []float32, limit uint64, filter *remediation.QdrantFilter) ([]*remediation.QdrantScoredPoint, error) {
-	return []*remediation.QdrantScoredPoint{}, nil
-}
-
-func (m *mockRemediationQdrant) Get(ctx context.Context, collection string, ids []string) ([]*remediation.QdrantPoint, error) {
-	return []*remediation.QdrantPoint{}, nil
-}
-
-func (m *mockRemediationQdrant) Delete(ctx context.Context, collection string, ids []string) error {
-	return nil
-}
-
-func (m *mockRemediationQdrant) Health(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockRemediationQdrant) Close() error {
-	return nil
-}
 
 // mockTroubleshootStore is a mock implementation for troubleshoot.VectorStore.
 type mockTroubleshootStore struct{}
@@ -205,19 +90,16 @@ func TestNewServer(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create mock services
-	qc := &mockQdrantClient{}
-	remQc := &mockRemediationQdrant{}
-	embedder := &mockEmbedder{}
 	troubleshootStore := &mockTroubleshootStore{}
 	vectorStore := &mockVectorStore{}
 
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), qc, logger)
+	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
-	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), remQc, embedder, logger)
+	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
-	repositorySvc := repository.NewService(checkpointSvc)
+	repositorySvc := repository.NewService(vectorStore)
 	troubleshootSvc, err := troubleshoot.NewService(troubleshootStore, logger, nil)
 	require.NoError(t, err)
 	reasoningbankSvc, err := reasoningbank.NewService(vectorStore, logger)
@@ -306,19 +188,16 @@ func TestServerClose(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create mock services
-	qc := &mockQdrantClient{}
-	remQc := &mockRemediationQdrant{}
-	embedder := &mockEmbedder{}
 	troubleshootStore := &mockTroubleshootStore{}
 	vectorStore := &mockVectorStore{}
 
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), qc, logger)
+	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
-	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), remQc, embedder, logger)
+	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
-	repositorySvc := repository.NewService(checkpointSvc)
+	repositorySvc := repository.NewService(vectorStore)
 	troubleshootSvc, err := troubleshoot.NewService(troubleshootStore, logger, nil)
 	require.NoError(t, err)
 	reasoningbankSvc, err := reasoningbank.NewService(vectorStore, logger)

@@ -56,6 +56,8 @@ After adding the config, restart Claude Code. The MCP tools will be available:
 - `remediation_search` - Find error fix patterns
 - `remediation_record` - Record new fixes
 - `troubleshoot_diagnose` - Diagnose errors with AI
+- `repository_index` - Index repo for semantic search
+- `repository_search` - Semantic search over indexed code
 
 ## Data Persistence
 
@@ -77,7 +79,9 @@ docker volume rm contextd-data
 
 The container bundles:
 - **contextd** - MCP server for Claude Code
-- **Qdrant** - Vector database for semantic search
+- **chromem** - Embedded vector database (zero external dependencies)
 - **FastEmbed** - Local embeddings (ONNX, no API calls)
 
 Everything runs locally. No external API calls required.
+
+**Optional:** Set `VECTORSTORE_PROVIDER=qdrant` to use external Qdrant instead of embedded chromem.

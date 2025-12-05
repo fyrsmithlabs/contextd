@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/fyrsmithlabs/contextd/internal/qdrant"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 func TestDefaultServiceConfig(t *testing.T) {
@@ -20,15 +20,15 @@ func TestDefaultServiceConfig(t *testing.T) {
 	assert.Len(t, cfg.AutoCheckpointThresholds, 4)
 }
 
-func TestNewService_RequiresQdrant(t *testing.T) {
+func TestNewService_RequiresStore(t *testing.T) {
 	_, err := NewService(nil, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "qdrant client is required")
+	assert.Contains(t, err.Error(), "vector store is required")
 }
 
 func TestNewService_RequiresLogger(t *testing.T) {
-	qc := newMockQdrantClient()
-	_, err := NewService(nil, qc, nil)
+	store := newMockStore()
+	_, err := NewService(nil, store, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "logger is required for checkpoint service")
 }
@@ -185,35 +185,110 @@ func TestResumeResponse(t *testing.T) {
 	assert.Equal(t, int32(50), resp.TokenCount)
 }
 
-// Mock Qdrant client for testing
+// Mock Store for testing
 
-type mockQdrantClient struct {
+type mockStore struct {
 	collections map[string]bool
-	points      map[string][]*qdrant.Point
+	documents   map[string][]vectorstore.Document
 }
 
-func newMockQdrantClient() *mockQdrantClient {
-	return &mockQdrantClient{
+func newMockStore() *mockStore {
+	return &mockStore{
 		collections: make(map[string]bool),
-		points:      make(map[string][]*qdrant.Point),
+		documents:   make(map[string][]vectorstore.Document),
 	}
 }
 
-func (m *mockQdrantClient) CreateCollection(ctx context.Context, name string, vectorSize uint64) error {
-	m.collections[name] = true
+func (m *mockStore) AddDocuments(ctx context.Context, docs []vectorstore.Document) ([]string, error) {
+	if len(docs) == 0 {
+		return nil, nil
+	}
+	collection := docs[0].Collection
+	if collection == "" {
+		collection = "default"
+	}
+	m.documents[collection] = append(m.documents[collection], docs...)
+	ids := make([]string, len(docs))
+	for i, doc := range docs {
+		ids[i] = doc.ID
+	}
+	return ids, nil
+}
+
+func (m *mockStore) Search(ctx context.Context, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, "default", query, k, nil)
+}
+
+func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, "default", query, k, filters)
+}
+
+func (m *mockStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	var results []vectorstore.SearchResult
+	for _, doc := range m.documents[collectionName] {
+		// Apply filters if provided
+		if filters != nil {
+			match := true
+			for key, val := range filters {
+				if docVal, ok := doc.Metadata[key]; ok {
+					if docVal != val {
+						match = false
+						break
+					}
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		results = append(results, vectorstore.SearchResult{
+			ID:       doc.ID,
+			Content:  doc.Content,
+			Score:    1.0,
+			Metadata: doc.Metadata,
+		})
+	}
+	if len(results) > k {
+		results = results[:k]
+	}
+	return results, nil
+}
+
+func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
+	return m.DeleteDocumentsFromCollection(ctx, "default", ids)
+}
+
+func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	idSet := make(map[string]bool)
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	var remaining []vectorstore.Document
+	for _, doc := range m.documents[collectionName] {
+		if !idSet[doc.ID] {
+			remaining = append(remaining, doc)
+		}
+	}
+	m.documents[collectionName] = remaining
 	return nil
 }
 
-func (m *mockQdrantClient) DeleteCollection(ctx context.Context, name string) error {
-	delete(m.collections, name)
+func (m *mockStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	m.collections[collectionName] = true
 	return nil
 }
 
-func (m *mockQdrantClient) CollectionExists(ctx context.Context, name string) (bool, error) {
-	return m.collections[name], nil
+func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string) error {
+	delete(m.collections, collectionName)
+	delete(m.documents, collectionName)
+	return nil
 }
 
-func (m *mockQdrantClient) ListCollections(ctx context.Context) ([]string, error) {
+func (m *mockStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	return m.collections[collectionName], nil
+}
+
+func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
 	var names []string
 	for name := range m.collections {
 		names = append(names, name)
@@ -221,50 +296,29 @@ func (m *mockQdrantClient) ListCollections(ctx context.Context) ([]string, error
 	return names, nil
 }
 
-func (m *mockQdrantClient) Upsert(ctx context.Context, collection string, points []*qdrant.Point) error {
-	m.points[collection] = append(m.points[collection], points...)
-	return nil
-}
-
-func (m *mockQdrantClient) Search(ctx context.Context, collection string, vector []float32, limit uint64, filter *qdrant.Filter) ([]*qdrant.ScoredPoint, error) {
-	var results []*qdrant.ScoredPoint
-	for _, p := range m.points[collection] {
-		results = append(results, &qdrant.ScoredPoint{
-			Point: *p,
-			Score: 1.0,
-		})
+func (m *mockStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	if !m.collections[collectionName] {
+		return nil, vectorstore.ErrCollectionNotFound
 	}
-	return results, nil
+	return &vectorstore.CollectionInfo{
+		Name:       collectionName,
+		PointCount: len(m.documents[collectionName]),
+		VectorSize: 384,
+	}, nil
 }
 
-func (m *mockQdrantClient) Get(ctx context.Context, collection string, ids []string) ([]*qdrant.Point, error) {
-	var results []*qdrant.Point
-	for _, p := range m.points[collection] {
-		for _, id := range ids {
-			if p.ID == id {
-				results = append(results, p)
-			}
-		}
-	}
-	return results, nil
+func (m *mockStore) ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, collectionName, query, k, nil)
 }
 
-func (m *mockQdrantClient) Delete(ctx context.Context, collection string, ids []string) error {
-	return nil
-}
-
-func (m *mockQdrantClient) Health(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockQdrantClient) Close() error {
+func (m *mockStore) Close() error {
 	return nil
 }
 
 func TestService_SaveAndGet(t *testing.T) {
-	qc := newMockQdrantClient()
+	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, qc, logger)
+	svc, err := NewService(nil, store, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -291,9 +345,9 @@ func TestService_SaveAndGet(t *testing.T) {
 }
 
 func TestService_List(t *testing.T) {
-	qc := newMockQdrantClient()
+	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, qc, logger)
+	svc, err := NewService(nil, store, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -311,9 +365,9 @@ func TestService_List(t *testing.T) {
 }
 
 func TestService_Close(t *testing.T) {
-	qc := newMockQdrantClient()
+	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, qc, logger)
+	svc, err := NewService(nil, store, logger)
 	require.NoError(t, err)
 
 	// Close should work

@@ -12,19 +12,35 @@
 │         └─────────────────┼─────────────────┘                        │
 │                           │                                          │
 │                  ┌────────▼────────┐                                │
-│                  │  VectorDB Client │ ← Context-based tenant routing │
+│                  │  Store Interface │ ← Provider-agnostic            │
 │                  └────────┬────────┘                                │
-└───────────────────────────┼──────────────────────────────────────────┘
-                            │ gRPC
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      Qdrant (Local or Cloud)                         │
-│  Local: BM25 sparse vectors    Cloud: Dense vectors (MiniLM)        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │ org_a DB    │  │ org_b DB    │  │ org_c DB    │                 │
-│  └─────────────┘  └─────────────┘  └─────────────┘                 │
-└─────────────────────────────────────────────────────────────────────┘
+│                           │                                          │
+│              ┌────────────┴────────────┐                            │
+│              ▼                         ▼                            │
+│     ┌────────────────┐       ┌────────────────┐                    │
+│     │  ChromemStore  │       │  QdrantStore   │                    │
+│     │  (Default)     │       │  (External)    │                    │
+│     └───────┬────────┘       └───────┬────────┘                    │
+└─────────────┼────────────────────────┼──────────────────────────────┘
+              │ Gob files              │ gRPC
+              ▼                        ▼
+┌──────────────────────────┐  ┌─────────────────────────────────────┐
+│  ~/.config/contextd/     │  │      Qdrant (Local or Cloud)        │
+│     vectorstore/         │  │  ┌─────────┐ ┌─────────┐ ┌───────┐ │
+│  (Embedded, 384d)        │  │  │ org_a   │ │ org_b   │ │ org_c │ │
+└──────────────────────────┘  │  └─────────┘ └─────────┘ └───────┘ │
+                              └─────────────────────────────────────┘
 ```
+
+## Provider Selection
+
+| Config | Provider | Storage | Embeddings |
+|--------|----------|---------|------------|
+| `provider: chromem` | ChromemStore | Gob files (embedded) | FastEmbed (ONNX) |
+| `provider: qdrant` | QdrantStore | External Qdrant | FastEmbed/TEI (ONNX) |
+
+**Default**: Chromem for zero-config local development (`brew install contextd` just works).
+**Migration**: Use `ctxd migrate --qdrant-collection=all` to migrate from Qdrant to Chromem.
 
 ## Multi-Tenant Routing
 

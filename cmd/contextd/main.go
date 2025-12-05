@@ -25,7 +25,6 @@ import (
 	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
 	"github.com/fyrsmithlabs/contextd/internal/mcp"
-	"github.com/fyrsmithlabs/contextd/internal/qdrant"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
@@ -57,8 +56,6 @@ func run() error {
 	httpPort := flag.Int("http-port", 0, "HTTP server port (overrides config, default: 9090)")
 	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
 	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
-	qdrantHost := flag.String("qdrant-host", "", "Qdrant server host (overrides config, default: localhost)")
-	qdrantPort := flag.Int("qdrant-port", 0, "Qdrant server gRPC port (overrides config, default: 6334)")
 	flag.Parse()
 
 	if *showVersion {
@@ -151,97 +148,50 @@ func run() error {
 	logger.Info(ctx, "secret scrubber initialized")
 
 	// ============================================================================
-	// Initialize Infrastructure (Qdrant + Embeddings)
+	// Initialize Infrastructure (VectorStore + Embeddings)
 	// ============================================================================
-	var qdrantClient *qdrant.GRPCClient
-	var qdrantStore *vectorstore.QdrantStore
+	var store vectorstore.Store
 	var embeddingProvider embeddings.Provider
 
-	// Determine Qdrant configuration (flags override config file)
-	qdrantCfgHost := cfg.Qdrant.Host
-	if *qdrantHost != "" {
-		qdrantCfgHost = *qdrantHost
+	// Initialize embeddings provider using config values
+	embeddingCfg := embeddings.ProviderConfig{
+		Provider: cfg.Embeddings.Provider,
+		Model:    cfg.Embeddings.Model,
+		BaseURL:  cfg.Embeddings.BaseURL,
+		CacheDir: cfg.VectorStore.Chromem.Path,
 	}
-	qdrantCfgPort := cfg.Qdrant.Port
-	if *qdrantPort != 0 {
-		qdrantCfgPort = *qdrantPort
-	}
-
-	// Initialize Qdrant gRPC client
-	qdrantCfg := &qdrant.ClientConfig{
-		Host: qdrantCfgHost,
-		Port: qdrantCfgPort,
-	}
-	qdrantCfg.ApplyDefaults()
-
-	qdrantClient, err = qdrant.NewGRPCClient(qdrantCfg, logger)
+	embeddingProvider, err = embeddings.NewProvider(embeddingCfg)
 	if err != nil {
-		logger.Warn(ctx, "Qdrant client initialization failed, MCP services will be unavailable",
-			zap.String("host", qdrantCfgHost),
-			zap.Int("port", qdrantCfgPort),
+		logger.Warn(ctx, "embeddings provider initialization failed",
+			zap.String("provider", embeddingCfg.Provider),
 			zap.Error(err),
 		)
-		// Continue without Qdrant - HTTP server can still run
+		// Continue without embedder - some services may be degraded
 	} else {
-		defer qdrantClient.Close()
-		logger.Info(ctx, "Qdrant client initialized",
-			zap.String("host", qdrantCfgHost),
-			zap.Int("port", qdrantCfgPort),
+		defer embeddingProvider.Close()
+
+		// Get provider dimension and update config
+		providerDim := embeddingProvider.Dimension()
+		cfg.VectorStore.Chromem.VectorSize = providerDim
+
+		logger.Info(ctx, "embeddings provider initialized",
+			zap.String("provider", cfg.Embeddings.Provider),
+			zap.String("model", cfg.Embeddings.Model),
+			zap.Int("dimension", providerDim),
 		)
 
-		// Initialize embeddings provider using config values
-		embeddingCfg := embeddings.ProviderConfig{
-			Provider: cfg.Embeddings.Provider,
-			Model:    cfg.Embeddings.Model,
-			BaseURL:  cfg.Embeddings.BaseURL,
-			CacheDir: cfg.Qdrant.DataPath,
-		}
-		embeddingProvider, err = embeddings.NewProvider(embeddingCfg)
+		// Initialize vectorstore using factory
+		store, err = vectorstore.NewStore(cfg, embeddingProvider, logger.Underlying())
 		if err != nil {
-			logger.Warn(ctx, "embeddings provider initialization failed",
-				zap.String("provider", embeddingCfg.Provider),
+			logger.Warn(ctx, "vectorstore initialization failed",
+				zap.String("provider", cfg.VectorStore.Provider),
 				zap.Error(err),
 			)
-			// Continue without embedder - some services may be degraded
 		} else {
-			defer embeddingProvider.Close()
-
-			// Validate and override dimension if provider reports different value
-			providerDim := embeddingProvider.Dimension()
-			if providerDim != int(cfg.Qdrant.VectorSize) {
-				logger.Warn(ctx, "dimension mismatch - using provider dimension",
-					zap.Int("config_dimension", int(cfg.Qdrant.VectorSize)),
-					zap.Int("provider_dimension", providerDim),
-				)
-				cfg.Qdrant.VectorSize = uint64(providerDim)
-			}
-
-			logger.Info(ctx, "embeddings provider initialized",
-				zap.String("provider", cfg.Embeddings.Provider),
-				zap.String("model", cfg.Embeddings.Model),
-				zap.Int("dimension", providerDim),
+			defer store.Close()
+			logger.Info(ctx, "vectorstore initialized",
+				zap.String("provider", cfg.VectorStore.Provider),
 			)
-
-			// Initialize QdrantStore with embedder using config values
-			vectorStoreCfg := vectorstore.QdrantConfig{
-				Host:           qdrantCfgHost,
-				Port:           qdrantCfgPort,
-				CollectionName: cfg.Qdrant.CollectionName,
-				VectorSize:     cfg.Qdrant.VectorSize,
-			}
-
-			qdrantStore, err = vectorstore.NewQdrantStore(vectorStoreCfg, embeddingProvider)
-			if err != nil {
-				logger.Warn(ctx, "QdrantStore initialization failed",
-					zap.Error(err),
-				)
-			} else {
-				defer qdrantStore.Close()
-				logger.Info(ctx, "QdrantStore initialized",
-					zap.String("collection", vectorStoreCfg.CollectionName),
-					zap.Uint64("vector_size", vectorStoreCfg.VectorSize),
-				)
-			}
 		}
 	}
 
@@ -255,10 +205,9 @@ func run() error {
 	var reasoningbankSvc *reasoningbank.Service
 
 	// Initialize checkpoint service
-	if qdrantClient != nil {
+	if store != nil {
 		checkpointCfg := checkpoint.DefaultServiceConfig()
-		checkpointCfg.VectorSize = cfg.Qdrant.VectorSize
-		checkpointSvc, err = checkpoint.NewService(checkpointCfg, qdrantClient, logger.Underlying())
+		checkpointSvc, err = checkpoint.NewService(checkpointCfg, store, logger.Underlying())
 		if err != nil {
 			logger.Warn(ctx, "checkpoint service initialization failed", zap.Error(err))
 		} else {
@@ -267,15 +216,9 @@ func run() error {
 	}
 
 	// Initialize remediation service
-	if qdrantClient != nil && embeddingProvider != nil {
+	if store != nil {
 		remediationCfg := remediation.DefaultServiceConfig()
-		remediationCfg.VectorSize = cfg.Qdrant.VectorSize
-
-		// Create adapters for remediation service
-		remediationQdrant := qdrant.NewRemediationAdapter(qdrantClient)
-		remediationEmbedder := embeddings.NewRemediationEmbedder(embeddingProvider, int(cfg.Qdrant.VectorSize))
-
-		remediationSvc, err = remediation.NewService(remediationCfg, remediationQdrant, remediationEmbedder, logger.Underlying())
+		remediationSvc, err = remediation.NewService(remediationCfg, store, logger.Underlying())
 		if err != nil {
 			logger.Warn(ctx, "remediation service initialization failed", zap.Error(err))
 		} else {
@@ -283,15 +226,15 @@ func run() error {
 		}
 	}
 
-	// Initialize repository service (depends on checkpoint service)
-	if checkpointSvc != nil {
-		repositorySvc = repository.NewService(checkpointSvc)
+	// Initialize repository service (depends on vectorstore)
+	if store != nil {
+		repositorySvc = repository.NewService(store)
 		logger.Info(ctx, "repository service initialized")
 	}
 
 	// Initialize troubleshoot service
-	if qdrantStore != nil {
-		troubleshootAdapter := vectorstore.NewTroubleshootAdapter(qdrantStore)
+	if store != nil {
+		troubleshootAdapter := vectorstore.NewTroubleshootAdapter(store)
 		troubleshootSvc, err = troubleshoot.NewService(troubleshootAdapter, logger.Underlying(), nil)
 		if err != nil {
 			logger.Warn(ctx, "troubleshoot service initialization failed", zap.Error(err))
@@ -301,8 +244,8 @@ func run() error {
 	}
 
 	// Initialize reasoningbank service
-	if qdrantStore != nil {
-		reasoningbankSvc, err = reasoningbank.NewService(qdrantStore, logger.Underlying())
+	if store != nil {
+		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying())
 		if err != nil {
 			logger.Warn(ctx, "reasoningbank service initialization failed", zap.Error(err))
 		} else {

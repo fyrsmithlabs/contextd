@@ -15,8 +15,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"github.com/fyrsmithlabs/contextd/internal/qdrant"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/checkpoint"
@@ -66,7 +66,7 @@ func DefaultServiceConfig() *Config {
 // service implements the Service interface.
 type service struct {
 	config *Config
-	qdrant qdrant.Client
+	store  vectorstore.Store
 	logger *zap.Logger
 	router tenant.CollectionRouter
 
@@ -81,12 +81,12 @@ type service struct {
 }
 
 // NewService creates a new checkpoint service.
-func NewService(cfg *Config, qc qdrant.Client, logger *zap.Logger) (Service, error) {
+func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Service, error) {
 	if cfg == nil {
 		cfg = DefaultServiceConfig()
 	}
-	if qc == nil {
-		return nil, errors.New("qdrant client is required")
+	if store == nil {
+		return nil, errors.New("vector store is required")
 	}
 	if logger == nil {
 		return nil, errors.New("logger is required for checkpoint service")
@@ -94,7 +94,7 @@ func NewService(cfg *Config, qc qdrant.Client, logger *zap.Logger) (Service, err
 
 	s := &service{
 		config: cfg,
-		qdrant: qc,
+		store:  store,
 		logger: logger,
 		router: tenant.NewRouter(false),
 		tracer: otel.Tracer(instrumentationName),
@@ -183,35 +183,24 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	}
 
 	// Ensure collection exists
-	exists, err := s.qdrant.CollectionExists(ctx, collection)
+	exists, err := s.store.CollectionExists(ctx, collection)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
-		if err := s.qdrant.CreateCollection(ctx, collection, s.config.VectorSize); err != nil {
+		// Use store's configured vector size (0 = use default from embedder)
+		if err := s.store.CreateCollection(ctx, collection, 0); err != nil {
 			span.RecordError(err)
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
 	}
 
-	// Create a simple embedding vector from the summary
-	// In production, this would use a proper embedder
-	vector := make([]float32, s.config.VectorSize)
-	for i := range vector {
-		if i < len(req.Summary) {
-			vector[i] = float32(req.Summary[i%len(req.Summary)]) / 255.0
-		}
-	}
+	// Convert checkpoint to document for storage
+	doc := s.checkpointToDocument(cp, collection)
 
-	// Store in Qdrant
-	point := &qdrant.Point{
-		ID:      cp.ID,
-		Vector:  vector,
-		Payload: checkpointToPayload(cp),
-	}
-
-	if err := s.qdrant.Upsert(ctx, collection, []*qdrant.Point{point}); err != nil {
+	// Store in vector store
+	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to save checkpoint: %w", err)
@@ -260,7 +249,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	}
 
 	// Check if collection exists
-	exists, err := s.qdrant.CollectionExists(ctx, collection)
+	exists, err := s.store.CollectionExists(ctx, collection)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
@@ -270,31 +259,22 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	}
 
 	// Build filter
-	var filter *qdrant.Filter
-	if req.SessionID != "" || req.AutoOnly {
-		filter = &qdrant.Filter{}
-		if req.SessionID != "" {
-			filter.Must = append(filter.Must, qdrant.Condition{
-				Field: "session_id",
-				Match: req.SessionID,
-			})
-		}
-		if req.AutoOnly {
-			filter.Must = append(filter.Must, qdrant.Condition{
-				Field: "auto_created",
-				Match: true,
-			})
-		}
+	filters := make(map[string]interface{})
+	if req.SessionID != "" {
+		filters["session_id"] = req.SessionID
+	}
+	if req.AutoOnly {
+		filters["auto_created"] = true
 	}
 
-	limit := uint64(req.Limit)
+	limit := req.Limit
 	if limit == 0 {
 		limit = 20
 	}
 
-	// Search with empty vector to get all matches
-	vector := make([]float32, s.config.VectorSize)
-	results, err := s.qdrant.Search(ctx, collection, vector, limit, filter)
+	// Search with a generic query to get checkpoints
+	// Use "checkpoint" as a neutral search term since we filter by metadata
+	results, err := s.store.SearchInCollection(ctx, collection, "checkpoint", limit, filters)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -303,9 +283,8 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 
 	checkpoints := make([]*Checkpoint, 0, len(results))
 	for _, r := range results {
-		cp := payloadToCheckpoint(r.Payload)
+		cp := s.resultToCheckpoint(r)
 		if cp != nil {
-			cp.ID = r.ID
 			checkpoints = append(checkpoints, cp)
 		}
 	}
@@ -403,26 +382,31 @@ func (s *service) Get(ctx context.Context, tenantID, checkpointID string) (*Chec
 	}
 
 	// Check if collection exists
-	exists, err := s.qdrant.CollectionExists(ctx, collection)
+	exists, err := s.store.CollectionExists(ctx, collection)
 	if err != nil || !exists {
 		return nil, fmt.Errorf("checkpoint not found: %s", checkpointID)
 	}
 
-	points, err := s.qdrant.Get(ctx, collection, []string{checkpointID})
+	// Search by ID using filter
+	filters := map[string]interface{}{
+		"id": checkpointID,
+	}
+
+	// Use a dummy query since we're filtering by ID
+	results, err := s.store.SearchInCollection(ctx, collection, "checkpoint", 1, filters)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to get checkpoint: %w", err)
 	}
 
-	if len(points) == 0 {
+	if len(results) == 0 {
 		return nil, fmt.Errorf("checkpoint not found: %s", checkpointID)
 	}
 
-	cp := payloadToCheckpoint(points[0].Payload)
+	cp := s.resultToCheckpoint(results[0])
 	if cp == nil {
 		return nil, fmt.Errorf("invalid checkpoint data: %s", checkpointID)
 	}
-	cp.ID = points[0].ID
 
 	return cp, nil
 }
@@ -451,7 +435,7 @@ func (s *service) Delete(ctx context.Context, tenantID, checkpointID string) err
 		return fmt.Errorf("failed to get collection name: %w", err)
 	}
 
-	if err := s.qdrant.Delete(ctx, collection, []string{checkpointID}); err != nil {
+	if err := s.store.DeleteDocumentsFromCollection(ctx, collection, []string{checkpointID}); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to delete checkpoint: %w", err)
 	}
@@ -474,6 +458,113 @@ func (s *service) Close() error {
 
 // Helper functions
 
+// checkpointToDocument converts a Checkpoint to a vectorstore Document.
+func (s *service) checkpointToDocument(cp *Checkpoint, collectionName string) vectorstore.Document {
+	// Combine name and summary for embedding
+	content := fmt.Sprintf("%s\n\n%s", cp.Name, cp.Summary)
+
+	metadata := map[string]interface{}{
+		"id":           cp.ID,
+		"session_id":   cp.SessionID,
+		"tenant_id":    cp.TenantID,
+		"project_path": cp.ProjectPath,
+		"name":         cp.Name,
+		"description":  cp.Description,
+		"summary":      cp.Summary,
+		"context":      cp.Context,
+		"full_state":   cp.FullState,
+		"token_count":  int64(cp.TokenCount),
+		"threshold":    cp.Threshold,
+		"auto_created": cp.AutoCreated,
+		"created_at":   cp.CreatedAt.Unix(),
+	}
+
+	// Add metadata
+	for k, v := range cp.Metadata {
+		metadata["meta_"+k] = v
+	}
+
+	return vectorstore.Document{
+		ID:         cp.ID,
+		Content:    content,
+		Metadata:   metadata,
+		Collection: collectionName,
+	}
+}
+
+// resultToCheckpoint converts a vectorstore SearchResult to a Checkpoint.
+func (s *service) resultToCheckpoint(result vectorstore.SearchResult) *Checkpoint {
+	if result.Metadata == nil {
+		return nil
+	}
+
+	cp := &Checkpoint{
+		Metadata: make(map[string]string),
+	}
+
+	// Extract ID
+	if id, ok := result.Metadata["id"].(string); ok {
+		cp.ID = id
+	} else {
+		cp.ID = result.ID
+	}
+
+	if v, ok := result.Metadata["session_id"].(string); ok {
+		cp.SessionID = v
+	}
+	if v, ok := result.Metadata["tenant_id"].(string); ok {
+		cp.TenantID = v
+	}
+	if v, ok := result.Metadata["project_path"].(string); ok {
+		cp.ProjectPath = v
+	}
+	if v, ok := result.Metadata["name"].(string); ok {
+		cp.Name = v
+	}
+	if v, ok := result.Metadata["description"].(string); ok {
+		cp.Description = v
+	}
+	if v, ok := result.Metadata["summary"].(string); ok {
+		cp.Summary = v
+	}
+	if v, ok := result.Metadata["context"].(string); ok {
+		cp.Context = v
+	}
+	if v, ok := result.Metadata["full_state"].(string); ok {
+		cp.FullState = v
+	}
+	if v, ok := result.Metadata["token_count"].(int64); ok {
+		cp.TokenCount = int32(v)
+	} else if v, ok := result.Metadata["token_count"].(float64); ok {
+		cp.TokenCount = int32(v)
+	}
+	if v, ok := result.Metadata["threshold"].(float64); ok {
+		cp.Threshold = v
+	}
+	if v, ok := result.Metadata["auto_created"].(bool); ok {
+		cp.AutoCreated = v
+	} else if v, ok := result.Metadata["auto_created"].(string); ok {
+		cp.AutoCreated = v == "true"
+	}
+	if v, ok := result.Metadata["created_at"].(int64); ok {
+		cp.CreatedAt = time.Unix(v, 0)
+	} else if v, ok := result.Metadata["created_at"].(float64); ok {
+		cp.CreatedAt = time.Unix(int64(v), 0)
+	}
+
+	// Extract metadata
+	for k, v := range result.Metadata {
+		if len(k) > 5 && k[:5] == "meta_" {
+			if str, ok := v.(string); ok {
+				cp.Metadata[k[5:]] = str
+			}
+		}
+	}
+
+	return cp
+}
+
+// checkpointToPayload converts a Checkpoint to a map for storage (used by tests).
 func checkpointToPayload(cp *Checkpoint) map[string]interface{} {
 	payload := map[string]interface{}{
 		"session_id":   cp.SessionID,
@@ -498,6 +589,7 @@ func checkpointToPayload(cp *Checkpoint) map[string]interface{} {
 	return payload
 }
 
+// payloadToCheckpoint converts a map to a Checkpoint (used by tests).
 func payloadToCheckpoint(payload map[string]interface{}) *Checkpoint {
 	if payload == nil {
 		return nil

@@ -189,6 +189,232 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
+// TestLoad_VectorStoreConfig tests VectorStore configuration loading
+func TestLoad_VectorStoreConfig(t *testing.T) {
+	originalEnv := saveEnv()
+	defer restoreEnv(originalEnv)
+
+	tests := []struct {
+		name     string
+		env      map[string]string
+		validate func(*testing.T, *Config)
+	}{
+		{
+			name: "vectorstore defaults - chromem provider with 384d",
+			env:  map[string]string{},
+			validate: func(t *testing.T, cfg *Config) {
+				// Default provider should be chromem
+				if cfg.VectorStore.Provider != "chromem" {
+					t.Errorf("VectorStore.Provider = %q, want chromem", cfg.VectorStore.Provider)
+				}
+				// Default path
+				if cfg.VectorStore.Chromem.Path != "~/.config/contextd/vectorstore" {
+					t.Errorf("VectorStore.Chromem.Path = %q, want ~/.config/contextd/vectorstore", cfg.VectorStore.Chromem.Path)
+				}
+				// Default compress
+				if !cfg.VectorStore.Chromem.Compress {
+					t.Error("VectorStore.Chromem.Compress should be true by default")
+				}
+				// Default collection
+				if cfg.VectorStore.Chromem.DefaultCollection != "contextd_default" {
+					t.Errorf("VectorStore.Chromem.DefaultCollection = %q, want contextd_default", cfg.VectorStore.Chromem.DefaultCollection)
+				}
+				// Default vector size - 384 for FastEmbed
+				if cfg.VectorStore.Chromem.VectorSize != 384 {
+					t.Errorf("VectorStore.Chromem.VectorSize = %d, want 384", cfg.VectorStore.Chromem.VectorSize)
+				}
+			},
+		},
+		{
+			name: "vectorstore environment overrides",
+			env: map[string]string{
+				"CONTEXTD_VECTORSTORE_PROVIDER":            "qdrant",
+				"CONTEXTD_VECTORSTORE_CHROMEM_PATH":        "/custom/path/vectorstore",
+				"CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS":    "false",
+				"CONTEXTD_VECTORSTORE_CHROMEM_COLLECTION":  "custom_collection",
+				"CONTEXTD_VECTORSTORE_CHROMEM_VECTOR_SIZE": "768",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				if cfg.VectorStore.Provider != "qdrant" {
+					t.Errorf("VectorStore.Provider = %q, want qdrant", cfg.VectorStore.Provider)
+				}
+				if cfg.VectorStore.Chromem.Path != "/custom/path/vectorstore" {
+					t.Errorf("VectorStore.Chromem.Path = %q, want /custom/path/vectorstore", cfg.VectorStore.Chromem.Path)
+				}
+				if cfg.VectorStore.Chromem.Compress {
+					t.Error("VectorStore.Chromem.Compress should be false when overridden")
+				}
+				if cfg.VectorStore.Chromem.DefaultCollection != "custom_collection" {
+					t.Errorf("VectorStore.Chromem.DefaultCollection = %q, want custom_collection", cfg.VectorStore.Chromem.DefaultCollection)
+				}
+				if cfg.VectorStore.Chromem.VectorSize != 768 {
+					t.Errorf("VectorStore.Chromem.VectorSize = %d, want 768", cfg.VectorStore.Chromem.VectorSize)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			for k, v := range tt.env {
+				os.Setenv(k, v)
+			}
+
+			cfg := Load()
+			if cfg == nil {
+				t.Fatal("Load() returned nil")
+			}
+
+			tt.validate(t, cfg)
+		})
+	}
+}
+
+// TestChromemConfig_Validate tests ChromemConfig validation
+func TestChromemConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ChromemConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid - 384d",
+			cfg: ChromemConfig{
+				Path:              "~/.config/contextd/vectorstore",
+				Compress:          true,
+				DefaultCollection: "contextd_default",
+				VectorSize:        384,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid - 768d",
+			cfg: ChromemConfig{
+				Path:              "/custom/path",
+				Compress:          false,
+				DefaultCollection: "custom",
+				VectorSize:        768,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid - zero vector size",
+			cfg: ChromemConfig{
+				Path:              "~/.config/contextd/vectorstore",
+				DefaultCollection: "contextd_default",
+				VectorSize:        0,
+			},
+			wantErr: true,
+			errMsg:  "vector_size must be positive",
+		},
+		{
+			name: "invalid - negative vector size",
+			cfg: ChromemConfig{
+				Path:              "~/.config/contextd/vectorstore",
+				DefaultCollection: "contextd_default",
+				VectorSize:        -1,
+			},
+			wantErr: true,
+			errMsg:  "vector_size must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" {
+				if !contains(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %q, want to contain %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// TestVectorStoreConfig_Validate tests VectorStoreConfig validation
+func TestVectorStoreConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     VectorStoreConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid chromem config",
+			cfg: VectorStoreConfig{
+				Provider: "chromem",
+				Chromem: ChromemConfig{
+					Path:              "~/.config/contextd/vectorstore",
+					Compress:          true,
+					DefaultCollection: "contextd_default",
+					VectorSize:        384,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid qdrant config",
+			cfg: VectorStoreConfig{
+				Provider: "qdrant",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid provider",
+			cfg: VectorStoreConfig{
+				Provider: "unknown",
+			},
+			wantErr: true,
+			errMsg:  "unsupported provider",
+		},
+		{
+			name: "chromem with invalid vector size",
+			cfg: VectorStoreConfig{
+				Provider: "chromem",
+				Chromem: ChromemConfig{
+					Path:              "~/.config/contextd/vectorstore",
+					DefaultCollection: "contextd_default",
+					VectorSize:        0, // Invalid
+				},
+			},
+			wantErr: true,
+			errMsg:  "vector_size must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" {
+				if !contains(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %q, want to contain %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
+}
+
+func containsAt(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // Helper functions to save/restore environment
 func saveEnv() map[string]string {
 	env := make(map[string]string)
