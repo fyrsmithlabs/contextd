@@ -5,6 +5,19 @@ All notable changes to contextd will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-rc2] - 2025-12-05
+
+### Changed
+- Simplified release workflow: Linux amd64, macOS amd64/arm64 only
+- Docker image now linux/amd64 only (removed arm64 emulation)
+- All binaries built with CGO_ENABLED=1 for FastEmbed/ONNX support
+- Homebrew formula now builds from source with CGO
+- Auto-update Homebrew formula on release
+
+### Removed
+- Windows builds
+- Linux ARM64 builds (temporarily)
+
 ## [0.2.0-alpha] - 2025-12-05
 
 ### Added

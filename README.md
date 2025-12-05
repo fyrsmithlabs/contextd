@@ -61,8 +61,8 @@ ContextD is in active development. Here's what works today:
 The Docker image includes everything: ContextD with embedded chromem vectorstore and FastEmbed embeddings (zero external dependencies).
 
 ```bash
-# Pull the image (multi-arch: amd64 and arm64)
-docker pull ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha
+# Pull the latest image
+docker pull ghcr.io/fyrsmithlabs/contextd:latest
 ```
 
 Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
@@ -75,7 +75,7 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
       "args": [
         "run", "-i", "--rm",
         "-v", "contextd-data:/data",
-        "ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha"
+        "ghcr.io/fyrsmithlabs/contextd:latest"
       ]
     }
   }
@@ -200,10 +200,8 @@ Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/release
 | macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
 | macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
 | Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
-| Linux | ARM64 | `contextd_*_linux_arm64.tar.gz` |
-| Windows | x64 | `contextd_*_windows_amd64.zip` |
 
-> **Note:** Pre-built binaries use TEI for embeddings (no CGO). For FastEmbed support, use Docker or build from source with CGO enabled.
+> **Note:** All binaries are built with CGO enabled for FastEmbed/ONNX support.
 
 ### Building from Source
 
@@ -225,15 +223,18 @@ CGO_ENABLED=1 go build -o contextd ./cmd/contextd
 
 | Tag | Description |
 |-----|-------------|
-| `0.2.0-alpha` | Current alpha release |
-| `0.1.0-alpha` | Previous alpha release |
-| `latest` | Latest stable release (not yet available) |
+| `latest` | Latest release (always updated) |
+| `0.2.0-rc2` | Current release candidate |
+| `0.2.0-alpha` | Previous alpha release |
 
-Multi-arch support: `linux/amd64` and `linux/arm64`
+Platform: `linux/amd64`
 
 ```bash
-# Explicit platform
-docker pull --platform linux/arm64 ghcr.io/fyrsmithlabs/contextd:0.2.0-alpha
+# Pull latest
+docker pull ghcr.io/fyrsmithlabs/contextd:latest
+
+# Pull specific version
+docker pull ghcr.io/fyrsmithlabs/contextd:0.2.0-rc2
 ```
 
 ---

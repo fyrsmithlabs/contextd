@@ -219,19 +219,6 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Determine if prerelease
-        id: prerelease
-        env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
-        run: |
-          if [[ "$VERSION" == *"-"* ]]; then
-            echo "IS_PRERELEASE=true" >> "$GITHUB_OUTPUT"
-            echo "LATEST_TAG=" >> "$GITHUB_OUTPUT"
-          else
-            echo "IS_PRERELEASE=false" >> "$GITHUB_OUTPUT"
-            echo "LATEST_TAG=ghcr.io/fyrsmithlabs/contextd:latest" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -241,7 +228,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/fyrsmithlabs/contextd:${{ steps.version.outputs.VERSION }}
-            ${{ steps.prerelease.outputs.LATEST_TAG }}
+            ghcr.io/fyrsmithlabs/contextd:latest
           labels: |
             org.opencontainers.image.title=contextd
             org.opencontainers.image.description=AI context and reasoning engine for Claude Code
