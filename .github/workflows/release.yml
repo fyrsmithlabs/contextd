@@ -19,20 +19,32 @@ jobs:
             goos: linux
             goarch: amd64
             onnx_arch: x64
+            ext: ""
+            archive: tar.gz
           - runner: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
             onnx_arch: aarch64
+            ext: ""
+            archive: tar.gz
           - runner: macos-13
             goos: darwin
             goarch: amd64
+            ext: ""
+            archive: tar.gz
           - runner: macos-14
             goos: darwin
             goarch: arm64
+            ext: ""
+            archive: tar.gz
           - runner: windows-latest
             goos: windows
             goarch: amd64
+            ext: ".exe"
+            archive: zip
     runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,20 +85,51 @@ jobs:
           Expand-Archive -Path "$tempDir\onnxruntime.zip" -DestinationPath $tempDir
           echo "$tempDir\onnxruntime-win-x64-$env:ONNX_VERSION\lib" >> $env:GITHUB_PATH
 
-      - name: Build with GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: build --clean --single-target
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXT: ${{ matrix.ext }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w -X main.version=${VERSION}" -o "dist/contextd${EXT}" ./cmd/contextd
+          go build -ldflags="-s -w -X main.version=${VERSION}" -o "dist/ctxd${EXT}" ./cmd/ctxd
+
+      - name: Create archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          cd dist
+          cp ../README.md ../LICENSE* . 2>/dev/null || true
+          tar czf "contextd_${VERSION}_${GOOS}_${GOARCH}.tar.gz" contextd ctxd README.md LICENSE* 2>/dev/null || tar czf "contextd_${VERSION}_${GOOS}_${GOARCH}.tar.gz" contextd ctxd README.md
+
+      - name: Create archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          Copy-Item README.md, LICENSE* dist/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path dist/contextd.exe, dist/ctxd.exe, dist/README.md -DestinationPath "dist/contextd_${env:VERSION}_${env:GOOS}_${env:GOARCH}.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
+          path: dist/contextd_*
 
   release:
     needs: build
@@ -94,33 +137,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist/
+          path: artifacts/
           pattern: dist-*
           merge-multiple: true
 
       - name: List artifacts
-        run: find dist/ -type f | head -50
+        run: ls -la artifacts/
 
-      - name: Run GoReleaser (release)
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --clean --skip=build
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          sha256sum contextd_* > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            artifacts/*
 
   docker:
     runs-on: ubuntu-latest
