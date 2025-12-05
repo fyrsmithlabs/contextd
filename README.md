@@ -93,7 +93,7 @@ brew install fyrsmithlabs/tap/contextd
 Or tap first:
 
 ```bash
-brew tap fyrsmithlabs/homebrew-tap
+brew tap fyrsmithlabs/tap
 brew install contextd
 ```
 
