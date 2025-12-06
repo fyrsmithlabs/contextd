@@ -415,7 +415,9 @@ func (s *ChromemStore) CreateCollection(ctx context.Context, collectionName stri
 	}
 
 	// Check if collection already exists (chromem-go's CreateCollection is idempotent)
-	if existing := s.db.GetCollection(collectionName, nil); existing != nil {
+	// IMPORTANT: Must pass embedding function, not nil, because chromem-go sets
+	// the default OpenAI embedder when nil is passed for persisted collections
+	if existing := s.db.GetCollection(collectionName, s.createEmbeddingFunc()); existing != nil {
 		return ErrCollectionExists
 	}
 
@@ -479,7 +481,8 @@ func (s *ChromemStore) CollectionExists(ctx context.Context, collectionName stri
 		return false, err
 	}
 
-	collection := s.db.GetCollection(collectionName, nil)
+	// Must pass embedding function to avoid chromem-go setting OpenAI default
+	collection := s.db.GetCollection(collectionName, s.createEmbeddingFunc())
 	exists := collection != nil
 
 	span.SetStatus(codes.Ok, "success")
@@ -514,7 +517,8 @@ func (s *ChromemStore) GetCollectionInfo(ctx context.Context, collectionName str
 		return nil, err
 	}
 
-	collection := s.db.GetCollection(collectionName, nil)
+	// Must pass embedding function to avoid chromem-go setting OpenAI default
+	collection := s.db.GetCollection(collectionName, s.createEmbeddingFunc())
 	if collection == nil {
 		span.SetStatus(codes.Error, "collection not found")
 		return nil, ErrCollectionNotFound
