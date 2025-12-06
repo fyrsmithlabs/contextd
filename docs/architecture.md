@@ -1,61 +1,74 @@
 # Architecture Overview
 
-ContextD is a Go-based MCP server that provides AI context management capabilities. This document describes the system architecture, component interactions, and design decisions.
+contextd is a Go-based MCP server providing AI context management with cross-session memory, checkpoints, and error pattern tracking. This document describes the simplified v2 architecture.
 
 ---
 
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Claude Code                                 │
-│                              │                                       │
-│                         MCP Protocol                                 │
-│                          (stdio)                                     │
-│                              │                                       │
-│  ┌───────────────────────────▼───────────────────────────────────┐  │
-│  │                       ContextD                                 │  │
-│  │                                                                │  │
-│  │  ┌──────────────────────────────────────────────────────────┐ │  │
-│  │  │                    MCP Server Layer                       │ │  │
-│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────────┐ │ │  │
-│  │  │  │ Memory  │ │Checkpoint│ │Remediate│ │Repository/Diag │ │ │  │
-│  │  │  │ Tools   │ │ Tools   │ │ Tools   │ │    Tools        │ │ │  │
-│  │  │  └────┬────┘ └────┬────┘ └────┬────┘ └───────┬─────────┘ │ │  │
-│  │  └───────┼───────────┼───────────┼──────────────┼───────────┘ │  │
-│  │          │           │           │              │             │  │
-│  │  ┌───────▼───────────▼───────────▼──────────────▼───────────┐ │  │
-│  │  │                   Service Layer                           │ │  │
-│  │  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────┐ │ │  │
-│  │  │  │ Reasoning  │ │ Checkpoint │ │Remediation │ │  Repo  │ │ │  │
-│  │  │  │   Bank     │ │  Service   │ │  Service   │ │Service │ │ │  │
-│  │  │  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └───┬────┘ │ │  │
-│  │  └────────┼──────────────┼──────────────┼────────────┼──────┘ │  │
-│  │           │              │              │            │        │  │
-│  │  ┌────────▼──────────────▼──────────────▼────────────▼──────┐ │  │
-│  │  │                  Infrastructure Layer                     │ │  │
-│  │  │  ┌───────────┐  ┌───────────┐  ┌───────────────────────┐ │ │  │
-│  │  │  │  Qdrant   │  │ Embeddings │  │    Secret Scrubber    │ │ │  │
-│  │  │  │  Client   │  │  Provider  │  │     (gitleaks)        │ │ │  │
-│  │  │  └───────────┘  └───────────┘  └───────────────────────┘ │ │  │
-│  │  └──────────────────────────────────────────────────────────┘ │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                        Qdrant                                  │  │
-│  │              (Vector Database - Embedded)                      │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------+
+|                         Claude Code / AI Agent                          |
+|                                   |                                     |
+|                           MCP Protocol (stdio)                          |
+|                                   |                                     |
+|  +----------------------------------------------------------------+    |
+|  |                          contextd                               |    |
+|  |                                                                 |    |
+|  |  +-----------------------------------------------------------+  |    |
+|  |  |                      MCP Server Layer                      |  |    |
+|  |  |  +----------+ +----------+ +----------+ +---------------+  |  |    |
+|  |  |  | Memory   | |Checkpoint| |Remediate | | Repository/   |  |  |    |
+|  |  |  | Tools    | | Tools    | | Tools    | | Troubleshoot  |  |  |    |
+|  |  |  +----+-----+ +----+-----+ +----+-----+ +-------+-------+  |  |    |
+|  |  +-------|------------|------------|---------------|----------+  |    |
+|  |          |            |            |               |             |    |
+|  |  +-------v------------v------------v---------------v----------+  |    |
+|  |  |                    Service Registry                         |  |    |
+|  |  |  +-------------+ +-------------+ +-------------+ +--------+ |  |    |
+|  |  |  | Reasoning   | | Checkpoint  | | Remediation | | Repo   | |  |    |
+|  |  |  | Bank        | | Service     | | Service     | | Service| |  |    |
+|  |  |  +------+------+ +------+------+ +------+------+ +----+---+ |  |    |
+|  |  +---------|---------------|---------------|--------------|----+  |    |
+|  |            |               |               |              |       |    |
+|  |  +---------v---------------v---------------v--------------v----+  |    |
+|  |  |                  Infrastructure Layer                        |  |    |
+|  |  |  +-------------+  +-------------+  +---------------------+   |  |    |
+|  |  |  | VectorStore |  | Embeddings  |  |   Secret Scrubber   |   |  |    |
+|  |  |  | (chromem)   |  | (FastEmbed) |  |     (gitleaks)      |   |  |    |
+|  |  |  +-------------+  +-------------+  +---------------------+   |  |    |
+|  |  +--------------------------------------------------------------+  |    |
+|  +--------------------------------------------------------------------+    |
+|                                   |                                        |
+|                                   v                                        |
+|  +--------------------------------------------------------------------+    |
+|  |                    Local Storage (~/.local/share/contextd)          |    |
+|  +--------------------------------------------------------------------+    |
++------------------------------------------------------------------------+
 ```
 
 ---
 
 ## Component Overview
 
+### Entry Point (`cmd/contextd/`)
+
+The main entry point initializes all components in order:
+1. Logging (Zap)
+2. Telemetry (OpenTelemetry, disabled by default)
+3. Configuration (Koanf: file + env vars)
+4. Secret Scrubber (gitleaks)
+5. Embeddings Provider (FastEmbed or TEI)
+6. VectorStore (chromem or Qdrant)
+7. Core Services (checkpoint, remediation, repository, troubleshoot, reasoningbank)
+8. Hooks Manager
+9. Service Registry
+10. HTTP Server (background)
+11. MCP Server (if `--mcp` flag)
+
 ### MCP Server (`internal/mcp/`)
 
-The MCP server handles the Model Context Protocol communication with Claude Code.
+Handles Model Context Protocol communication via stdio transport.
 
 **Key Files:**
 - `server.go` - Server initialization and lifecycle
@@ -63,67 +76,68 @@ The MCP server handles the Model Context Protocol communication with Claude Code
 
 **Responsibilities:**
 - Parse MCP JSON-RPC messages from stdin
-- Route tool calls to appropriate services
+- Route tool calls to appropriate services via registry
 - Scrub secrets from all responses
 - Return formatted responses to stdout
 
+### Service Registry (`internal/services/`)
+
+Central registry providing dependency injection for all services.
+
+```go
+type Registry struct {
+    Checkpoint   checkpoint.Service
+    Remediation  remediation.Service
+    Memory       *reasoningbank.Service
+    Repository   *repository.Service
+    Troubleshoot *troubleshoot.Service
+    Hooks        *hooks.HookManager
+    Scrubber     *secrets.Scrubber
+}
+```
+
+**Benefits:**
+- Clean separation of concerns
+- Easy testing with mock services
+- Graceful degradation when services unavailable
+
 ### ReasoningBank (`internal/reasoningbank/`)
 
-Cross-session memory system for storing and retrieving learnings.
+Cross-session memory system storing learnings with confidence scores.
 
 **Key Concepts:**
 - **Memory**: A recorded strategy, insight, or learning
-- **Confidence Score**: Reliability rating (0.0 - 1.0)
+- **Confidence Score**: Reliability rating (0.0 - 1.0), adjusted by feedback
 - **Outcome**: Whether the strategy led to success or failure
 
-**How It Works:**
-1. Memories are embedded using the configured embedding model
-2. Stored in Qdrant with metadata
-3. Retrieved via semantic similarity search
-4. Confidence adjusted based on feedback
+**Operations:**
+- `Search(projectID, query, limit)` - Semantic search for relevant memories
+- `Record(memory)` - Store new memory with embedding
+- `Feedback(memoryID, helpful)` - Adjust confidence based on usefulness
+- `Get(memoryID)` - Retrieve specific memory
 
 ### Checkpoint Service (`internal/checkpoint/`)
 
 Context persistence and recovery system.
 
-**Key Concepts:**
-- **Checkpoint**: Snapshot of session state at a point in time
-- **Resume Levels**: summary, context, full
-
-**Data Model:**
-```go
-type Checkpoint struct {
-    ID          string
-    SessionID   string
-    TenantID    string
-    ProjectPath string
-    Name        string
-    Description string
-    Summary     string      // Brief summary
-    Context     string      // Contextual info
-    FullState   string      // Complete state
-    TokenCount  int32
-    Threshold   float64     // Context % when saved
-    AutoCreated bool
-    Metadata    map[string]string
-    CreatedAt   time.Time
-}
-```
+**Resume Levels:**
+| Level | Content | Use Case |
+|-------|---------|----------|
+| `summary` | Brief summary only | Quick context refresh |
+| `context` | Summary + contextual info | Normal resumption |
+| `full` | Complete session state | Full restoration |
 
 ### Remediation Service (`internal/remediation/`)
 
-Error pattern tracking and fix database.
+Error pattern tracking with hierarchical scope.
 
-**Key Concepts:**
-- **Remediation**: A recorded fix for an error pattern
-- **Scope**: project, team, or org level
-- **Category**: Error type classification
+**Scopes:**
+- `project` - Project-specific fixes
+- `team` - Team-shared knowledge
+- `org` - Organization-wide patterns
 
 **Hierarchical Search:**
-When `include_hierarchy` is enabled, search expands:
-1. Project scope
-2. Team scope (if no project results)
-3. Org scope (if no team results)
+When `include_hierarchy` enabled, search expands: project -> team -> org
 
 ### Repository Service (`internal/repository/`)
 
@@ -131,31 +145,43 @@ Code indexing for semantic search.
 
 **Indexing Process:**
 1. Walk directory tree
-2. Apply include/exclude patterns
-3. Parse ignore files (.gitignore, etc.)
-4. Chunk files for embedding
-5. Store in Qdrant with metadata
+2. Apply include/exclude patterns (respects .gitignore)
+3. Chunk files for embedding
+4. Store in vectorstore with metadata
+
+### VectorStore (`internal/vectorstore/`)
+
+Pluggable vector storage with provider abstraction.
+
+**Providers:**
+| Provider | Type | Use Case |
+|----------|------|----------|
+| `chromem` | Embedded | Default, no external deps |
+| `qdrant` | External | Production, team deployments |
+
+**Interface:**
+```go
+type Store interface {
+    AddDocuments(ctx, collection, docs) error
+    Query(ctx, collection, query, limit) ([]Document, error)
+    Delete(ctx, collection, ids) error
+    Close() error
+}
+```
 
 ### Embeddings (`internal/embeddings/`)
 
 Pluggable embedding provider system.
 
 **Providers:**
-- `fastembed` - Local ONNX-based embeddings (default)
-- `tei` - HuggingFace Text Embeddings Inference
-
-**Provider Interface:**
-```go
-type Provider interface {
-    Embed(ctx context.Context, texts []string) ([][]float32, error)
-    Dimension() int
-    Close()
-}
-```
+| Provider | Type | Model |
+|----------|------|-------|
+| `fastembed` | Local ONNX | all-MiniLM-L6-v2 (384 dim) |
+| `tei` | Remote API | Configurable |
 
 ### Secret Scrubber (`internal/secrets/`)
 
-Automatic secret detection and redaction using gitleaks.
+Automatic secret detection and redaction using gitleaks SDK.
 
 **Coverage:**
 - API keys (AWS, GCP, Azure, GitHub, etc.)
@@ -164,6 +190,24 @@ Automatic secret detection and redaction using gitleaks.
 - Connection strings
 - Custom patterns
 
+**Scrubbing Points:**
+1. All MCP tool responses
+2. Stored content (memories, checkpoints)
+3. HTTP API responses
+
+### Hooks (`internal/hooks/`)
+
+Lifecycle hook management for session events.
+
+**Hook Types:**
+| Hook | Trigger |
+|------|---------|
+| `session_start` | New session begins |
+| `session_end` | Session ends |
+| `before_clear` | Before `/clear` command |
+| `after_clear` | After `/clear` command |
+| `context_threshold` | Context usage reaches threshold |
+
 ---
 
 ## Data Flow
@@ -171,93 +215,132 @@ Automatic secret detection and redaction using gitleaks.
 ### Memory Search Flow
 
 ```
-1. Claude Code calls memory_search
-   ↓
+1. Claude Code calls memory_search(project_id, query)
+   |
 2. MCP Server receives request
-   ↓
-3. Query is embedded via Embeddings Provider
-   ↓
-4. Qdrant similarity search
-   ↓
-5. Results filtered by confidence
-   ↓
-6. Secret scrubber removes sensitive data
-   ↓
-7. Response returned to Claude Code
+   |
+3. ReasoningBank.Search() called
+   |
+4. Query embedded via FastEmbed
+   |
+5. chromem similarity search on {project}_memories collection
+   |
+6. Results filtered by confidence threshold
+   |
+7. Secret scrubber removes sensitive data
+   |
+8. Response returned to Claude Code
 ```
 
 ### Checkpoint Save Flow
 
 ```
-1. Claude Code calls checkpoint_save
-   ↓
+1. Claude Code calls checkpoint_save(session_id, tenant_id, ...)
+   |
 2. MCP Server receives request
-   ↓
-3. Checkpoint Service validates input
-   ↓
-4. Summary is embedded for future search
-   ↓
-5. Full state stored in Qdrant
-   ↓
-6. ID returned to Claude Code
+   |
+3. Checkpoint.Save() validates input
+   |
+4. Summary embedded for future search
+   |
+5. Full state stored in org_checkpoints collection
+   |
+6. Checkpoint ID returned to Claude Code
 ```
 
 ---
 
-## Container Architecture
+## Configuration
 
-The Docker image bundles all components:
+### Loading Order
 
-```
-┌─────────────────────────────────────────┐
-│           Docker Container               │
-│                                          │
-│  ┌──────────────────────────────────┐   │
-│  │        Entrypoint Script          │   │
-│  │  1. Start Qdrant (background)     │   │
-│  │  2. Wait for Qdrant ready         │   │
-│  │  3. exec contextd                 │   │
-│  └──────────────────────────────────┘   │
-│                                          │
-│  ┌────────────┐    ┌────────────────┐   │
-│  │   Qdrant   │◄───│   ContextD     │   │
-│  │  (gRPC)    │    │  (MCP Server)  │   │
-│  └────────────┘    └────────────────┘   │
-│                                          │
-│  ┌──────────────────────────────────┐   │
-│  │         ONNX Runtime              │   │
-│  │    (for FastEmbed embeddings)     │   │
-│  └──────────────────────────────────┘   │
-│                                          │
-│  Volume: /data                           │
-│  └── qdrant/storage/                     │
-└─────────────────────────────────────────┘
+1. Defaults (compiled in)
+2. Config file (`~/.config/contextd/config.yaml`)
+3. Environment variables (override file)
+4. CLI flags (override all)
+
+### Key Configuration
+
+```yaml
+vectorstore:
+  provider: chromem          # or "qdrant"
+  chromem:
+    path: ~/.local/share/contextd
+
+embeddings:
+  provider: fastembed        # or "tei"
+  model: all-MiniLM-L6-v2
+
+server:
+  port: 9090
+  shutdown_timeout: 5s
 ```
 
 ---
 
-## Security Model
+## Key Design Decisions
 
-### Multi-Tenancy
+### Why Simplified from gRPC (v1 -> v2)
 
-All data is isolated by `tenant_id`:
-- Each tenant has separate vector collections
-- No cross-tenant queries possible
-- Tenant ID derived from authenticated context
+| v1 (old branch) | v2 (current) |
+|-----------------|--------------|
+| gRPC between components | Direct function calls |
+| Complex service mesh | Single binary |
+| External Qdrant required | Embedded chromem default |
+| Multiple processes | Single process |
 
-### Secret Protection
+**Rationale:** AI agent use case doesn't need distributed architecture. Simplicity reduces failure modes and deployment complexity.
 
-Three layers of protection:
+### Why chromem as Default
 
-1. **Input Validation**: Reject requests containing obvious secrets
-2. **Storage Scrubbing**: Scrub before storing
-3. **Output Scrubbing**: Scrub all responses
+- **Zero dependencies**: No external database to run
+- **Embedded**: Data persists in local files
+- **Migration path**: Can switch to Qdrant for team deployments
+- **Performance**: Sub-100ms for typical queries
 
-### Transport Security
+### Why Service Registry
 
-- MCP uses stdio (no network exposure)
-- Qdrant internal (localhost only by default)
-- HTTP server for health checks only
+- **Testability**: Easy to mock individual services
+- **Graceful degradation**: Server starts even if some services fail
+- **Clean DI**: No global state, explicit dependencies
+
+### Why Separate HTTP Server
+
+- **Health checks**: Kubernetes/Docker health probes
+- **Threshold triggers**: External context monitoring
+- **Debugging**: Status endpoint for troubleshooting
+- **Future API**: Foundation for REST API if needed
+
+---
+
+## Directory Structure
+
+```
+contextd/
++-- cmd/
+|   +-- contextd/           # Main entry point
+|   +-- ctxd/               # CLI tool
++-- internal/
+|   +-- checkpoint/         # Context persistence
+|   +-- compression/        # Context compression
+|   +-- config/             # Koanf configuration
+|   +-- embeddings/         # Embedding providers
+|   +-- hooks/              # Lifecycle hooks
+|   +-- http/               # HTTP API server
+|   +-- logging/            # Zap logging
+|   +-- mcp/                # MCP server + handlers
+|   +-- project/            # Project management
+|   +-- reasoningbank/      # Cross-session memory
+|   +-- remediation/        # Error pattern tracking
+|   +-- repository/         # Code indexing
+|   +-- secrets/            # gitleaks scrubbing
+|   +-- services/           # Service registry
+|   +-- telemetry/          # OpenTelemetry
+|   +-- troubleshoot/       # Error diagnosis
+|   +-- vectorstore/        # Vector storage abstraction
++-- docs/                   # Documentation
++-- deploy/                 # Docker/deployment files
+```
 
 ---
 
@@ -267,46 +350,57 @@ Three layers of protection:
 |-----------|------------|---------|
 | Language | Go 1.25+ | Core application |
 | MCP | github.com/modelcontextprotocol/go-sdk | Protocol implementation |
-| Vector DB | Qdrant | Semantic storage and search |
-| Embeddings | FastEmbed (ONNX) | Local text embeddings |
+| Vector DB | chromem (default) / Qdrant | Semantic storage |
+| Embeddings | FastEmbed (ONNX) | Local embeddings |
+| Config | Koanf | Configuration loading |
 | Logging | Zap | Structured logging |
 | Telemetry | OpenTelemetry | Observability |
 | Secrets | gitleaks | Secret detection |
-| Config | Koanf | Configuration loading |
 
 ---
 
-## Directory Structure
+## Performance Characteristics
 
-```
-contextd/
-├── cmd/
-│   └── contextd/          # Main entry point
-├── internal/
-│   ├── checkpoint/        # Checkpoint service
-│   ├── compression/       # Context compression
-│   ├── config/            # Configuration
-│   ├── embeddings/        # Embedding providers
-│   ├── hooks/             # Lifecycle hooks
-│   ├── logging/           # Zap logging
-│   ├── mcp/               # MCP server
-│   │   └── handlers/      # Tool handlers
-│   ├── project/           # Project management
-│   ├── qdrant/            # Qdrant client
-│   ├── reasoningbank/     # Memory system
-│   ├── remediation/       # Error tracking
-│   ├── repository/        # Code indexing
-│   ├── secrets/           # Secret scrubbing
-│   ├── telemetry/         # OpenTelemetry
-│   ├── tenant/            # Multi-tenancy
-│   ├── troubleshoot/      # Diagnostics
-│   └── vectorstore/       # Vector abstraction
-├── deploy/
-│   ├── entrypoint.sh      # Container entrypoint
-│   └── supervisord.conf   # Process management
-├── docs/                  # Documentation
-└── Dockerfile             # Container build
-```
+### Latency
+
+| Operation | Typical |
+|-----------|---------|
+| Memory search | 50-100ms |
+| Checkpoint save | 100-200ms |
+| Repository index (1000 files) | 30-60s |
+| Embedding (single text) | 10-20ms |
+
+### Resource Usage
+
+| Component | Memory |
+|-----------|--------|
+| contextd base | ~50MB |
+| FastEmbed model | ~200MB |
+| chromem per 10K docs | ~100MB |
+
+---
+
+## Security Model
+
+### Multi-Tenancy
+
+- All data isolated by `tenant_id`
+- Collection-per-project in vectorstore
+- No cross-tenant queries possible
+
+### Secret Protection
+
+| Layer | Protection |
+|-------|------------|
+| Input | Reject obvious secrets |
+| Storage | Scrub before storing |
+| Output | Scrub all responses |
+
+### Transport Security
+
+- MCP: stdio (no network exposure)
+- HTTP: localhost only by default
+- Qdrant: localhost only by default
 
 ---
 
@@ -317,57 +411,17 @@ contextd/
 Implement the `Provider` interface:
 
 ```go
-type CustomProvider struct {
-    // your fields
-}
-
-func (p *CustomProvider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
-    // your embedding logic
-}
-
-func (p *CustomProvider) Dimension() int {
-    return 384 // your model dimension
-}
-
-func (p *CustomProvider) Close() {
-    // cleanup
+type Provider interface {
+    Embed(ctx context.Context, texts []string) ([][]float32, error)
+    Dimension() int
+    Close()
 }
 ```
+
+### Custom VectorStore
+
+Implement the `Store` interface for alternative backends.
 
 ### Custom Ignore Patterns
 
-Create `.contextdignore` in your project:
-
-```gitignore
-# Additional patterns for ContextD indexing
-*.test.ts
-*.spec.js
-coverage/
-dist/
-```
-
----
-
-## Performance Considerations
-
-### Memory Usage
-
-- Qdrant: ~100MB base + data
-- FastEmbed: ~200MB for model
-- ContextD: ~50MB
-
-### Latency
-
-| Operation | Typical Latency |
-|-----------|-----------------|
-| Memory search | 50-100ms |
-| Checkpoint save | 100-200ms |
-| Repository index (1000 files) | 30-60s |
-| Embedding (single text) | 10-20ms |
-
-### Scaling
-
-ContextD is designed for single-user operation. For team deployments:
-
-1. Run separate instances per user, or
-2. Use external Qdrant with tenant isolation
+Create `.contextdignore` in project root for repository indexing.

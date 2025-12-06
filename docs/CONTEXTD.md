@@ -1,202 +1,201 @@
-# Contextd: Shared Knowledge Layer for AI Agents
+# contextd
 
-**Version**: 1.0.0-draft
-**Status**: Design Phase
-**Protocol**: MCP 2025-03-26
+A shared knowledge layer for AI agents providing cross-session memory, context persistence, and error pattern tracking.
 
----
-
-## Maintenance Instructions (For Agents)
-
-**Update this document when:**
-- New tool categories added to contextd
-- Architecture changes (new components)
-- Security model changes
-- New agent compatibility confirmed
-- Core principles change (requires human approval)
-
-**Do NOT update when:**
-- Implementation details change (update @imported specs instead)
-- Adding examples or tutorials (create separate guides)
-- Temporary or experimental features
-
-**How to update:**
-1. Update the `Version` field
-2. Keep main file ≤150 lines (use @imports for details)
-3. Maintain noun-heavy style (what/where, not how/when)
-4. Run through Lyra optimization if changing Tier 0
+contextd is an MCP server that gives AI agents like Claude Code persistent memory across sessions. It learns from successes and failures, saves context for resumption, and tracks error fixes so agents can learn from past solutions. All responses are scrubbed for secrets using gitleaks.
 
 ---
 
-## What Contextd Is
+## Quick Start
 
-A shared knowledge layer where **AI agents and developers draw from the same institutional memory**.
+### Docker (Recommended)
 
-| Layer | Purpose |
-|-------|---------|
-| **ReasoningBank** | Cross-session memory (learns from successes AND failures) |
-| **Institutional Knowledge** | Survives developer tenure (Project → Team → Org) |
-| **Context Optimization** | Lazy-load everything, never pre-fill |
-| **Security** | Secret scrubbing (gitleaks), multi-tenant isolation |
+```bash
+# Run contextd as MCP server
+docker run -i --rm \
+  -v contextd-data:/data \
+  ghcr.io/fyrsmithlabs/contextd:latest --mcp
+```
 
-**Core Principle**: Contextd adapts to YOUR workflows. Not the reverse.
+### Homebrew
+
+```bash
+brew tap fyrsmithlabs/tap
+brew install contextd
+contextd --mcp
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/fyrsmithlabs/contextd.git
+cd contextd
+go build -o contextd ./cmd/contextd
+./contextd --mcp
+```
 
 ---
 
-## What Contextd Is NOT
+## MCP Tools
 
-- **NOT a code generator** - provides context, doesn't write code
-- **NOT a prompt engineering tool** - memory/knowledge focus
-- **NOT a workflow replacement** - enhances existing workflows
-- **Future (Phase 2+)**: Model routing, orchestration
+| Tool | Purpose |
+|------|---------|
+| `memory_search` | Find relevant past strategies/learnings |
+| `memory_record` | Save new learning from current session |
+| `memory_feedback` | Rate memory helpfulness (adjusts confidence) |
+| `checkpoint_save` | Save session state for later resumption |
+| `checkpoint_list` | List available checkpoints |
+| `checkpoint_resume` | Resume from checkpoint (summary/context/full) |
+| `remediation_search` | Find fixes for error patterns |
+| `remediation_record` | Record a new error fix |
+| `repository_index` | Index repository for semantic search |
+| `repository_search` | Semantic search over indexed code |
+| `troubleshoot_diagnose` | AI-powered error diagnosis |
 
 ---
 
-## Who Uses Contextd
+## Configuration
 
-| Scope | Value |
-|-------|-------|
-| **Individual** | Fast AI onboarding without learning agent/skill/plugin complexity |
-| **Team** | Shared knowledge at project/team levels |
-| **Organization** | Institutional memory that outlasts tenure, compliance-ready |
+### Environment Variables
 
-**Hierarchy**: Project → Team → Org (knowledge cascades upward)
+**Core:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTEXTD_VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
+| `CONTEXTD_VECTORSTORE_CHROMEM_PATH` | `~/.local/share/contextd` | Data directory |
+| `CONTEXTD_EMBEDDINGS_PROVIDER` | `fastembed` | Embeddings (`fastembed` or `tei`) |
+| `CONTEXTD_EMBEDDINGS_MODEL` | `all-MiniLM-L6-v2` | Embedding model |
+
+**Hooks:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR` | `false` | Auto-save before `/clear` |
+| `CONTEXTD_AUTO_RESUME_ON_START` | `true` | Offer resume on start |
+| `CONTEXTD_CHECKPOINT_THRESHOLD` | `70` | Context % for threshold hook |
+
+**Telemetry:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_SDK_DISABLED` | `true` | Disable OpenTelemetry |
+| `TELEMETRY_ENABLED` | `false` | Enable telemetry |
+
+### Config File
+
+Default location: `~/.config/contextd/config.yaml`
+
+```yaml
+vectorstore:
+  provider: chromem
+  chromem:
+    path: ~/.local/share/contextd
+
+embeddings:
+  provider: fastembed
+  model: all-MiniLM-L6-v2
+
+hooks:
+  auto_checkpoint_on_clear: true
+  auto_resume_on_start: true
+  checkpoint_threshold_percent: 70
+
+server:
+  port: 9090
+```
+
+---
+
+## Running Modes
+
+### MCP Mode (Claude Code integration)
+
+```bash
+contextd --mcp
+```
+
+Runs as stdio MCP server for Claude Code integration.
+
+### HTTP Mode (standalone)
+
+```bash
+contextd --http-port 9090
+```
+
+Runs HTTP server with endpoints:
+- `GET /api/v1/status` - Health check
+- `POST /api/v1/threshold` - Trigger context threshold
+- `POST /api/v1/scrub` - Scrub secrets from text
 
 ---
 
 ## Architecture
 
 ```
-AI Agents (Claude, Grok, Codex, OpenCode)
-         │
-         │ MCP Protocol (stdio / Streamable HTTP)
-         ▼
-┌─────────────────────────────────────────┐
-│         contextd MCP Server             │
-│  ├── Memory Manager (ReasoningBank)     │
-│  ├── Session Manager (checkpoints)      │
-│  ├── Standards Engine (policies)        │
-│  ├── Secret Scrubber (gitleaks)         │
-│  └── Tool Executors (seccomp/namespace) │
-└─────────────────────────────────────────┘
-         │
-         │ gRPC / HTTP API
-         ▼
-┌─────────────────────────────────────────┐
-│         Qdrant Vector Store             │
-│  memories, remediations, policies,      │
-│  skills, agents, checkpoints            │
-└─────────────────────────────────────────┘
+Claude Code / AI Agent
+        |
+        | MCP Protocol (stdio)
+        v
++-------------------+
+|  contextd Server  |
+|  +-------------+  |
+|  | MCP Handler |  |
+|  +------+------+  |
+|         |         |
+|  +------v------+  |
+|  | Services    |  |
+|  | - Memory    |  |
+|  | - Checkpoint|  |
+|  | - Remediate |  |
+|  | - Repository|  |
+|  +------+------+  |
+|         |         |
+|  +------v------+  |
+|  | VectorStore |  |
+|  | (chromem)   |  |
+|  +-------------+  |
++-------------------+
 ```
 
-**Details**: @./spec/interface/SPEC.md
+**Key design decisions:**
+- **chromem default**: Embedded vector store, no external dependencies
+- **FastEmbed default**: Local ONNX embeddings, no API calls
+- **Direct calls**: Simplified architecture without gRPC complexity
+- **Secret scrubbing**: gitleaks SDK on all responses
 
 ---
 
-## Tool Discovery
+## Claude Code Integration
 
-**Default**: List `./servers/contextd/` per [Anthropic MCP pattern](https://www.anthropic.com/engineering/code-execution-with-mcp)
+Add to `~/.claude.json`:
 
-**Fallback**: MCP `tools/list` (for systems without filesystem)
-
-**If unavailable**: Warn user, ask how to proceed
-
----
-
-## Tool Categories
-
-| Category | Tools | Purpose |
-|----------|-------|---------|
-| **Memory** | `memory_search`, `memory_record`, `memory_feedback` | ReasoningBank core |
-| **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Session persistence |
-| **Policy** | `policy_list`, `policy_check`, `policy_*` (CRUD) | Org/team/project governance |
-| **Skills** | `skill_list`, `skill_get`, `skill_*` (CRUD) | Shareable workflows |
-| **Agents** | `agent_list`, `agent_get`, `agent_*` (CRUD) | Agent configurations |
-| **Remediation** | `remediation_search`, `remediation_record` | Error fixes learned |
-| **Safe Exec** | `safe_bash`, `safe_read`, `safe_write` | Secret-scrubbed wrappers |
-| **Knowledge** | `briefing_get`, `knowledge_promote` | Onboarding, scope escalation |
-
-**Full Reference**: @./spec/interface/architecture.md
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "contextd-data:/data",
+        "ghcr.io/fyrsmithlabs/contextd:latest",
+        "--mcp"
+      ]
+    }
+  }
+}
+```
 
 ---
 
-## Security Model
+## Documentation
 
-| Layer | Protection |
-|-------|------------|
-| **D1: Process Isolation** | seccomp + Linux namespaces |
-| **D2: Capability Model** | Deny-by-default tool access |
-| **D3: Secret Scrubbing** | gitleaks (tool-level + server-level) |
-| **D4: Multi-Tenant** | Collection-per-tenant in Qdrant |
-| **D5: Audit Logging** | All operations logged |
-
-**Details**: @./spec/multi-tenancy/SPEC.md
+- [Architecture Overview](./architecture.md) - Detailed component descriptions
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [Configuration Reference](./configuration.md) - All configuration options
+- [Troubleshooting](./troubleshooting.md) - Common issues and fixes
 
 ---
 
-## Agent Compatibility
+## Links
 
-| Agent | Compatible | Notes |
-|-------|------------|-------|
-| Claude Code | Yes | stdio transport |
-| OpenCode | Yes | stdio transport |
-| Grok | Yes | Streamable HTTP |
-| Codex | Yes | Streamable HTTP |
-| Any MCP client | Yes | Protocol 2025-03-26 |
-
-**Requirement**: MCP server support OR MCP code execution tools
-
----
-
-## Session Behavior
-
-| Event | Contextd Action |
-|-------|-----------------|
-| **session_start** | Inject Tier 0 (~100 tokens), lazy-load via tools |
-| **Auto-checkpoint** | Silent save at configurable context % thresholds |
-| **`/clear`** | Prompt: "Resume from checkpoint?" |
-| **`/resume`** | Load optimized summary only (not full context) |
-| **session_end** | Async distillation → ReasoningBank |
-
-**Principle**: Never pre-fill context. Always lazy-load.
-
----
-
-## Tier 0 Injection (session_start)
-
-@./TIER-0-INJECTION.md
-
----
-
-## Key Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Qdrant over Pinecone | Local-first, open source, native multi-tenancy |
-| Collection-per-tenant | Physical isolation for SaaS compliance |
-| Go + seccomp/namespace | Native performance, proven isolation (Phase 1) |
-| gitleaks SDK | Industry-standard secret detection |
-| Async distillation | Don't block agent sessions |
-
----
-
-## References
-
-| Resource | Link |
-|----------|------|
-| ReasoningBank Paper | arXiv:2509.25140 |
-| Context-Folding Paper | arXiv:2510.11967 |
-| MCP Specification | modelcontextprotocol.io/specification/2025-03-26 |
-| Anthropic Code Execution | anthropic.com/engineering/code-execution-with-mcp |
-| Qdrant Docs | qdrant.tech/documentation |
-
----
-
-## Detailed Specifications
-
-- @./spec/reasoning-bank/SPEC.md
-- @./spec/context-folding/SPEC.md
-- @./spec/interface/SPEC.md
-- @./spec/collection-architecture/SPEC.md
-- @./spec/multi-tenancy/SPEC.md
-- @./spec/consolidation/SPEC.md
+- [GitHub Repository](https://github.com/fyrsmithlabs/contextd)
+- [Docker Images](https://ghcr.io/fyrsmithlabs/contextd)
+- [Issue Tracker](https://github.com/fyrsmithlabs/contextd/issues)
