@@ -101,6 +101,6 @@ ENV QDRANT_HOST=localhost \
     CONTEXTD_DATA_PATH=/data \
     EMBEDDINGS_PROVIDER=fastembed \
     EMBEDDINGS_MODEL=BAAI/bge-small-en-v1.5 \
-    ONNX_PATH=/usr/local/lib/onnxruntime.so
+    ONNX_PATH=/usr/local/lib/libonnxruntime.so
 
 ENTRYPOINT ["/entrypoint.sh"]
