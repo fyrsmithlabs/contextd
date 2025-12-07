@@ -223,18 +223,18 @@ CGO_ENABLED=1 go build -o contextd ./cmd/contextd
 
 | Tag | Description |
 |-----|-------------|
-| `latest` | Latest release (always updated) |
-| `0.2.0-rc2` | Current release candidate |
-| `0.2.0-alpha` | Previous alpha release |
+| `latest` | Latest stable release (always updated) |
+| `v0.2.0-rc4` | Current release candidate |
+| `v0.2.0-rc3` | Previous release candidate |
 
 Platform: `linux/amd64`
 
 ```bash
-# Pull latest
+# Pull latest (recommended)
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
 
 # Pull specific version
-docker pull ghcr.io/fyrsmithlabs/contextd:0.2.0-rc2
+docker pull ghcr.io/fyrsmithlabs/contextd:v0.2.0-rc4
 ```
 
 ---

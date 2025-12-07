@@ -5,6 +5,23 @@ All notable changes to contextd will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-rc4] - 2025-12-06
+
+### Fixed
+- Docker entrypoint now respects `CONTEXTD_VECTORSTORE_PROVIDER` (chromem default, qdrant optional)
+- Fixed ONNX library path in Docker: `onnxruntime.so` -> `libonnxruntime.so`
+- Fixed chromem `GetCollection` to always pass embedding function (prevents 401 Unauthorized errors)
+- Docker container no longer starts Qdrant unnecessarily when using chromem
+
+### Added
+- Complete Phase 6 documentation: architecture.md, CONTEXTD.md, HOOKS.md
+
+## [0.2.0-rc3] - 2025-12-05
+
+### Fixed
+- Telemetry disabled by default (no OTEL collector required)
+- Config directory created if not exists
+
 ## [0.2.0-rc2] - 2025-12-05
 
 ### Changed
