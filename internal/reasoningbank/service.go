@@ -315,6 +315,77 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// RecordOutcome records a task outcome signal for a memory.
+//
+// This is called by the memory_outcome MCP tool when an agent reports
+// whether a task succeeded after using a retrieved memory.
+//
+// The outcome signal contributes to the memory's confidence score through
+// the Bayesian confidence system. Positive outcomes increase confidence,
+// negative outcomes decrease it.
+//
+// Returns the new confidence score after the update.
+//
+// FR-005d: Outcome reporting via memory_outcome tool
+func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded bool, sessionID string) (float64, error) {
+	if memoryID == "" {
+		return 0, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Get the memory first
+	memory, err := s.Get(ctx, memoryID)
+	if err != nil {
+		return 0, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Create outcome signal
+	signal, err := NewSignal(memoryID, memory.ProjectID, SignalOutcome, succeeded, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("creating signal: %w", err)
+	}
+
+	// For now, use simple linear adjustment (similar to feedback)
+	// TODO: Integrate full Bayesian confidence calculation
+	// The outcome signal has less weight than explicit feedback
+	if succeeded {
+		memory.Confidence += 0.05
+		if memory.Confidence > 1.0 {
+			memory.Confidence = 1.0
+		}
+	} else {
+		memory.Confidence -= 0.08
+		if memory.Confidence < 0.0 {
+			memory.Confidence = 0.0
+		}
+	}
+	memory.UpdatedAt = time.Now()
+
+	// Update in vector store
+	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection name: %w", err)
+	}
+
+	// Delete old version and re-add with updated confidence
+	if err := s.store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+		return 0, fmt.Errorf("deleting old memory: %w", err)
+	}
+
+	doc := s.memoryToDocument(memory, collectionName)
+	_, err = s.store.AddDocuments(ctx, []vectorstore.Document{doc})
+	if err != nil {
+		return 0, fmt.Errorf("updating memory: %w", err)
+	}
+
+	s.logger.Info("outcome recorded",
+		zap.String("id", memoryID),
+		zap.String("signal_id", signal.ID),
+		zap.Bool("succeeded", succeeded),
+		zap.Float64("new_confidence", memory.Confidence))
+
+	return memory.Confidence, nil
+}
+
 // memoryToDocument converts a Memory to a vectorstore Document.
 func (s *Service) memoryToDocument(memory *Memory, collectionName string) vectorstore.Document {
 	// Combine title and content for embedding
