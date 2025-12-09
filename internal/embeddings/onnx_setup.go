@@ -243,6 +243,13 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 	return nil
 }
 
+// setONNXPathEnv sets the ONNX_PATH environment variable.
+// This is used by fastembed-go to locate the library.
+// Separated into a function for testability.
+var setONNXPathEnv = func(path string) error {
+	return os.Setenv("ONNX_PATH", path)
+}
+
 // EnsureONNXRuntime ensures ONNX runtime is available, downloading if needed.
 // Returns the path to the library file.
 func EnsureONNXRuntime(ctx context.Context) (string, error) {
