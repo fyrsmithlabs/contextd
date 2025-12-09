@@ -91,3 +91,15 @@ func TestONNXRuntimeExists_False(t *testing.T) {
 	// We just verify it doesn't panic
 	_ = ONNXRuntimeExists()
 }
+
+func TestBuildDownloadURL(t *testing.T) {
+	url := buildDownloadURL("1.23.0", "linux-x64")
+	expected := "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/onnxruntime-linux-x64-1.23.0.tgz"
+	assert.Equal(t, expected, url)
+}
+
+func TestBuildDownloadURL_MacOS(t *testing.T) {
+	url := buildDownloadURL("1.23.0", "osx-arm64")
+	expected := "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/onnxruntime-osx-arm64-1.23.0.tgz"
+	assert.Equal(t, expected, url)
+}
