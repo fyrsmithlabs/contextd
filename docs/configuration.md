@@ -46,7 +46,27 @@ docker run -i --rm \
 | `EMBEDDINGS_PROVIDER` | `fastembed` | Provider: `fastembed` or `tei` |
 | `EMBEDDINGS_MODEL` | `BAAI/bge-small-en-v1.5` | Embedding model name |
 | `EMBEDDING_BASE_URL` | `http://localhost:8080` | TEI server URL (if using TEI) |
+| `EMBEDDINGS_ONNX_VERSION` | (default: 1.23.0) | ONNX runtime version override |
 | `ONNX_PATH` | (auto-detected) | Path to libonnxruntime.so |
+
+#### ONNX Runtime Auto-Download
+
+contextd automatically downloads the ONNX runtime library on first use if not already installed. The library is downloaded to `~/.config/contextd/lib/`.
+
+**Explicit Setup:**
+```bash
+# Download ONNX runtime before first use
+ctxd init
+
+# Force re-download
+ctxd init --force
+```
+
+**Manual Override:**
+Set `ONNX_PATH` environment variable to use your own ONNX installation:
+```bash
+export ONNX_PATH=/usr/local/lib/libonnxruntime.so
+```
 
 ### Checkpoint Configuration
 
@@ -190,6 +210,7 @@ qdrant:
 embeddings:
   provider: fastembed
   model: BAAI/bge-small-en-v1.5
+  onnx_version: "1.23.0"  # Optional: override ONNX runtime version
 
 checkpoint:
   max_content_size_kb: 1024
