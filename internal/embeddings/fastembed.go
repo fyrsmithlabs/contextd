@@ -66,6 +66,18 @@ var modelDimensions = map[fastembed.EmbeddingModel]int{
 
 // NewFastEmbedProvider creates a new FastEmbed embedding provider.
 func NewFastEmbedProvider(cfg FastEmbedConfig) (*FastEmbedProvider, error) {
+	// Ensure ONNX runtime is available, downloading if needed
+	onnxPath, err := EnsureONNXRuntime(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("ONNX runtime setup failed: %w", err)
+	}
+
+	// Set ONNX_PATH environment variable so fastembed-go picks it up
+	// fastembed-go checks this env var and calls ort.SetSharedLibraryPath internally
+	if err := setONNXPathEnv(onnxPath); err != nil {
+		return nil, fmt.Errorf("setting ONNX_PATH: %w", err)
+	}
+
 	// Map model name to fastembed constant
 	model, ok := modelMapping[cfg.Model]
 	if !ok {
