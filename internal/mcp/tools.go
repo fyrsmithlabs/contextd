@@ -11,6 +11,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
+	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 )
 
@@ -392,9 +393,10 @@ func (s *Server) registerRepositoryTools() {
 		Description: "Semantic search over indexed repository code in _codebase collection",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
 		// Default tenant ID from project path if not specified
+		// Must match repository_index behavior for collection name consistency
 		tenantID := args.TenantID
 		if tenantID == "" {
-			tenantID = "default"
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
 		}
 
 		opts := repository.SearchOptions{

@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cross-reference conversations with files and commits
   - Support for langchain-go providers (Anthropic, OpenAI/Ollama)
   - Templated configuration with Go template functions
+- ONNX runtime auto-download specification (SPEC.md, DESIGN.md)
+  - Auto-download ONNX runtime on first FastEmbed use
+  - `ctxd init` command for explicit setup
+  - Platform support: linux/darwin, amd64/arm64
+  - Uses hashicorp/go-getter for downloads
+
+### Fixed
+- `repository_search` now uses consistent tenant ID with `repository_index` (fixes #19)
+  - Both tools now use `tenant.GetTenantIDForPath()` when no tenant_id provided
+  - Added regression tests for tenant ID consistency
 
 ## [0.2.0-rc4] - 2025-12-06
 

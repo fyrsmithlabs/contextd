@@ -772,3 +772,32 @@ func TestChromemStore_SearchInCollection_EmptyCollection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+// TestChromemStore_SearchInCollection_AfterAutoCreate reproduces bug #19:
+// repository_search fails with "collection not found" after repository_index.
+// The issue: AddDocuments auto-creates collection via getOrCreateCollection,
+// but SearchInCollection uses GetCollection which may not find it.
+func TestChromemStore_SearchInCollection_AfterAutoCreate(t *testing.T) {
+	store, tmpDir := newTestChromemStore(t)
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add documents to a NEW collection (auto-creates via getOrCreateCollection)
+	// NOTE: We deliberately do NOT call CreateCollection first - this simulates
+	// the repository_index flow where AddDocuments auto-creates the collection
+	docs := []vectorstore.Document{
+		{ID: "doc1", Content: "First document about Go programming", Collection: "auto_created_collection"},
+		{ID: "doc2", Content: "Second document about testing", Collection: "auto_created_collection"},
+	}
+
+	ids, err := store.AddDocuments(ctx, docs)
+	require.NoError(t, err)
+	assert.Len(t, ids, 2)
+
+	// SearchInCollection should find the auto-created collection
+	results, err := store.SearchInCollection(ctx, "auto_created_collection", "Go programming", 5, nil)
+	require.NoError(t, err, "SearchInCollection should find collection created by AddDocuments")
+	assert.NotEmpty(t, results, "Search should return results from the auto-created collection")
+}
