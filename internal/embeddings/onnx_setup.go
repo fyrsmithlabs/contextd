@@ -89,3 +89,10 @@ func GetONNXLibraryPath() string {
 func ONNXRuntimeExists() bool {
 	return GetONNXLibraryPath() != ""
 }
+
+const onnxReleaseURLTemplate = "https://github.com/microsoft/onnxruntime/releases/download/v%s/onnxruntime-%s-%s.tgz"
+
+// buildDownloadURL constructs the GitHub release URL for ONNX runtime.
+func buildDownloadURL(version, platform string) string {
+	return fmt.Sprintf(onnxReleaseURLTemplate, version, platform, version)
+}
