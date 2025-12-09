@@ -242,3 +242,29 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 
 	return nil
 }
+
+// EnsureONNXRuntime ensures ONNX runtime is available, downloading if needed.
+// Returns the path to the library file.
+func EnsureONNXRuntime(ctx context.Context) (string, error) {
+	// Check if already available
+	if path := GetONNXLibraryPath(); path != "" {
+		return path, nil
+	}
+
+	// Not found - download
+	fmt.Printf("ONNX runtime not found. Downloading v%s for %s/%s...\n",
+		DefaultONNXRuntimeVersion, runtime.GOOS, runtime.GOARCH)
+
+	if err := DownloadONNXRuntime(ctx, ""); err != nil {
+		return "", fmt.Errorf("failed to download ONNX runtime: %w\nRun 'ctxd init' to install manually, or set ONNX_PATH", err)
+	}
+
+	// Verify download succeeded
+	path := GetONNXLibraryPath()
+	if path == "" {
+		return "", fmt.Errorf("ONNX runtime download completed but library not found")
+	}
+
+	fmt.Printf("Downloaded to %s\n", path)
+	return path, nil
+}
