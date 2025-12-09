@@ -1,6 +1,6 @@
 module github.com/fyrsmithlabs/contextd
 
-go 1.25
+go 1.24
 
 require (
 	github.com/anush008/fastembed-go v1.0.0
