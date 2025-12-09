@@ -3,6 +3,9 @@
 package embeddings
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -102,4 +105,23 @@ func TestBuildDownloadURL_MacOS(t *testing.T) {
 	url := buildDownloadURL("1.23.0", "osx-arm64")
 	expected := "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/onnxruntime-osx-arm64-1.23.0.tgz"
 	assert.Equal(t, expected, url)
+}
+
+func TestDownloadONNXRuntime_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Create temp directory
+	tmpDir := t.TempDir()
+
+	ctx := context.Background()
+	err := downloadONNXRuntimeTo(ctx, DefaultONNXRuntimeVersion, tmpDir)
+	require.NoError(t, err)
+
+	// Verify library file exists
+	libName := getLibraryName(runtime.GOOS)
+	libPath := filepath.Join(tmpDir, libName)
+	_, err = os.Stat(libPath)
+	assert.NoError(t, err, "library file should exist at %s", libPath)
 }
