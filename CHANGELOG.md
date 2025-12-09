@@ -14,11 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cross-reference conversations with files and commits
   - Support for langchain-go providers (Anthropic, OpenAI/Ollama)
   - Templated configuration with Go template functions
-- ONNX runtime auto-download specification (SPEC.md, DESIGN.md)
-  - Auto-download ONNX runtime on first FastEmbed use
-  - `ctxd init` command for explicit setup
+
+## [0.2.0-rc7] - 2025-12-09
+
+### Added
+- ONNX runtime auto-download feature
+  - Automatic download of ONNX runtime v1.23.0 on first FastEmbed use
+  - `ctxd init` command for explicit ONNX runtime setup
   - Platform support: linux/darwin, amd64/arm64
-  - Uses hashicorp/go-getter for downloads
+  - Installs to `~/.config/contextd/lib/`
+  - Respects `ONNX_PATH` environment variable override
+  - `--force` flag for re-download
 
 ### Fixed
 - `repository_search` now uses consistent tenant ID with `repository_index` (fixes #19)
