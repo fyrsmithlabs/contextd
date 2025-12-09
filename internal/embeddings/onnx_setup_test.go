@@ -4,6 +4,7 @@ package embeddings
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,4 +61,33 @@ func TestCurrentPlatformSupported(t *testing.T) {
 		_, err := getPlatformArchive(runtime.GOOS, runtime.GOARCH)
 		assert.NoError(t, err)
 	}
+}
+
+func TestGetONNXInstallDir(t *testing.T) {
+	dir := getONNXInstallDir()
+	assert.Contains(t, dir, ".config/contextd/lib")
+}
+
+func TestGetONNXLibraryPath_EnvOverride(t *testing.T) {
+	// Set env var
+	t.Setenv("ONNX_PATH", "/custom/path/libonnxruntime.so")
+
+	path := GetONNXLibraryPath()
+	assert.Equal(t, "/custom/path/libonnxruntime.so", path)
+}
+
+func TestGetONNXLibraryPath_NoEnv_NoFile(t *testing.T) {
+	// Ensure no env var
+	t.Setenv("ONNX_PATH", "")
+
+	// With no file present, should return empty or the expected managed path (file may or may not exist)
+	path := GetONNXLibraryPath()
+	assert.True(t, path == "" || strings.Contains(path, ".config/contextd/lib"))
+}
+
+func TestONNXRuntimeExists_False(t *testing.T) {
+	t.Setenv("ONNX_PATH", "")
+	// Unless ONNX is already installed, this should reflect actual state
+	// We just verify it doesn't panic
+	_ = ONNXRuntimeExists()
 }
