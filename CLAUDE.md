@@ -9,6 +9,21 @@
 
 **ALWAYS use contextd MCP tools before filesystem search. ALWAYS.**
 
+---
+
+## ⚠️ CRITICAL: Update Claude Plugin on Changes (Priority #2)
+
+**After ANY feature/fix/release, update the contextd-marketplace claude-plugin.**
+
+When these occur:
+- New feature added
+- Release candidate (rc) tagged
+- Bug fix affecting user behavior
+- New skills/commands/agents
+- MCP tool changes
+
+**Action:** Update `contextd-marketplace` repo's claude-plugin to expose new capabilities to users. DO NOT skip this step.
+
 **Required Order:**
 1. ✅ `mcp__contextd__memory_search` - Search past learnings/strategies first
 2. ✅ `mcp__contextd__remediation_search` - Check for known error fixes
