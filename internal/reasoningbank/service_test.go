@@ -416,6 +416,52 @@ func TestService_Feedback(t *testing.T) {
 	})
 }
 
+func TestService_RecordOutcome(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop())
+
+	projectID := "project-123"
+	memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+	memory.Confidence = 0.7
+	_ = svc.Record(ctx, memory)
+
+	t.Run("increases confidence for successful outcome", func(t *testing.T) {
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, true, "session-123")
+		require.NoError(t, err)
+		assert.InDelta(t, 0.75, newConf, 0.001) // 0.7 + 0.05
+
+		updated, _ := svc.Get(ctx, memory.ID)
+		assert.InDelta(t, 0.75, updated.Confidence, 0.001)
+	})
+
+	t.Run("decreases confidence for failed outcome", func(t *testing.T) {
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, false, "session-124")
+		require.NoError(t, err)
+		assert.InDelta(t, 0.67, newConf, 0.001) // 0.75 - 0.08
+
+		updated, _ := svc.Get(ctx, memory.ID)
+		assert.InDelta(t, 0.67, updated.Confidence, 0.001)
+	})
+
+	t.Run("requires memory ID", func(t *testing.T) {
+		_, err := svc.RecordOutcome(ctx, "", true, "session-125")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		_, err := svc.RecordOutcome(ctx, "non-existent-id", true, "session-126")
+		require.Error(t, err)
+	})
+
+	t.Run("accepts empty session ID", func(t *testing.T) {
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, true, "")
+		require.NoError(t, err)
+		assert.Greater(t, newConf, 0.0)
+	})
+}
+
 func TestService_Delete(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
