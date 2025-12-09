@@ -125,3 +125,20 @@ func TestDownloadONNXRuntime_Integration(t *testing.T) {
 	_, err = os.Stat(libPath)
 	assert.NoError(t, err, "library file should exist at %s", libPath)
 }
+
+func TestEnsureONNXRuntime_AlreadyExists(t *testing.T) {
+	// Create a fake library file
+	tmpDir := t.TempDir()
+	libName := getLibraryName(runtime.GOOS)
+	libPath := filepath.Join(tmpDir, libName)
+	err := os.WriteFile(libPath, []byte("fake"), 0644)
+	require.NoError(t, err)
+
+	// Set env to point to it
+	t.Setenv("ONNX_PATH", libPath)
+
+	ctx := context.Background()
+	path, err := EnsureONNXRuntime(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, libPath, path)
+}
