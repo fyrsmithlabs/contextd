@@ -40,13 +40,19 @@ COPY . .
 ENV CGO_ENABLED=1
 RUN go build -o contextd ./cmd/contextd
 
-# Pre-download FastEmbed model during build
-RUN mkdir -p /models && ./contextd --download-models 2>/dev/null || true
+# Pre-download FastEmbed model during build (for airgap deployments)
+# Note: This only works for native builds; cross-compiled builds skip this step
+ENV EMBEDDINGS_CACHE_DIR=/models
+ENV ONNX_PATH=/usr/local/lib/libonnxruntime.so
+RUN mkdir -p /models && ./contextd --download-models || echo "Model pre-download skipped (cross-compile or error)"
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
 ARG TARGETARCH
+
+# Create non-root user and group
+RUN groupadd -r contextd && useradd -r -g contextd -d /home/contextd -s /sbin/nologin contextd
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -79,11 +85,15 @@ RUN set -ex; \
     mv qdrant /usr/local/bin/ && \
     rm "qdrant-${QDRANT_ARCH}.tar.gz"
 
+# Create working directories with proper permissions
+RUN mkdir -p /data/chromem /data/models /data/logs /data/qdrant/storage && \
+    chown -R contextd:contextd /data
+
 # Copy contextd binary
 COPY --from=builder /build/contextd /usr/local/bin/contextd
 
 # Copy pre-downloaded models (may be empty on cross-compile)
-COPY --from=builder /models /root/.cache/contextd/models
+COPY --from=builder --chown=contextd:contextd /models /data/models
 
 # Copy config files
 COPY deploy/entrypoint.sh /entrypoint.sh
@@ -101,6 +111,10 @@ ENV QDRANT_HOST=localhost \
     CONTEXTD_DATA_PATH=/data \
     EMBEDDINGS_PROVIDER=fastembed \
     EMBEDDINGS_MODEL=BAAI/bge-small-en-v1.5 \
+    EMBEDDINGS_CACHE_DIR=/data/models \
     ONNX_PATH=/usr/local/lib/libonnxruntime.so
+
+# Switch to non-root user
+USER contextd
 
 ENTRYPOINT ["/entrypoint.sh"]

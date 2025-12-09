@@ -100,6 +100,7 @@ type EmbeddingsConfig struct {
 	Provider string `koanf:"provider"` // "fastembed" or "tei"
 	BaseURL  string `koanf:"base_url"` // TEI URL (if using TEI)
 	Model    string `koanf:"model"`
+	CacheDir string `koanf:"cache_dir"` // Model cache directory (for fastembed)
 }
 
 // CheckpointConfig holds checkpoint service configuration.
@@ -162,6 +163,7 @@ type RuleConfig struct {
 //   - EMBEDDINGS_PROVIDER: Provider type: fastembed or tei (default: fastembed)
 //   - EMBEDDINGS_MODEL: Embedding model (default: BAAI/bge-small-en-v1.5)
 //   - EMBEDDING_BASE_URL: TEI URL if using TEI (default: http://localhost:8080)
+//   - EMBEDDINGS_CACHE_DIR: Model cache directory for fastembed (default: ./local_cache)
 //
 // Checkpoint:
 //   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
@@ -236,6 +238,7 @@ func Load() *Config {
 		Provider: getEnvString("EMBEDDINGS_PROVIDER", "fastembed"),
 		BaseURL:  getEnvString("EMBEDDING_BASE_URL", "http://localhost:8080"),
 		Model:    getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
+		CacheDir: getEnvString("EMBEDDINGS_CACHE_DIR", ""),
 	}
 
 	// Repository indexing configuration

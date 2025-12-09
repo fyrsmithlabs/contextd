@@ -1,22 +1,25 @@
 #!/bin/sh
 set -e
 
-# Create data directories
-mkdir -p /data/logs
+# Working directories (pre-created in Dockerfile, ensure they exist for volume mounts)
+mkdir -p /data/logs /data/chromem /data/models 2>/dev/null || true
 
 # Disable telemetry by default (no OTEL collector in container)
 # Override with -e TELEMETRY_ENABLED=true to enable
 export TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-false}
 
 # Set ONNX runtime path for FastEmbed
-export ONNX_PATH=/usr/local/lib/libonnxruntime.so
+export ONNX_PATH=${ONNX_PATH:-/usr/local/lib/libonnxruntime.so}
+
+# Set embeddings cache directory
+export EMBEDDINGS_CACHE_DIR=${EMBEDDINGS_CACHE_DIR:-/data/models}
 
 # Check vectorstore provider (default: chromem)
 VECTORSTORE_PROVIDER=${CONTEXTD_VECTORSTORE_PROVIDER:-chromem}
 
 if [ "$VECTORSTORE_PROVIDER" = "qdrant" ]; then
-    # Create Qdrant directories and start Qdrant
-    mkdir -p /data/qdrant/storage
+    # Create Qdrant directories
+    mkdir -p /data/qdrant/storage 2>/dev/null || true
     export QDRANT__STORAGE__STORAGE_PATH=/data/qdrant/storage
 
     /usr/local/bin/qdrant &
@@ -33,8 +36,7 @@ if [ "$VECTORSTORE_PROVIDER" = "qdrant" ]; then
     done
 else
     # chromem (default) - embedded database, no external service needed
-    mkdir -p /data/chromem
-    export CONTEXTD_VECTORSTORE_CHROMEM_PATH=/data/chromem
+    export CONTEXTD_VECTORSTORE_CHROMEM_PATH=${CONTEXTD_VECTORSTORE_CHROMEM_PATH:-/data/chromem}
 fi
 
 # Start contextd (stdio mode for MCP)

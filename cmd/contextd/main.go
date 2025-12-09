@@ -56,11 +56,17 @@ func run() error {
 	httpPort := flag.Int("http-port", 0, "HTTP server port (overrides config, default: 9090)")
 	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
 	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
+	downloadModels := flag.Bool("download-models", false, "download embedding models and exit (for airgap/container builds)")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("contextd %s (commit: %s, built: %s)\n", version, commit, buildDate)
 		return nil
+	}
+
+	// Handle model download mode (for container builds)
+	if *downloadModels {
+		return downloadEmbeddingModels()
 	}
 
 	// Create root context with signal handling
@@ -163,7 +169,7 @@ func run() error {
 		Provider: cfg.Embeddings.Provider,
 		Model:    cfg.Embeddings.Model,
 		BaseURL:  cfg.Embeddings.BaseURL,
-		CacheDir: cfg.VectorStore.Chromem.Path,
+		CacheDir: cfg.Embeddings.CacheDir,
 	}
 	embeddingProvider, err = embeddings.NewProvider(embeddingCfg)
 	if err != nil {
@@ -421,5 +427,53 @@ func run() error {
 	}
 
 	logger.Info(ctx, "contextd stopped")
+	return nil
+}
+
+// downloadEmbeddingModels downloads the FastEmbed models for airgap/container builds.
+// This is called with --download-models flag during Docker build.
+func downloadEmbeddingModels() error {
+	fmt.Println("Downloading embedding models...")
+
+	// Get model from environment or use default
+	model := os.Getenv("EMBEDDINGS_MODEL")
+	if model == "" {
+		model = "BAAI/bge-small-en-v1.5"
+	}
+
+	// Get cache directory from environment or use default
+	cacheDir := os.Getenv("EMBEDDINGS_CACHE_DIR")
+	if cacheDir == "" {
+		cacheDir = "/data/models"
+	}
+
+	// Ensure cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return fmt.Errorf("creating cache directory: %w", err)
+	}
+
+	fmt.Printf("Model: %s\n", model)
+	fmt.Printf("Cache directory: %s\n", cacheDir)
+
+	// Initialize the FastEmbed provider - this triggers model download
+	cfg := embeddings.ProviderConfig{
+		Provider: "fastembed",
+		Model:    model,
+		CacheDir: cacheDir,
+	}
+
+	provider, err := embeddings.NewProvider(cfg)
+	if err != nil {
+		return fmt.Errorf("initializing embedding provider: %w", err)
+	}
+	defer provider.Close()
+
+	// Test embedding generation to verify model works
+	testVec, err := provider.EmbedQuery(context.Background(), "test")
+	if err != nil {
+		return fmt.Errorf("testing embedding generation: %w", err)
+	}
+
+	fmt.Printf("Model downloaded successfully (dimension: %d)\n", len(testVec))
 	return nil
 }
