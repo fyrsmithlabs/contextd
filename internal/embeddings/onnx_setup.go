@@ -4,6 +4,9 @@ package embeddings
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 )
 
 // DefaultONNXRuntimeVersion is the ONNX runtime version matching onnxruntime_go.
@@ -50,4 +53,39 @@ func getLibraryName(goos string) string {
 		return name
 	}
 	return "libonnxruntime.so" // fallback
+}
+
+// getONNXInstallDir returns the directory where ONNX runtime should be installed.
+func getONNXInstallDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".config", "contextd", "lib")
+}
+
+// GetONNXLibraryPath returns the path to the ONNX runtime library.
+// Checks in order:
+// 1. ONNX_PATH environment variable
+// 2. Managed install at ~/.config/contextd/lib/
+// Returns empty string if not found.
+func GetONNXLibraryPath() string {
+	// Check env var first (user override)
+	if envPath := os.Getenv("ONNX_PATH"); envPath != "" {
+		return envPath
+	}
+
+	// Check managed install location
+	libName := getLibraryName(runtime.GOOS)
+	managedPath := filepath.Join(getONNXInstallDir(), libName)
+	if _, err := os.Stat(managedPath); err == nil {
+		return managedPath
+	}
+
+	return ""
+}
+
+// ONNXRuntimeExists checks if ONNX runtime is available.
+func ONNXRuntimeExists() bool {
+	return GetONNXLibraryPath() != ""
 }
