@@ -1,0 +1,39 @@
+{
+  "skill": "contextd:session-lifecycle",
+  "type": "discipline",
+  "scenarios": [
+    {
+      "query": "Starting work on the contextd project",
+      "expected_behavior": [
+        "Calls session_start with project_id and session_id",
+        "If checkpoint returned, asks user about resuming",
+        "Reviews memories array and keeps top 3-5 relevant in mind"
+      ]
+    },
+    {
+      "query": "Context is at 78%, I need to continue working",
+      "expected_behavior": [
+        "Calls context_threshold with percent=78",
+        "Creates auto-checkpoint",
+        "Can continue working with checkpoint as safety net"
+      ]
+    },
+    {
+      "query": "Done for today, going to /clear",
+      "expected_behavior": [
+        "MUST call session_end BEFORE /clear",
+        "Includes all required fields: task, approach, outcome, tags",
+        "Outcome is one of: success, failure, partial",
+        "Tags are searchable keywords, not generic"
+      ]
+    },
+    {
+      "query": "Quick task: rename a function across the codebase",
+      "expected_behavior": [
+        "Still calls session_start (even for quick tasks)",
+        "Still calls session_end after completion",
+        "Does NOT skip lifecycle for 'simple' tasks"
+      ]
+    }
+  ]
+}

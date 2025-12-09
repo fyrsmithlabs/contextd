@@ -1,0 +1,30 @@
+{
+  "skill": "contextd:checkpoint-workflow",
+  "type": "discipline",
+  "scenarios": [
+    {
+      "query": "Context is at 75%, should I do anything?",
+      "expected_behavior": [
+        "Recommends checkpoint_save immediately (threshold is 70%)",
+        "Suggests detailed summary including completed work, in-progress, next steps",
+        "Does NOT suggest continuing without checkpoint"
+      ]
+    },
+    {
+      "query": "I'm about to refactor the authentication module",
+      "expected_behavior": [
+        "Recommends checkpoint_save before risky refactor",
+        "Explains this creates a safety net",
+        "Mentions ability to resume if something goes wrong"
+      ]
+    },
+    {
+      "query": "Starting a new session, how do I pick up where I left off?",
+      "expected_behavior": [
+        "Recommends checkpoint_list first",
+        "Explains resume levels (summary, context, full)",
+        "Suggests context level for normal resumption"
+      ]
+    }
+  ]
+}
