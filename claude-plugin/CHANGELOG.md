@@ -8,11 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/setup` command - Instructions for `ctxd init` ONNX runtime setup
 - `repository_search` tool schema (input/output definitions)
 - `branch` field to `repository_index_input` schema
 - `branch` and `collection_name` fields to `repository_index_output` schema
 - `/init` command - Initialize contextd for new/existing projects with Kinney CLAUDE.md framework
 - Git commit re-index protocol in `session-lifecycle` skill
+
+### Fixed
+- `repository_search` now uses consistent tenant ID with `repository_index` (contextd v0.2.0-rc7)
 
 ### Changed
 - **BREAKING**: Skills now prioritize `repository_search` over Read/Grep/Glob
