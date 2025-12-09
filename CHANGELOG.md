@@ -5,6 +5,16 @@ All notable changes to contextd will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Conversation indexing specification (SPEC.md, DESIGN.md, SCHEMA.md, CONFIG.md)
+  - Index past Claude Code sessions for semantic search
+  - Extract decisions with heuristic patterns and optional LLM refinement
+  - Cross-reference conversations with files and commits
+  - Support for langchain-go providers (Anthropic, OpenAI/Ollama)
+  - Templated configuration with Go template functions
+
 ## [0.2.0-rc4] - 2025-12-06
 
 ### Fixed
