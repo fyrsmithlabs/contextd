@@ -156,6 +156,8 @@ func downloadONNXRuntimeTo(ctx context.Context, version, destDir string) error {
 }
 
 // extractTarGz extracts library files from the ONNX runtime tarball.
+// The archive contains libonnxruntime.so/.dylib plus symlinks and related files.
+// We extract everything from the lib/ directory as-is.
 func extractTarGz(r io.Reader, destDir, version, platform string) error {
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
@@ -192,9 +194,23 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 
 		// Get filename from path
 		filename := filepath.Base(header.Name)
-
-		// Write file to destination
 		destPath := filepath.Join(destDir, filename)
+
+		// Handle symlinks from the archive
+		if header.Typeflag == tar.TypeSymlink {
+			// Remove existing file/symlink if present
+			os.Remove(destPath)
+			if err := os.Symlink(header.Linkname, destPath); err != nil {
+				// If symlink fails, we'll rely on the actual file being extracted
+				continue
+			}
+			if filename == libName {
+				foundMainLib = true
+			}
+			continue
+		}
+
+		// Extract regular file
 		outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
 			return fmt.Errorf("creating file %s: %w", filename, err)
@@ -214,30 +230,6 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 
 	if !foundMainLib {
 		return fmt.Errorf("library %s not found in archive", libName)
-	}
-
-	// Create symlink for versioned library files
-	// e.g., libonnxruntime.so.1.23.0 -> libonnxruntime.so
-	entries, err := os.ReadDir(destDir)
-	if err != nil {
-		return nil // Not critical, library was extracted
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		// Check if this is a versioned library (e.g., libonnxruntime.so.1.23.0)
-		if strings.HasPrefix(name, libName+".") {
-			symlinkPath := filepath.Join(destDir, libName)
-			os.Remove(symlinkPath) // Remove existing symlink if present
-			if err := os.Symlink(name, symlinkPath); err != nil {
-				// Symlink failed, try copying instead
-				src := filepath.Join(destDir, name)
-				if data, readErr := os.ReadFile(src); readErr == nil {
-					os.WriteFile(symlinkPath, data, 0644)
-				}
-			}
-			break
-		}
 	}
 
 	return nil
