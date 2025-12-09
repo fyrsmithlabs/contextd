@@ -71,16 +71,25 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
 {
   "mcpServers": {
     "contextd": {
+      "type": "stdio",
       "command": "docker",
       "args": [
-        "run", "-i", "--rm",
-        "-v", "contextd-data:/data",
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "contextd-data:/data",
+        "-v",
+        "${HOME}:${HOME}",
         "ghcr.io/fyrsmithlabs/contextd:latest"
-      ]
+      ],
+      "env": {}
     }
   }
 }
 ```
+
+> **Note:** The `${HOME}:${HOME}` mount allows contextd to index repositories in your home directory.
 
 Restart Claude Code. That's it.
 
@@ -224,17 +233,17 @@ CGO_ENABLED=1 go build -o contextd ./cmd/contextd
 | Tag | Description |
 |-----|-------------|
 | `latest` | Latest stable release (always updated) |
-| `v0.2.0-rc4` | Current release candidate |
-| `v0.2.0-rc3` | Previous release candidate |
+| `v0.2.0-rc5` | Current release candidate |
+| `v0.2.0-rc4` | Previous release candidate |
 
-Platform: `linux/amd64`
+Platform: `linux/amd64`, `linux/arm64`
 
 ```bash
 # Pull latest (recommended)
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
 
 # Pull specific version
-docker pull ghcr.io/fyrsmithlabs/contextd:v0.2.0-rc4
+docker pull ghcr.io/fyrsmithlabs/contextd:v0.2.0-rc5
 ```
 
 ---
