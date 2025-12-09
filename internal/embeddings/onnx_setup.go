@@ -3,10 +3,16 @@
 package embeddings
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // DefaultONNXRuntimeVersion is the ONNX runtime version matching onnxruntime_go.
@@ -95,4 +101,144 @@ const onnxReleaseURLTemplate = "https://github.com/microsoft/onnxruntime/release
 // buildDownloadURL constructs the GitHub release URL for ONNX runtime.
 func buildDownloadURL(version, platform string) string {
 	return fmt.Sprintf(onnxReleaseURLTemplate, version, platform, version)
+}
+
+// DownloadONNXRuntime downloads ONNX runtime for the current platform.
+// If version is empty, uses DefaultONNXRuntimeVersion.
+func DownloadONNXRuntime(ctx context.Context, version string) error {
+	if version == "" {
+		version = DefaultONNXRuntimeVersion
+	}
+
+	destDir := getONNXInstallDir()
+	return downloadONNXRuntimeTo(ctx, version, destDir)
+}
+
+// downloadONNXRuntimeTo downloads ONNX runtime to the specified directory.
+func downloadONNXRuntimeTo(ctx context.Context, version, destDir string) error {
+	// Get platform archive name
+	platform, err := getPlatformArchive(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	// Build download URL
+	url := buildDownloadURL(version, platform)
+
+	// Create destination directory
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+
+	// Create HTTP request with context
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	// Perform download
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("downloading ONNX runtime: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed with status %d", resp.StatusCode)
+	}
+
+	// Extract tarball directly from response
+	if err := extractTarGz(resp.Body, destDir, version, platform); err != nil {
+		return fmt.Errorf("extracting archive: %w", err)
+	}
+
+	return nil
+}
+
+// extractTarGz extracts library files from the ONNX runtime tarball.
+func extractTarGz(r io.Reader, destDir, version, platform string) error {
+	gzr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("creating gzip reader: %w", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+
+	// Expected directory prefix in the archive
+	expectedPrefix := fmt.Sprintf("onnxruntime-%s-%s/lib/", platform, version)
+	libName := getLibraryName(runtime.GOOS)
+
+	var foundMainLib bool
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading tar: %w", err)
+		}
+
+		// Only extract files from the lib directory
+		if !strings.HasPrefix(header.Name, expectedPrefix) {
+			continue
+		}
+
+		// Skip directories
+		if header.Typeflag == tar.TypeDir {
+			continue
+		}
+
+		// Get filename from path
+		filename := filepath.Base(header.Name)
+
+		// Write file to destination
+		destPath := filepath.Join(destDir, filename)
+		outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return fmt.Errorf("creating file %s: %w", filename, err)
+		}
+
+		if _, err := io.Copy(outFile, tr); err != nil {
+			outFile.Close()
+			return fmt.Errorf("writing file %s: %w", filename, err)
+		}
+		outFile.Close()
+
+		// Track if we found the main library
+		if filename == libName || strings.HasPrefix(filename, libName+".") {
+			foundMainLib = true
+		}
+	}
+
+	if !foundMainLib {
+		return fmt.Errorf("library %s not found in archive", libName)
+	}
+
+	// Create symlink for versioned library files
+	// e.g., libonnxruntime.so.1.23.0 -> libonnxruntime.so
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		return nil // Not critical, library was extracted
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		// Check if this is a versioned library (e.g., libonnxruntime.so.1.23.0)
+		if strings.HasPrefix(name, libName+".") {
+			symlinkPath := filepath.Join(destDir, libName)
+			os.Remove(symlinkPath) // Remove existing symlink if present
+			if err := os.Symlink(name, symlinkPath); err != nil {
+				// Symlink failed, try copying instead
+				src := filepath.Join(destDir, name)
+				if data, readErr := os.ReadFile(src); readErr == nil {
+					os.WriteFile(symlinkPath, data, 0644)
+				}
+			}
+			break
+		}
+	}
+
+	return nil
 }
