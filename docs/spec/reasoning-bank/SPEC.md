@@ -86,6 +86,27 @@ Memories MUST belong to a scope: project, team, or org. Search MUST cascade thro
 ### FR-005: Confidence Tracking
 Memory confidence MUST update based on feedback signals: explicit ratings, implicit success, code stability.
 
+### FR-005a: Self-Improving Confidence (Bayesian)
+The system MUST use Bayesian adaptive weighting to learn which signals predict memory usefulness:
+- Each project maintains Beta distributions for signal weights (explicit, usage, outcome)
+- Weights MUST update when explicit feedback validates/invalidates other signal predictions
+- Initial priors: explicit=70% (7:3), usage=50% (5:5), outcome=50% (5:5)
+
+### FR-005b: Multi-Signal Confidence
+Memory confidence MUST be computed from multiple signal types:
+- **Explicit signals**: User rates helpful/unhelpful via `memory_feedback`
+- **Usage signals**: Memory retrieved in search results via `memory_search`
+- **Outcome signals**: Agent reports task success/failure via `memory_outcome`
+
+### FR-005c: Hybrid Signal Storage
+The system MUST store signals using hybrid storage:
+- Event log for recent signals (last 30 days) with full detail
+- Aggregated counts for older signals (storage efficiency)
+- Daily rollup process to migrate events to aggregates
+
+### FR-005d: Outcome Reporting
+The system MUST provide `memory_outcome` tool for agents to report task outcomes after using memories.
+
 ### FR-006: Distillation Pipeline
 The system MUST extract memories from completed sessions asynchronously.
 
@@ -111,3 +132,9 @@ Average memory injection should consume <500 tokens while providing actionable g
 
 ### SC-004: Anti-Pattern Value
 Teams using anti-pattern memories should see >20% reduction in repeated mistakes.
+
+### SC-005: Adaptive Weight Convergence
+After 50+ explicit feedback events per project, learned signal weights should stabilize (variance <10% over 7 days).
+
+### SC-006: Confidence Calibration
+Memories with confidence >0.8 should have >75% "helpful" rating when feedback is collected.
