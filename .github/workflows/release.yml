@@ -52,7 +52,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-13
+          - runner: macos-15
             goarch: amd64
           - runner: macos-14
             goarch: arm64
