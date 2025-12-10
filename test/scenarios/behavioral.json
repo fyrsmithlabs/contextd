@@ -1,0 +1,270 @@
+{
+  "scenarios": [
+    {
+      "name": "confidence_increases_with_positive_feedback",
+      "description": "Verify that confidence increases when positive feedback is given",
+      "persona": {
+        "name": "PositiveTester",
+        "description": "A user who always gives positive feedback",
+        "goals": ["Test confidence increase"],
+        "constraints": [],
+        "feedback_style": "generous",
+        "success_rate": 1.0
+      },
+      "project_id": "test-project-positive",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Go error handling pattern",
+            "content": "Always wrap errors with context using fmt.Errorf with %w verb",
+            "outcome": "success",
+            "tags": ["go", "errors"]
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "query": "error handling in Go",
+            "limit": 5
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": true,
+            "reasoning": "This pattern helped me fix my error handling"
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": true,
+            "reasoning": "Still useful on second use"
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": true,
+            "reasoning": "Consistently helpful"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 1,
+          "message": "Should have recorded exactly one memory"
+        },
+        {
+          "type": "feedback_count",
+          "value": 3,
+          "message": "Should have given 3 feedback events"
+        },
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.7,
+          "message": "With positive feedback, confidence should be above 0.7 (Bayesian result)"
+        },
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.5,
+          "message": "With positive feedback, confidence should be above prior (0.5)"
+        }
+      ]
+    },
+    {
+      "name": "confidence_decreases_with_negative_feedback",
+      "description": "Verify that confidence decreases when negative feedback is given",
+      "persona": {
+        "name": "CriticalTester",
+        "description": "A user who always gives negative feedback",
+        "goals": ["Test confidence decrease"],
+        "constraints": [],
+        "feedback_style": "critical",
+        "success_rate": 0.0
+      },
+      "project_id": "test-project-negative",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Deprecated pattern",
+            "content": "Use global variables for state management",
+            "outcome": "failure",
+            "tags": ["anti-pattern"]
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "query": "state management",
+            "limit": 5
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": false,
+            "reasoning": "This pattern caused bugs"
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": false,
+            "reasoning": "Still causing issues"
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "memory_id": "last",
+            "helpful": false,
+            "reasoning": "Definitely not helpful"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_decreased",
+          "target": "last",
+          "message": "Confidence should decrease with negative feedback"
+        }
+      ]
+    },
+    {
+      "name": "outcome_signals_affect_confidence",
+      "description": "Verify that task outcome signals properly affect confidence",
+      "persona": {
+        "name": "OutcomeTester",
+        "description": "A user who reports task outcomes",
+        "goals": ["Test outcome signal processing"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.8
+      },
+      "project_id": "test-project-outcomes",
+      "max_turns": 15,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Database connection pooling",
+            "content": "Use connection pooling to improve database performance",
+            "outcome": "success",
+            "tags": ["database", "performance"]
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "query": "database performance",
+            "limit": 5
+          }
+        },
+        {
+          "type": "outcome",
+          "args": {
+            "memory_id": "last",
+            "succeeded": true,
+            "task_description": "Implemented connection pooling"
+          }
+        },
+        {
+          "type": "outcome",
+          "args": {
+            "memory_id": "last",
+            "succeeded": true,
+            "task_description": "Optimized another service"
+          }
+        },
+        {
+          "type": "outcome",
+          "args": {
+            "memory_id": "last",
+            "succeeded": true,
+            "task_description": "Third successful use"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.6,
+          "message": "With positive outcomes, confidence should be above 0.6 (Bayesian result)"
+        },
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.5,
+          "message": "Confidence should be above Bayesian prior after positive outcomes"
+        }
+      ]
+    },
+    {
+      "name": "mixed_signals_converge",
+      "description": "Verify confidence stabilizes with mixed positive/negative signals",
+      "persona": {
+        "name": "MixedTester",
+        "description": "A user with mixed feedback patterns",
+        "goals": ["Test convergence behavior"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-project-mixed",
+      "max_turns": 20,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Caching strategy",
+            "content": "Use Redis for session caching with 1 hour TTL",
+            "outcome": "success",
+            "tags": ["caching", "redis"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "caching", "limit": 5 }
+        },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.5,
+          "message": "With 70% positive signals, confidence should be above 0.5"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.9,
+          "message": "With mixed signals, confidence should not reach 0.9"
+        }
+      ]
+    }
+  ]
+}
