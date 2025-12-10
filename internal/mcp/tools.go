@@ -596,6 +596,18 @@ type memoryFeedbackOutput struct {
 	Helpful       bool    `json:"helpful" jsonschema:"Feedback provided"`
 }
 
+type memoryOutcomeInput struct {
+	MemoryID  string `json:"memory_id" jsonschema:"required,ID of the memory that was used"`
+	Succeeded bool   `json:"succeeded" jsonschema:"required,Whether the task succeeded after using this memory"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"Optional session ID for correlation"`
+}
+
+type memoryOutcomeOutput struct {
+	Recorded      bool    `json:"recorded" jsonschema:"Whether outcome was recorded"`
+	NewConfidence float64 `json:"new_confidence" jsonschema:"Updated confidence after outcome"`
+	Message       string  `json:"message" jsonschema:"Result message"`
+}
+
 func (s *Server) registerMemoryTools() {
 	// memory_search
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -693,6 +705,30 @@ func (s *Server) registerMemoryTools() {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Feedback recorded, new confidence: %.2f", output.NewConfidence)},
+			},
+		}, output, nil
+	})
+
+	// memory_outcome
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "memory_outcome",
+		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
+		// Record the outcome signal
+		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
+		if err != nil {
+			return nil, memoryOutcomeOutput{}, fmt.Errorf("memory outcome failed: %w", err)
+		}
+
+		output := memoryOutcomeOutput{
+			Recorded:      true,
+			NewConfidence: newConfidence,
+			Message:       "Outcome recorded",
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Outcome recorded, confidence: %.2f", output.NewConfidence)},
 			},
 		}, output, nil
 	})

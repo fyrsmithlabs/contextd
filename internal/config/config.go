@@ -97,10 +97,11 @@ type QdrantConfig struct {
 
 // EmbeddingsConfig holds embeddings service configuration.
 type EmbeddingsConfig struct {
-	Provider string `koanf:"provider"` // "fastembed" or "tei"
-	BaseURL  string `koanf:"base_url"` // TEI URL (if using TEI)
-	Model    string `koanf:"model"`
-	CacheDir string `koanf:"cache_dir"` // Model cache directory (for fastembed)
+	Provider    string `koanf:"provider"`     // "fastembed" or "tei"
+	BaseURL     string `koanf:"base_url"`     // TEI URL (if using TEI)
+	Model       string `koanf:"model"`
+	CacheDir    string `koanf:"cache_dir"`    // Model cache directory (for fastembed)
+	ONNXVersion string `koanf:"onnx_version"` // Optional ONNX runtime version override
 }
 
 // CheckpointConfig holds checkpoint service configuration.
@@ -235,10 +236,11 @@ func Load() *Config {
 
 	// Embeddings configuration
 	cfg.Embeddings = EmbeddingsConfig{
-		Provider: getEnvString("EMBEDDINGS_PROVIDER", "fastembed"),
-		BaseURL:  getEnvString("EMBEDDING_BASE_URL", "http://localhost:8080"),
-		Model:    getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
-		CacheDir: getEnvString("EMBEDDINGS_CACHE_DIR", ""),
+		Provider:    getEnvString("EMBEDDINGS_PROVIDER", "fastembed"),
+		BaseURL:     getEnvString("EMBEDDING_BASE_URL", "http://localhost:8080"),
+		Model:       getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
+		CacheDir:    getEnvString("EMBEDDINGS_CACHE_DIR", ""),
+		ONNXVersion: getEnvString("EMBEDDINGS_ONNX_VERSION", ""),
 	}
 
 	// Repository indexing configuration
