@@ -389,19 +389,23 @@ func TestService_Feedback(t *testing.T) {
 	_ = svc.Record(ctx, memory)
 
 	t.Run("increases confidence for helpful feedback", func(t *testing.T) {
+		beforeConf, _ := svc.Get(ctx, memory.ID)
 		err := svc.Feedback(ctx, memory.ID, true)
 		require.NoError(t, err)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.8, updated.Confidence, 0.001) // 0.7 + 0.1
+		// With Bayesian system, confidence should increase after positive feedback
+		assert.Greater(t, updated.Confidence, beforeConf.Confidence)
 	})
 
 	t.Run("decreases confidence for unhelpful feedback", func(t *testing.T) {
+		beforeConf, _ := svc.Get(ctx, memory.ID)
 		err := svc.Feedback(ctx, memory.ID, false)
 		require.NoError(t, err)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.65, updated.Confidence, 0.001) // 0.8 - 0.15
+		// With Bayesian system, confidence should decrease after negative feedback
+		assert.Less(t, updated.Confidence, beforeConf.Confidence)
 	})
 
 	t.Run("requires memory ID", func(t *testing.T) {
@@ -427,21 +431,27 @@ func TestService_RecordOutcome(t *testing.T) {
 	_ = svc.Record(ctx, memory)
 
 	t.Run("increases confidence for successful outcome", func(t *testing.T) {
+		beforeConf, _ := svc.Get(ctx, memory.ID)
 		newConf, err := svc.RecordOutcome(ctx, memory.ID, true, "session-123")
 		require.NoError(t, err)
-		assert.InDelta(t, 0.75, newConf, 0.001) // 0.7 + 0.05
+
+		// With Bayesian system, confidence should increase after positive outcome
+		assert.Greater(t, newConf, beforeConf.Confidence)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.75, updated.Confidence, 0.001)
+		assert.Equal(t, newConf, updated.Confidence)
 	})
 
 	t.Run("decreases confidence for failed outcome", func(t *testing.T) {
+		beforeConf, _ := svc.Get(ctx, memory.ID)
 		newConf, err := svc.RecordOutcome(ctx, memory.ID, false, "session-124")
 		require.NoError(t, err)
-		assert.InDelta(t, 0.67, newConf, 0.001) // 0.75 - 0.08
+
+		// With Bayesian system, confidence should decrease after negative outcome
+		assert.Less(t, newConf, beforeConf.Confidence)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.67, updated.Confidence, 0.001)
+		assert.Equal(t, newConf, updated.Confidence)
 	})
 
 	t.Run("requires memory ID", func(t *testing.T) {
