@@ -11,6 +11,283 @@ import (
 	"go.uber.org/zap"
 )
 
+// SharedStoreConfig configures a shared vector store for multiple developers.
+type SharedStoreConfig struct {
+	ProjectID string
+	Logger    *zap.Logger
+}
+
+// SharedStore represents a shared vector store that multiple developers can use.
+// This simulates the production scenario where developers share a Qdrant backend.
+type SharedStore struct {
+	store  vectorstore.Store
+	logger *zap.Logger
+}
+
+// NewSharedStore creates a new shared store for cross-developer testing.
+// Uses a mock store implementation that provides deterministic behavior for tests.
+func NewSharedStore(cfg SharedStoreConfig) (*SharedStore, error) {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	// Use mock store for deterministic testing behavior
+	// Real chromem/qdrant would require actual embeddings with semantic similarity
+	store := newMockVectorStore()
+
+	return &SharedStore{
+		store:  store,
+		logger: logger,
+	}, nil
+}
+
+// Store returns the underlying vector store.
+func (s *SharedStore) Store() vectorstore.Store {
+	return s.store
+}
+
+// Close closes the shared store.
+func (s *SharedStore) Close() error {
+	return s.store.Close()
+}
+
+// mockVectorStore provides a simple in-memory store for testing.
+// Returns all documents that pass filters (no vector similarity).
+type mockVectorStore struct {
+	mu          sync.RWMutex
+	collections map[string][]vectorstore.Document
+}
+
+func newMockVectorStore() *mockVectorStore {
+	return &mockVectorStore{
+		collections: make(map[string][]vectorstore.Document),
+	}
+}
+
+func (m *mockVectorStore) AddDocuments(ctx context.Context, docs []vectorstore.Document) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ids := make([]string, len(docs))
+	for i, doc := range docs {
+		collectionName := doc.Collection
+		if collectionName == "" {
+			collectionName = "default"
+		}
+		m.collections[collectionName] = append(m.collections[collectionName], doc)
+		ids[i] = doc.ID
+	}
+	return ids, nil
+}
+
+func (m *mockVectorStore) Search(ctx context.Context, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, "default", query, k, nil)
+}
+
+func (m *mockVectorStore) SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, "default", query, k, filters)
+}
+
+func (m *mockVectorStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	docs, ok := m.collections[collectionName]
+	if !ok {
+		return []vectorstore.SearchResult{}, nil
+	}
+
+	results := []vectorstore.SearchResult{}
+	for _, doc := range docs {
+		// Apply filters
+		if filters != nil {
+			shouldInclude := true
+
+			// Check confidence filter
+			if confFilter, ok := filters["confidence"].(map[string]interface{}); ok {
+				if minConf, ok := confFilter["$gte"].(float64); ok {
+					docConf, _ := doc.Metadata["confidence"].(float64)
+					if docConf < minConf {
+						shouldInclude = false
+					}
+				}
+			}
+
+			if !shouldInclude {
+				continue
+			}
+		}
+
+		results = append(results, vectorstore.SearchResult{
+			ID:       doc.ID,
+			Content:  doc.Content,
+			Metadata: doc.Metadata,
+			Score:    0.9, // Mock high similarity
+		})
+
+		if len(results) >= k {
+			break
+		}
+	}
+
+	return results, nil
+}
+
+func (m *mockVectorStore) DeleteDocuments(ctx context.Context, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for collectionName, docs := range m.collections {
+		filtered := []vectorstore.Document{}
+		for _, doc := range docs {
+			shouldKeep := true
+			for _, id := range ids {
+				if doc.ID == id {
+					shouldKeep = false
+					break
+				}
+			}
+			if shouldKeep {
+				filtered = append(filtered, doc)
+			}
+		}
+		m.collections[collectionName] = filtered
+	}
+	return nil
+}
+
+func (m *mockVectorStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	docs, exists := m.collections[collectionName]
+	if !exists {
+		return nil
+	}
+	filtered := []vectorstore.Document{}
+	for _, doc := range docs {
+		shouldKeep := true
+		for _, id := range ids {
+			if doc.ID == id {
+				shouldKeep = false
+				break
+			}
+		}
+		if shouldKeep {
+			filtered = append(filtered, doc)
+		}
+	}
+	m.collections[collectionName] = filtered
+	return nil
+}
+
+func (m *mockVectorStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.collections[collectionName]; exists {
+		return vectorstore.ErrCollectionExists
+	}
+	m.collections[collectionName] = []vectorstore.Document{}
+	return nil
+}
+
+func (m *mockVectorStore) DeleteCollection(ctx context.Context, collectionName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.collections, collectionName)
+	return nil
+}
+
+func (m *mockVectorStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.collections[collectionName]
+	return exists, nil
+}
+
+func (m *mockVectorStore) ListCollections(ctx context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	names := make([]string, 0, len(m.collections))
+	for name := range m.collections {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func (m *mockVectorStore) GetDocument(ctx context.Context, collectionName, docID string) (*vectorstore.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	docs, exists := m.collections[collectionName]
+	if !exists {
+		return nil, vectorstore.ErrCollectionNotFound
+	}
+	for _, doc := range docs {
+		if doc.ID == docID {
+			return &doc, nil
+		}
+	}
+	return nil, fmt.Errorf("document not found: %s", docID)
+}
+
+func (m *mockVectorStore) UpdateDocument(ctx context.Context, doc vectorstore.Document) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	collectionName := doc.Collection
+	if collectionName == "" {
+		collectionName = "default"
+	}
+
+	docs, exists := m.collections[collectionName]
+	if !exists {
+		return vectorstore.ErrCollectionNotFound
+	}
+
+	for i, d := range docs {
+		if d.ID == doc.ID {
+			m.collections[collectionName][i] = doc
+			return nil
+		}
+	}
+	return fmt.Errorf("document not found: %s", doc.ID)
+}
+
+func (m *mockVectorStore) Close() error {
+	return nil
+}
+
+func (m *mockVectorStore) SearchByCollection(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.SearchInCollection(ctx, collectionName, query, k, nil)
+}
+
+func (m *mockVectorStore) ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error) {
+	// For mock, exact search behaves the same as regular search
+	return m.SearchInCollection(ctx, collectionName, query, k, nil)
+}
+
+func (m *mockVectorStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	docs, exists := m.collections[collectionName]
+	if !exists {
+		return nil, vectorstore.ErrCollectionNotFound
+	}
+
+	return &vectorstore.CollectionInfo{
+		Name:       collectionName,
+		PointCount: len(docs),
+		VectorSize: 384, // Mock vector size
+	}, nil
+}
+
 // DeveloperConfig configures a simulated developer.
 type DeveloperConfig struct {
 	ID        string
@@ -55,12 +332,16 @@ type Developer struct {
 	contextdRunning bool
 	stats           SessionStats
 
+	// Shared store for cross-developer scenarios (nil if using own store)
+	sharedStore *SharedStore
+
 	// Internal services (simplified for testing - uses in-memory store)
 	reasoningBank *reasoningbank.Service
 	vectorStore   vectorstore.Store
+	ownsStore     bool // true if we created the store and should close it
 }
 
-// NewDeveloper creates a new developer simulator.
+// NewDeveloper creates a new developer simulator with its own isolated store.
 func NewDeveloper(cfg DeveloperConfig) (*Developer, error) {
 	if cfg.ID == "" {
 		return nil, fmt.Errorf("ID is required")
@@ -79,6 +360,33 @@ func NewDeveloper(cfg DeveloperConfig) (*Developer, error) {
 		tenantID:  cfg.TenantID,
 		projectID: cfg.ProjectID,
 		logger:    logger,
+	}, nil
+}
+
+// NewDeveloperWithStore creates a developer simulator using a shared store.
+// This enables cross-developer knowledge sharing scenarios.
+func NewDeveloperWithStore(cfg DeveloperConfig, shared *SharedStore) (*Developer, error) {
+	if cfg.ID == "" {
+		return nil, fmt.Errorf("ID is required")
+	}
+	if cfg.TenantID == "" {
+		return nil, fmt.Errorf("TenantID is required")
+	}
+	if shared == nil {
+		return nil, fmt.Errorf("shared store is required")
+	}
+
+	logger := cfg.Logger
+	if logger == nil {
+		logger = shared.logger
+	}
+
+	return &Developer{
+		id:          cfg.ID,
+		tenantID:    cfg.TenantID,
+		projectID:   cfg.ProjectID,
+		logger:      logger,
+		sharedStore: shared,
 	}, nil
 }
 
@@ -101,15 +409,23 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 		return fmt.Errorf("contextd already running")
 	}
 
-	// Create test embedder for in-memory testing
-	embedder := newTestEmbedder(384)
+	var store vectorstore.Store
 
-	// Create in-memory vector store for testing
-	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // Empty = in-memory
-	}, embedder, d.logger)
-	if err != nil {
-		return fmt.Errorf("creating vector store: %w", err)
+	if d.sharedStore != nil {
+		// Use shared store for cross-developer scenarios
+		store = d.sharedStore.Store()
+		d.ownsStore = false
+	} else {
+		// Create own isolated store
+		embedder := newTestEmbedder(384)
+		var err error
+		store, err = vectorstore.NewChromemStore(vectorstore.ChromemConfig{
+			Path: "", // Empty = in-memory
+		}, embedder, d.logger)
+		if err != nil {
+			return fmt.Errorf("creating vector store: %w", err)
+		}
+		d.ownsStore = true
 	}
 	d.vectorStore = store
 
@@ -135,7 +451,8 @@ func (d *Developer) StopContextd(ctx context.Context) error {
 		return nil
 	}
 
-	if d.vectorStore != nil {
+	// Only close the store if we own it (not shared)
+	if d.vectorStore != nil && d.ownsStore {
 		d.vectorStore.Close()
 	}
 
