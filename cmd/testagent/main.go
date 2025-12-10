@@ -26,7 +26,22 @@ func main() {
 	verbose := flag.Bool("v", false, "Verbose output")
 	listScenarios := flag.Bool("list", false, "List available scenarios")
 	runScenario := flag.String("run", "", "Run a specific scenario by name")
+	analyzeConvos := flag.String("analyze", "", "Analyze conversation exports from directory")
+	generateFrom := flag.String("generate", "", "Generate scenarios from conversation exports")
+	outputFile := flag.String("output", "", "Output file for generated scenarios")
 	flag.Parse()
+
+	// Handle analyze mode
+	if *analyzeConvos != "" {
+		runAnalyze(*analyzeConvos)
+		return
+	}
+
+	// Handle generate mode
+	if *generateFrom != "" {
+		runGenerate(*generateFrom, *outputFile)
+		return
+	}
 
 	// Setup logging
 	logLevel := zapcore.InfoLevel
@@ -209,4 +224,118 @@ func printResults(results []agent.TestResult, verbose bool) {
 	fmt.Println("\n" + strings.Repeat("-", 60))
 	fmt.Printf("Total: %d passed, %d failed\n", passed, failed)
 	fmt.Println(strings.Repeat("=", 60))
+}
+
+func runAnalyze(dir string) {
+	fmt.Printf("Analyzing conversations in: %s\n", dir)
+
+	stats, err := agent.ParseConversationsDir(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\nFound %d conversations with contextd usage\n", len(stats))
+	fmt.Println(strings.Repeat("-", 60))
+
+	// Show aggregate stats
+	agg := agent.AnalyzeConversations(stats)
+	fmt.Printf("\nAggregate Statistics:\n")
+	fmt.Printf("  Total sessions:        %v\n", agg["total_sessions"])
+	fmt.Printf("  Total contextd calls:  %v\n", agg["total_contextd_calls"])
+	fmt.Printf("  Total searches:        %v\n", agg["total_searches"])
+	fmt.Printf("  Total records:         %v\n", agg["total_records"])
+	fmt.Printf("  Total feedbacks:       %v\n", agg["total_feedbacks"])
+	fmt.Printf("  Total checkpoints:     %v\n", agg["total_checkpoints"])
+	fmt.Printf("  Avg calls/session:     %.1f\n", agg["avg_calls_per_session"])
+
+	// Show top sessions by contextd usage
+	fmt.Println("\nTop sessions by contextd usage:")
+	// Sort by number of calls (simple bubble sort for small N)
+	for i := 0; i < len(stats)-1; i++ {
+		for j := 0; j < len(stats)-i-1; j++ {
+			if len(stats[j].ContextdToolCalls) < len(stats[j+1].ContextdToolCalls) {
+				stats[j], stats[j+1] = stats[j+1], stats[j]
+			}
+		}
+	}
+
+	limit := 10
+	if len(stats) < limit {
+		limit = len(stats)
+	}
+	for i := 0; i < limit; i++ {
+		s := stats[i]
+		fmt.Printf("  %d. %s: %d calls (searches: %d, records: %d, feedbacks: %d)\n",
+			i+1, s.SessionID[:8], len(s.ContextdToolCalls),
+			s.MemorySearches, s.MemoryRecords, s.MemoryFeedbacks)
+	}
+}
+
+func runGenerate(dir string, outputPath string) {
+	fmt.Printf("Generating scenarios from: %s\n", dir)
+
+	stats, err := agent.ParseConversationsDir(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Filter to sessions with meaningful activity
+	var filtered []*agent.ConversationStats
+	for _, s := range stats {
+		if len(s.ContextdToolCalls) >= 3 {
+			filtered = append(filtered, s)
+		}
+	}
+
+	fmt.Printf("Found %d conversations with 3+ contextd calls\n", len(filtered))
+
+	// Generate scenarios from top sessions
+	scenarios := make([]agent.Scenario, 0)
+
+	// Sort by number of calls
+	for i := 0; i < len(filtered)-1; i++ {
+		for j := 0; j < len(filtered)-i-1; j++ {
+			if len(filtered[j].ContextdToolCalls) < len(filtered[j+1].ContextdToolCalls) {
+				filtered[j], filtered[j+1] = filtered[j+1], filtered[j]
+			}
+		}
+	}
+
+	// Take top 10 sessions
+	limit := 10
+	if len(filtered) < limit {
+		limit = len(filtered)
+	}
+	for i := 0; i < limit; i++ {
+		scenario := agent.GenerateScenarioFromStats(filtered[i])
+		if scenario != nil && len(scenario.Actions) > 0 {
+			scenarios = append(scenarios, *scenario)
+		}
+	}
+
+	if len(scenarios) == 0 {
+		fmt.Println("No scenarios generated (no actionable data)")
+		return
+	}
+
+	// Output scenarios
+	scenarioFile := ScenarioFile{Scenarios: scenarios}
+	data, err := json.MarshalIndent(scenarioFile, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshaling: %v\n", err)
+		os.Exit(1)
+	}
+
+	if outputPath == "" {
+		outputPath = "test/scenarios/generated.json"
+	}
+
+	if err := os.WriteFile(outputPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\nGenerated %d scenarios to: %s\n", len(scenarios), outputPath)
 }
