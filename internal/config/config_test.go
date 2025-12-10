@@ -402,6 +402,56 @@ func TestVectorStoreConfig_Validate(t *testing.T) {
 	}
 }
 
+// TestLoad_EmbeddingsONNXVersion tests ONNX version configuration loading
+func TestLoad_EmbeddingsONNXVersion(t *testing.T) {
+	originalEnv := saveEnv()
+	defer restoreEnv(originalEnv)
+
+	tests := []struct {
+		name     string
+		env      map[string]string
+		validate func(*testing.T, *Config)
+	}{
+		{
+			name: "onnx version default empty",
+			env:  map[string]string{},
+			validate: func(t *testing.T, cfg *Config) {
+				// Default should be empty (uses DefaultONNXRuntimeVersion from embeddings)
+				if cfg.Embeddings.ONNXVersion != "" {
+					t.Errorf("Embeddings.ONNXVersion = %q, want empty string", cfg.Embeddings.ONNXVersion)
+				}
+			},
+		},
+		{
+			name: "onnx version environment override",
+			env: map[string]string{
+				"EMBEDDINGS_ONNX_VERSION": "1.20.0",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				if cfg.Embeddings.ONNXVersion != "1.20.0" {
+					t.Errorf("Embeddings.ONNXVersion = %q, want 1.20.0", cfg.Embeddings.ONNXVersion)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			for k, v := range tt.env {
+				os.Setenv(k, v)
+			}
+
+			cfg := Load()
+			if cfg == nil {
+				t.Fatal("Load() returned nil")
+			}
+
+			tt.validate(t, cfg)
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
 }

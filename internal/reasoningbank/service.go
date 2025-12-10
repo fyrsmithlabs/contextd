@@ -31,13 +31,29 @@ const (
 // strategies based on similarity to the current task. Memories can be
 // created explicitly via Record() or extracted asynchronously from sessions
 // via the Distiller.
+//
+// The service uses a Bayesian confidence system that learns which signals
+// (explicit feedback, usage, outcomes) best predict memory usefulness.
 type Service struct {
-	store  vectorstore.Store
-	logger *zap.Logger
+	store       vectorstore.Store
+	signalStore SignalStore
+	confCalc    *ConfidenceCalculator
+	logger      *zap.Logger
+}
+
+// ServiceOption configures a Service.
+type ServiceOption func(*Service)
+
+// WithSignalStore sets a custom signal store.
+// If not provided, an in-memory signal store is used.
+func WithSignalStore(ss SignalStore) ServiceOption {
+	return func(s *Service) {
+		s.signalStore = ss
+	}
 }
 
 // NewService creates a new ReasoningBank service.
-func NewService(store vectorstore.Store, logger *zap.Logger) (*Service, error) {
+func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOption) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("vector store cannot be nil")
 	}
@@ -45,10 +61,25 @@ func NewService(store vectorstore.Store, logger *zap.Logger) (*Service, error) {
 		return nil, fmt.Errorf("logger is required for ReasoningBank service")
 	}
 
-	return &Service{
+	svc := &Service{
 		store:  store,
 		logger: logger,
-	}, nil
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(svc)
+	}
+
+	// Default to in-memory signal store if not provided
+	if svc.signalStore == nil {
+		svc.signalStore = NewInMemorySignalStore()
+	}
+
+	// Create confidence calculator
+	svc.confCalc = NewConfidenceCalculator(svc.signalStore)
+
+	return svc, nil
 }
 
 // Search retrieves memories by semantic similarity to the query.
@@ -100,7 +131,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
 
-	// Convert results to Memory structs
+	// Convert results to Memory structs and record usage signals
 	memories := make([]Memory, 0, len(results))
 	for _, result := range results {
 		memory, err := s.resultToMemory(result)
@@ -110,6 +141,17 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 				zap.Error(err))
 			continue
 		}
+
+		// Record usage signal for this memory (positive = retrieved in search)
+		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
+		if err == nil {
+			if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+				s.logger.Warn("failed to record usage signal",
+					zap.String("memory_id", memory.ID),
+					zap.Error(err))
+			}
+		}
+
 		memories = append(memories, *memory)
 	}
 
@@ -200,6 +242,11 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 
 // Feedback updates a memory's confidence based on user feedback.
 //
+// This method:
+// 1. Records an explicit signal for the feedback
+// 2. Learns which signal types predicted this feedback correctly (weight learning)
+// 3. Recalculates the memory's confidence using the Bayesian system
+//
 // FR-008: Feedback loop affecting confidence
 // FR-005: Confidence tracking
 func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) error {
@@ -213,8 +260,35 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return fmt.Errorf("getting memory: %w", err)
 	}
 
-	// Adjust confidence
-	memory.AdjustConfidence(helpful)
+	// Record explicit signal
+	signal, err := NewSignal(memoryID, memory.ProjectID, SignalExplicit, helpful, "")
+	if err != nil {
+		return fmt.Errorf("creating signal: %w", err)
+	}
+	if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+		return fmt.Errorf("storing signal: %w", err)
+	}
+
+	// Learn from feedback - update project weights based on prediction accuracy
+	if err := s.confCalc.LearnFromFeedback(ctx, memory.ProjectID, memoryID, helpful); err != nil {
+		s.logger.Warn("failed to learn from feedback",
+			zap.String("memory_id", memoryID),
+			zap.Error(err))
+	}
+
+	// Compute new confidence using Bayesian system
+	newConfidence, err := s.confCalc.ComputeConfidence(ctx, memoryID, memory.ProjectID)
+	if err != nil {
+		// Fall back to simple adjustment if Bayesian calculation fails
+		s.logger.Warn("falling back to simple confidence adjustment",
+			zap.String("memory_id", memoryID),
+			zap.Error(err))
+		memory.AdjustConfidence(helpful)
+		newConfidence = memory.Confidence
+	} else {
+		memory.Confidence = newConfidence
+	}
+	memory.UpdatedAt = time.Now()
 
 	// Update in vector store (delete and re-add with new confidence)
 	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
@@ -313,6 +387,88 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		zap.String("project_id", memory.ProjectID))
 
 	return nil
+}
+
+// RecordOutcome records a task outcome signal for a memory.
+//
+// This is called by the memory_outcome MCP tool when an agent reports
+// whether a task succeeded after using a retrieved memory.
+//
+// The outcome signal contributes to the memory's confidence score through
+// the Bayesian confidence system. Positive outcomes increase confidence,
+// negative outcomes decrease it based on learned weights.
+//
+// Returns the new confidence score after the update.
+//
+// FR-005d: Outcome reporting via memory_outcome tool
+func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded bool, sessionID string) (float64, error) {
+	if memoryID == "" {
+		return 0, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Get the memory first
+	memory, err := s.Get(ctx, memoryID)
+	if err != nil {
+		return 0, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Create and store outcome signal
+	signal, err := NewSignal(memoryID, memory.ProjectID, SignalOutcome, succeeded, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("creating signal: %w", err)
+	}
+	if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+		return 0, fmt.Errorf("storing signal: %w", err)
+	}
+
+	// Compute new confidence using Bayesian system
+	newConfidence, err := s.confCalc.ComputeConfidence(ctx, memoryID, memory.ProjectID)
+	if err != nil {
+		// Fall back to simple adjustment if Bayesian calculation fails
+		s.logger.Warn("falling back to simple confidence adjustment",
+			zap.String("memory_id", memoryID),
+			zap.Error(err))
+		if succeeded {
+			memory.Confidence += 0.05
+			if memory.Confidence > 1.0 {
+				memory.Confidence = 1.0
+			}
+		} else {
+			memory.Confidence -= 0.08
+			if memory.Confidence < 0.0 {
+				memory.Confidence = 0.0
+			}
+		}
+		newConfidence = memory.Confidence
+	} else {
+		memory.Confidence = newConfidence
+	}
+	memory.UpdatedAt = time.Now()
+
+	// Update in vector store
+	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection name: %w", err)
+	}
+
+	// Delete old version and re-add with updated confidence
+	if err := s.store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+		return 0, fmt.Errorf("deleting old memory: %w", err)
+	}
+
+	doc := s.memoryToDocument(memory, collectionName)
+	_, err = s.store.AddDocuments(ctx, []vectorstore.Document{doc})
+	if err != nil {
+		return 0, fmt.Errorf("updating memory: %w", err)
+	}
+
+	s.logger.Info("outcome recorded",
+		zap.String("id", memoryID),
+		zap.String("signal_id", signal.ID),
+		zap.Bool("succeeded", succeeded),
+		zap.Float64("new_confidence", memory.Confidence))
+
+	return memory.Confidence, nil
 }
 
 // memoryToDocument converts a Memory to a vectorstore Document.
