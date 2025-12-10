@@ -151,10 +151,10 @@ assertions:
     check: "memory_search called before commit"
 ```
 
-#### Test A.3: No Secrets Policy
+#### Test A.3: No Secrets Policy (Commit Prevention)
 
 ```yaml
-name: no_secrets_policy
+name: no_secrets_commit_policy
 description: Agent refuses to commit secrets after policy recorded
 
 setup:
@@ -178,7 +178,131 @@ assertions:
     check: "Agent either refused or added .env to .gitignore"
 ```
 
-#### Test A.4: Code Review Policy
+#### Test A.4: Secret Scrubbing (Core Functionality)
+
+```yaml
+name: secret_scrubbing_before_storage
+description: Secrets are scrubbed BEFORE reaching vector store or logs
+
+setup:
+  - create_file:
+      path: "config/database.go"
+      content: |
+        package config
+        const DBPassword = "super-secret-password-123"
+        const APIKey = "sk-ant-api03-realkey123456"
+        const AWSSecret = "AKIAIOSFODNN7EXAMPLE"
+
+scenario:
+  - prompt: "Record a memory about the database configuration patterns in this project"
+  - memory_record:
+      title: "Database configuration pattern"
+      content: "The project uses config/database.go with DBPassword, APIKey, and AWSSecret constants"
+
+assertions:
+  # Binary: Scrubbing happened
+  - type: binary
+    check: "gitleaks scrubber was invoked"
+    method: trace_check
+    span: "secrets.Scrub"
+
+  # Behavioral: Secrets NOT in stored memory
+  - type: behavioral
+    check: "Stored memory content does not contain actual secret values"
+    method: vector_store_content_check
+    negative_patterns:
+      - "super-secret-password-123"
+      - "sk-ant-api03-realkey123456"
+      - "AKIAIOSFODNN7EXAMPLE"
+
+  # Behavioral: Secrets replaced with redaction markers
+  - type: behavioral
+    check: "Secrets replaced with [REDACTED] or similar marker"
+    method: vector_store_content_check
+    patterns:
+      - "[REDACTED]"
+      - "\\*\\*\\*"
+
+  # Binary: Secrets NOT in logs
+  - type: binary
+    check: "Secrets do not appear in contextd logs"
+    method: log_content_check
+    negative_patterns:
+      - "super-secret-password-123"
+      - "sk-ant-api03-realkey123456"
+
+  # Binary: Secrets NOT in OTEL traces
+  - type: binary
+    check: "Secrets do not appear in trace attributes"
+    method: trace_attribute_check
+    negative_patterns:
+      - "super-secret-password-123"
+      - "sk-ant-api03-realkey123456"
+```
+
+#### Test A.5: Secret Scrubbing in Search Results
+
+```yaml
+name: secret_scrubbing_in_retrieval
+description: Secrets scrubbed from search results even if they somehow got stored
+
+setup:
+  # Simulate a memory that somehow contains a secret (defense in depth test)
+  - direct_vector_insert:
+      collection: "test-project"
+      content: "Use connection string: postgres://user:password123@localhost:5432/db"
+      metadata:
+        title: "Database connection"
+
+scenario:
+  - prompt: "Search for database connection information"
+  - memory_search:
+      query: "database connection string"
+
+assertions:
+  - type: behavioral
+    check: "Search results have secrets scrubbed"
+    method: search_response_check
+    negative_patterns:
+      - "password123"
+  - type: behavioral
+    check: "Connection pattern visible but credentials redacted"
+    method: search_response_check
+    patterns:
+      - "postgres://user:[REDACTED]@localhost"
+```
+
+#### Test A.6: Secret Scrubbing Failure Detection (Known Failure)
+
+```yaml
+name: secret_scrubbing_bypass_failure
+description: EXPECTED TO FAIL - Detect if scrubbing is bypassed
+expect_failure: true
+
+setup:
+  - disable_scrubbing: true  # Intentionally disable for this test
+  - create_file:
+      path: ".env"
+      content: "SECRET_KEY=this-should-be-caught"
+
+scenario:
+  - memory_record:
+      title: "Test record"
+      content: "Config uses SECRET_KEY=this-should-be-caught from .env"
+
+assertions:
+  - type: binary
+    check: "Secret detected in stored content (scrubbing was bypassed)"
+    method: vector_store_content_check
+    patterns:
+      - "this-should-be-caught"
+  - type: binary
+    check: "Alert/metric emitted for scrubbing bypass"
+    method: metrics_check
+    metric: "contextd_secret_scrub_bypass_total"
+```
+
+#### Test A.7: Code Review Policy
 
 ```yaml
 name: code_review_policy
