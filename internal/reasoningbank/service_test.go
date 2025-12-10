@@ -380,39 +380,132 @@ func TestService_Get(t *testing.T) {
 
 func TestService_Feedback(t *testing.T) {
 	ctx := context.Background()
-	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
-
-	projectID := "project-123"
-	memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
-	memory.Confidence = 0.7
-	_ = svc.Record(ctx, memory)
 
 	t.Run("increases confidence for helpful feedback", func(t *testing.T) {
+		// Fresh service and memory for isolated test
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+
+		// Bayesian prior starts at 0.5 (1:1 alpha:beta)
+		// Positive explicit feedback should increase confidence above the prior
 		err := svc.Feedback(ctx, memory.ID, true)
 		require.NoError(t, err)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.8, updated.Confidence, 0.001) // 0.7 + 0.1
+		// With Bayesian system, confidence should be above the prior (0.5) after positive feedback
+		assert.Greater(t, updated.Confidence, 0.5)
 	})
 
 	t.Run("decreases confidence for unhelpful feedback", func(t *testing.T) {
+		// Fresh service and memory for isolated test
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+
+		// Bayesian prior starts at 0.5 (1:1 alpha:beta)
+		// Negative explicit feedback should decrease confidence below the prior
 		err := svc.Feedback(ctx, memory.ID, false)
 		require.NoError(t, err)
 
 		updated, _ := svc.Get(ctx, memory.ID)
-		assert.InDelta(t, 0.65, updated.Confidence, 0.001) // 0.8 - 0.15
+		// With Bayesian system, confidence should be below the prior (0.5) after negative feedback
+		assert.Less(t, updated.Confidence, 0.5)
 	})
 
 	t.Run("requires memory ID", func(t *testing.T) {
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
 		err := svc.Feedback(ctx, "", true)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "memory ID cannot be empty")
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
 		err := svc.Feedback(ctx, "non-existent-id", true)
 		require.Error(t, err)
+	})
+}
+
+func TestService_RecordOutcome(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("increases confidence for successful outcome", func(t *testing.T) {
+		// Fresh service and memory for isolated test
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+
+		// Bayesian prior starts at 0.5 (1:1 alpha:beta)
+		// Positive outcome signal should increase confidence above the prior
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, true, "session-123")
+		require.NoError(t, err)
+
+		// With Bayesian system, confidence should be above the prior (0.5) after positive outcome
+		assert.Greater(t, newConf, 0.5)
+
+		updated, _ := svc.Get(ctx, memory.ID)
+		assert.Equal(t, newConf, updated.Confidence)
+	})
+
+	t.Run("decreases confidence for failed outcome", func(t *testing.T) {
+		// Fresh service and memory for isolated test
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+
+		// Bayesian prior starts at 0.5 (1:1 alpha:beta)
+		// Negative outcome signal should decrease confidence below the prior
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, false, "session-124")
+		require.NoError(t, err)
+
+		// With Bayesian system, confidence should be below the prior (0.5) after negative outcome
+		assert.Less(t, newConf, 0.5)
+
+		updated, _ := svc.Get(ctx, memory.ID)
+		assert.Equal(t, newConf, updated.Confidence)
+	})
+
+	t.Run("requires memory ID", func(t *testing.T) {
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		_, err := svc.RecordOutcome(ctx, "", true, "session-125")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+		_, err := svc.RecordOutcome(ctx, "non-existent-id", true, "session-126")
+		require.Error(t, err)
+	})
+
+	t.Run("accepts empty session ID", func(t *testing.T) {
+		store := newMockStore()
+		svc, _ := NewService(store, zap.NewNop())
+		projectID := "project-123"
+		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+		_ = svc.Record(ctx, memory)
+		newConf, err := svc.RecordOutcome(ctx, memory.ID, true, "")
+		require.NoError(t, err)
+		assert.Greater(t, newConf, 0.0)
 	})
 }
 

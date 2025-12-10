@@ -25,6 +25,30 @@ go install github.com/fyrsmithlabs/contextd/cmd/ctxd@latest
 
 ## Commands
 
+### Initialize (ONNX Runtime Setup)
+
+Download and install the ONNX runtime library required for local embeddings.
+
+```bash
+# Initialize contextd (downloads ONNX runtime)
+ctxd init
+
+# Force re-download even if already installed
+ctxd init --force
+```
+
+**Output:**
+```
+Downloading ONNX Runtime v1.23.0...
+✓ ONNX Runtime installed to ~/.config/contextd/lib/libonnxruntime.so
+```
+
+The ONNX runtime is downloaded from GitHub releases and installed to `~/.config/contextd/lib/`. This is required for FastEmbed local embeddings.
+
+**Skip if:**
+- `ONNX_PATH` environment variable is set (uses your existing installation)
+- Runtime is already installed (use `--force` to re-download)
+
 ### Scrub Secrets
 
 Scrub secrets from files or stdin using the contextd secret scrubber.
