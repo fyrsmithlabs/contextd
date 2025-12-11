@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
+	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"go.uber.org/zap"
 )
@@ -103,6 +106,26 @@ func (m *mockVectorStore) SearchInCollection(ctx context.Context, collectionName
 		// Apply filters
 		if filters != nil {
 			shouldInclude := true
+
+			// Check ID filter (exact match)
+			if idFilter, ok := filters["id"].(string); ok {
+				docID := doc.ID
+				// Also check metadata id field
+				if metaID, ok := doc.Metadata["id"].(string); ok {
+					docID = metaID
+				}
+				if docID != idFilter {
+					shouldInclude = false
+				}
+			}
+
+			// Check session_id filter (exact match)
+			if sessionFilter, ok := filters["session_id"].(string); ok {
+				docSession, _ := doc.Metadata["session_id"].(string)
+				if docSession != sessionFilter {
+					shouldInclude = false
+				}
+			}
 
 			// Check confidence filter
 			if confFilter, ok := filters["confidence"].(map[string]interface{}); ok {
@@ -336,9 +359,16 @@ type Developer struct {
 	sharedStore *SharedStore
 
 	// Internal services (simplified for testing - uses in-memory store)
-	reasoningBank *reasoningbank.Service
-	vectorStore   vectorstore.Store
-	ownsStore     bool // true if we created the store and should close it
+	reasoningBank     *reasoningbank.Service
+	checkpointService checkpoint.Service
+	vectorStore       vectorstore.Store
+	ownsStore         bool // true if we created the store and should close it
+
+	// Scrubber for secret removal (simulates MCP layer behavior)
+	scrubber secrets.Scrubber
+
+	// Session tracking for multi-session tests
+	sessionID string
 }
 
 // NewDeveloper creates a new developer simulator with its own isolated store.
@@ -436,6 +466,23 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 	}
 	d.reasoningBank = svc
 
+	// Create checkpoint service
+	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), store, d.logger)
+	if err != nil {
+		return fmt.Errorf("creating checkpoint service: %w", err)
+	}
+	d.checkpointService = checkpointSvc
+
+	// Create scrubber (simulates MCP layer scrubbing)
+	scrubber, err := secrets.New(secrets.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("creating scrubber: %w", err)
+	}
+	d.scrubber = scrubber
+
+	// Generate session ID for this session
+	d.sessionID = fmt.Sprintf("session_%s_%d", d.id, time.Now().UnixNano())
+
 	d.contextdRunning = true
 	d.stats = SessionStats{} // Reset stats
 
@@ -451,6 +498,11 @@ func (d *Developer) StopContextd(ctx context.Context) error {
 		return nil
 	}
 
+	// Close checkpoint service
+	if d.checkpointService != nil {
+		d.checkpointService.Close()
+	}
+
 	// Only close the store if we own it (not shared)
 	if d.vectorStore != nil && d.ownsStore {
 		d.vectorStore.Close()
@@ -458,6 +510,7 @@ func (d *Developer) StopContextd(ctx context.Context) error {
 
 	d.contextdRunning = false
 	d.reasoningBank = nil
+	d.checkpointService = nil
 	d.vectorStore = nil
 
 	return nil
@@ -471,6 +524,7 @@ func (d *Developer) IsContextdRunning() bool {
 }
 
 // RecordMemory records a memory via contextd.
+// Content is automatically scrubbed for secrets before storage (simulates MCP layer).
 func (d *Developer) RecordMemory(ctx context.Context, record MemoryRecord) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -479,12 +533,16 @@ func (d *Developer) RecordMemory(ctx context.Context, record MemoryRecord) (stri
 		return "", fmt.Errorf("contextd not running")
 	}
 
+	// Scrub content before storage (simulates MCP layer behavior)
+	scrubbedTitle := d.scrubber.Scrub(record.Title).Scrubbed
+	scrubbedContent := d.scrubber.Scrub(record.Content).Scrubbed
+
 	outcome := reasoningbank.OutcomeSuccess
 	if record.Outcome == "failure" {
 		outcome = reasoningbank.OutcomeFailure
 	}
 
-	memory, err := reasoningbank.NewMemory(d.projectID, record.Title, record.Content, outcome, record.Tags)
+	memory, err := reasoningbank.NewMemory(d.projectID, scrubbedTitle, scrubbedContent, outcome, record.Tags)
 	if err != nil {
 		return "", fmt.Errorf("creating memory: %w", err)
 	}
@@ -500,6 +558,7 @@ func (d *Developer) RecordMemory(ctx context.Context, record MemoryRecord) (stri
 }
 
 // SearchMemory searches for memories via contextd.
+// Results are automatically scrubbed for secrets (defense-in-depth, simulates MCP layer).
 func (d *Developer) SearchMemory(ctx context.Context, query string, limit int) ([]MemoryResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -518,10 +577,14 @@ func (d *Developer) SearchMemory(ctx context.Context, query string, limit int) (
 
 	memoryResults := make([]MemoryResult, len(results))
 	for i, r := range results {
+		// Scrub content on retrieval (defense-in-depth, simulates MCP layer)
+		scrubbedTitle := d.scrubber.Scrub(r.Title).Scrubbed
+		scrubbedContent := d.scrubber.Scrub(r.Content).Scrubbed
+
 		memoryResults[i] = MemoryResult{
 			ID:         r.ID,
-			Title:      r.Title,
-			Content:    r.Content,
+			Title:      scrubbedTitle,
+			Content:    scrubbedContent,
 			Confidence: r.Confidence,
 		}
 	}
@@ -547,6 +610,129 @@ func (d *Developer) GiveFeedback(ctx context.Context, memoryID string, helpful b
 	d.stats.TotalToolCalls++
 
 	return nil
+}
+
+// CheckpointSaveRequest represents a request to save a checkpoint.
+type CheckpointSaveRequest struct {
+	Name        string
+	Summary     string
+	Context     string
+	ProjectPath string
+}
+
+// CheckpointResult represents a checkpoint.
+type CheckpointResult struct {
+	ID          string
+	Name        string
+	Summary     string
+	Context     string
+	ProjectPath string
+	CreatedAt   time.Time
+}
+
+// SaveCheckpoint saves a checkpoint of the current session.
+func (d *Developer) SaveCheckpoint(ctx context.Context, req CheckpointSaveRequest) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.contextdRunning {
+		return "", fmt.Errorf("contextd not running")
+	}
+
+	cp, err := d.checkpointService.Save(ctx, &checkpoint.SaveRequest{
+		SessionID:   d.sessionID,
+		TenantID:    d.tenantID,
+		ProjectPath: d.projectID,
+		Name:        req.Name,
+		Summary:     req.Summary,
+		Context:     req.Context,
+	})
+	if err != nil {
+		return "", fmt.Errorf("saving checkpoint: %w", err)
+	}
+
+	d.stats.Checkpoints++
+	d.stats.TotalToolCalls++
+
+	return cp.ID, nil
+}
+
+// ListCheckpoints lists checkpoints for this developer's session.
+func (d *Developer) ListCheckpoints(ctx context.Context, limit int) ([]CheckpointResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.contextdRunning {
+		return nil, fmt.Errorf("contextd not running")
+	}
+
+	if limit == 0 {
+		limit = 10
+	}
+
+	cps, err := d.checkpointService.List(ctx, &checkpoint.ListRequest{
+		TenantID: d.tenantID,
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing checkpoints: %w", err)
+	}
+
+	results := make([]CheckpointResult, len(cps))
+	for i, cp := range cps {
+		results[i] = CheckpointResult{
+			ID:          cp.ID,
+			Name:        cp.Name,
+			Summary:     cp.Summary,
+			Context:     cp.Context,
+			ProjectPath: cp.ProjectPath,
+			CreatedAt:   cp.CreatedAt,
+		}
+	}
+
+	return results, nil
+}
+
+// ResumeCheckpoint resumes from a checkpoint.
+func (d *Developer) ResumeCheckpoint(ctx context.Context, checkpointID string) (*CheckpointResult, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.contextdRunning {
+		return nil, fmt.Errorf("contextd not running")
+	}
+
+	resp, err := d.checkpointService.Resume(ctx, &checkpoint.ResumeRequest{
+		TenantID:     d.tenantID,
+		CheckpointID: checkpointID,
+		Level:        checkpoint.ResumeContext,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resuming checkpoint: %w", err)
+	}
+
+	return &CheckpointResult{
+		ID:          resp.Checkpoint.ID,
+		Name:        resp.Checkpoint.Name,
+		Summary:     resp.Checkpoint.Summary,
+		Context:     resp.Content,
+		ProjectPath: resp.Checkpoint.ProjectPath,
+		CreatedAt:   resp.Checkpoint.CreatedAt,
+	}, nil
+}
+
+// SessionID returns the current session ID.
+func (d *Developer) SessionID() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.sessionID
+}
+
+// SetSessionID sets the session ID (for resuming sessions).
+func (d *Developer) SetSessionID(sessionID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sessionID = sessionID
 }
 
 // SessionStats returns the current session statistics.
