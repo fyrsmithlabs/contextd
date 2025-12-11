@@ -1,4 +1,4 @@
-// Package framework provides the integration test framework for contextd.
+// Package framework provides the integration test harness for contextd.
 package framework
 
 import (
@@ -54,10 +54,11 @@ type SessionStep struct {
 
 // SessionResult contains results from a developer session.
 type SessionResult struct {
-	Developer    DeveloperConfig
-	MemoryIDs    []string
+	Developer     DeveloperConfig
+	MemoryIDs     []string
 	SearchResults [][]MemoryResult
-	Errors       []string
+	Checkpoints   []string // Checkpoint IDs saved during session
+	Errors        []string
 }
 
 // ContextdHandle represents a running contextd instance.
@@ -283,6 +284,8 @@ func DeveloperSessionWorkflow(ctx workflow.Context, session SessionConfig) (*Ses
 			err := workflow.ExecuteActivity(ctx, CheckpointSaveActivity, input).Get(ctx, &checkpointID)
 			if err != nil {
 				result.Errors = append(result.Errors, err.Error())
+			} else {
+				result.Checkpoints = append(result.Checkpoints, checkpointID)
 			}
 
 		case "checkpoint_resume":

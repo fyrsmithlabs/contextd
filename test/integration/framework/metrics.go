@@ -1,4 +1,4 @@
-// Package framework provides the integration test framework for contextd.
+// Package framework provides the integration test harness for contextd.
 package framework
 
 import (

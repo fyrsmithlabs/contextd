@@ -1,4 +1,4 @@
-// Package framework provides the integration test framework for contextd.
+// Package framework provides the integration test harness for contextd.
 package framework
 
 import (
@@ -193,5 +193,82 @@ func TestDeveloperSimulator_SessionTracking(t *testing.T) {
 		assert.Equal(t, 1, stats.MemoryRecords)
 		assert.Equal(t, 1, stats.MemorySearches)
 		assert.Equal(t, 2, stats.TotalToolCalls)
+	})
+}
+
+func TestTestHarness(t *testing.T) {
+	t.Run("creates harness with shared store", func(t *testing.T) {
+		harness, err := NewTestHarness("test_harness_project")
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		defer harness.Cleanup(ctx)
+
+		assert.NotNil(t, harness.SharedStore())
+	})
+
+	t.Run("creates multiple developers with shared store", func(t *testing.T) {
+		harness, err := NewTestHarness("test_harness_multi_dev")
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		defer harness.Cleanup(ctx)
+
+		dev1, err := harness.CreateDeveloper("alice", "tenant-a")
+		require.NoError(t, err)
+
+		dev2, err := harness.CreateDeveloper("bob", "tenant-a")
+		require.NoError(t, err)
+
+		// Start both developers
+		err = dev1.StartContextd(ctx)
+		require.NoError(t, err)
+
+		err = dev2.StartContextd(ctx)
+		require.NoError(t, err)
+
+		// Record memory with dev1
+		_, err = dev1.RecordMemory(ctx, MemoryRecord{
+			Title:   "Shared knowledge",
+			Content: "This should be visible to dev2",
+			Outcome: "success",
+		})
+		require.NoError(t, err)
+
+		// Search with dev2 - should find dev1's memory
+		results, err := dev2.SearchMemory(ctx, "Shared knowledge", 5)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(results), 1, "dev2 should find dev1's memory")
+	})
+
+	t.Run("cleanup stops all developers", func(t *testing.T) {
+		harness, err := NewTestHarness("test_harness_cleanup")
+		require.NoError(t, err)
+
+		ctx := context.Background()
+
+		dev1, err := harness.CreateDeveloper("dev1", "tenant")
+		require.NoError(t, err)
+
+		dev2, err := harness.CreateDeveloper("dev2", "tenant")
+		require.NoError(t, err)
+
+		// Start both
+		err = dev1.StartContextd(ctx)
+		require.NoError(t, err)
+
+		err = dev2.StartContextd(ctx)
+		require.NoError(t, err)
+
+		assert.True(t, dev1.IsContextdRunning())
+		assert.True(t, dev2.IsContextdRunning())
+
+		// Cleanup
+		err = harness.Cleanup(ctx)
+		require.NoError(t, err)
+
+		// Both should be stopped
+		assert.False(t, dev1.IsContextdRunning())
+		assert.False(t, dev2.IsContextdRunning())
 	})
 }

@@ -1,9 +1,10 @@
-// Package framework provides the integration test framework for contextd.
+// Package framework provides the integration test harness for contextd.
 package framework
 
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Activity input/output types
@@ -124,20 +125,46 @@ func (a *Activities) SearchMemoryActivity(ctx context.Context, input SearchMemor
 
 // CheckpointSaveActivity saves a checkpoint.
 func (a *Activities) CheckpointSaveActivity(ctx context.Context, input CheckpointSaveInput) (string, error) {
-	// TODO: Implement checkpoint save via Developer
-	// For now, return a mock checkpoint ID
-	return fmt.Sprintf("ckpt-%s", input.ContextdHandle.ID), nil
+	dev, ok := a.developers[input.ContextdHandle.ID]
+	if !ok {
+		return "", fmt.Errorf("developer not found: %s", input.ContextdHandle.ID)
+	}
+
+	checkpointID, err := dev.SaveCheckpoint(ctx, CheckpointSaveRequest{
+		Name:    fmt.Sprintf("checkpoint-%d", time.Now().Unix()),
+		Summary: input.Summary,
+		Context: input.Summary, // Use summary as context for activity-based saves
+	})
+	if err != nil {
+		return "", fmt.Errorf("saving checkpoint: %w", err)
+	}
+
+	return checkpointID, nil
 }
 
 // CheckpointResumeActivity resumes from a checkpoint.
 func (a *Activities) CheckpointResumeActivity(ctx context.Context, input CheckpointResumeInput) error {
-	// TODO: Implement checkpoint resume via Developer
+	dev, ok := a.developers[input.ContextdHandle.ID]
+	if !ok {
+		return fmt.Errorf("developer not found: %s", input.ContextdHandle.ID)
+	}
+
+	_, err := dev.ResumeCheckpoint(ctx, input.CheckpointID)
+	if err != nil {
+		return fmt.Errorf("resuming checkpoint: %w", err)
+	}
+
 	return nil
 }
 
 // ClearContextActivity clears the current context (simulates /clear).
+// In the test harness, this is a no-op since we don't simulate LLM context.
 func (a *Activities) ClearContextActivity(ctx context.Context, handle ContextdHandle) error {
-	// TODO: Implement context clear via Developer
+	_, ok := a.developers[handle.ID]
+	if !ok {
+		return fmt.Errorf("developer not found: %s", handle.ID)
+	}
+	// No-op: test harness doesn't track LLM context window
 	return nil
 }
 

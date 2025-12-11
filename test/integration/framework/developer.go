@@ -1,4 +1,17 @@
-// Package framework provides the integration test framework for contextd.
+// Package framework provides the integration test harness for contextd.
+//
+// The test harness simulates developers using contextd MCP tools to validate
+// cross-session memory, checkpoint persistence, and secret scrubbing. It uses
+// a mock vector store for deterministic testing while leveraging real service
+// implementations for ReasoningBank, Checkpoint, and Secrets.
+//
+// Key components:
+//   - Developer: Simulates a developer using contextd tools
+//   - SharedStore: Enables cross-developer knowledge sharing tests
+//   - TestHarness: Provides setup/teardown helpers for test isolation
+//
+// Known limitation: The mock store does not test semantic similarity.
+// See docs/spec/test-harness/KNOWN-GAPS.md for details.
 package framework
 
 import (
@@ -127,15 +140,9 @@ func (m *mockVectorStore) SearchInCollection(ctx context.Context, collectionName
 				}
 			}
 
-			// Check confidence filter
-			if confFilter, ok := filters["confidence"].(map[string]interface{}); ok {
-				if minConf, ok := confFilter["$gte"].(float64); ok {
-					docConf, _ := doc.Metadata["confidence"].(float64)
-					if docConf < minConf {
-						shouldInclude = false
-					}
-				}
-			}
+			// NOTE: Confidence filtering removed - now handled at service layer
+			// This makes the mock accurately reflect production behavior where
+			// vectorstores don't support $gte operators (e.g., chromem)
 
 			if !shouldInclude {
 				continue
@@ -798,4 +805,70 @@ func sqrt32(x float32) float32 {
 		z = (z + x/z) / 2
 	}
 	return z
+}
+
+// TestHarness provides test setup and teardown helpers.
+type TestHarness struct {
+	sharedStore *SharedStore
+	developers  []*Developer
+	projectID   string
+}
+
+// NewTestHarness creates a new test harness for isolated testing.
+func NewTestHarness(projectID string) (*TestHarness, error) {
+	shared, err := NewSharedStore(SharedStoreConfig{ProjectID: projectID})
+	if err != nil {
+		return nil, fmt.Errorf("creating shared store: %w", err)
+	}
+
+	return &TestHarness{
+		sharedStore: shared,
+		projectID:   projectID,
+	}, nil
+}
+
+// CreateDeveloper creates a new developer attached to the harness.
+func (h *TestHarness) CreateDeveloper(id, tenantID string) (*Developer, error) {
+	dev, err := NewDeveloperWithStore(DeveloperConfig{
+		ID:        id,
+		TenantID:  tenantID,
+		ProjectID: h.projectID,
+	}, h.sharedStore)
+	if err != nil {
+		return nil, err
+	}
+	h.developers = append(h.developers, dev)
+	return dev, nil
+}
+
+// Cleanup stops all developers and closes the shared store.
+// Call this in a defer statement after creating the harness.
+func (h *TestHarness) Cleanup(ctx context.Context) error {
+	var errs []error
+
+	// Stop all developers
+	for _, dev := range h.developers {
+		if dev.IsContextdRunning() {
+			if err := dev.StopContextd(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	// Close shared store
+	if h.sharedStore != nil {
+		if err := h.sharedStore.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("cleanup errors: %v", errs)
+	}
+	return nil
+}
+
+// SharedStore returns the underlying shared store.
+func (h *TestHarness) SharedStore() *SharedStore {
+	return h.sharedStore
 }
