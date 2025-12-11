@@ -1,6 +1,6 @@
 # Stage 1: Build contextd
 # Multi-arch builds use QEMU emulation for arm64 because CGO requires native compilation
-FROM golang:1.24-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 
 ARG TARGETARCH
 ARG TARGETOS
