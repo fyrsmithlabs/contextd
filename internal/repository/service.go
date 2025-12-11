@@ -101,8 +101,10 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 
 	// Build collection name for codebase
 	// Format: {tenant}_{project}_codebase (matches spec)
+	// Sanitize tenant ID to match collection name requirements (^[a-z0-9_]{1,64}$)
+	sanitizedTenant := sanitizeProjectName(opts.TenantID)
 	projectName := sanitizeProjectName(filepath.Base(opts.ProjectPath))
-	collectionName := fmt.Sprintf("%s_%s_codebase", opts.TenantID, projectName)
+	collectionName := fmt.Sprintf("%s_%s_codebase", sanitizedTenant, projectName)
 
 	// Build filters
 	filters := make(map[string]interface{})
@@ -188,8 +190,10 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 	}
 
 	// Build collection name: {tenant}_{project}_codebase
+	// Sanitize tenant ID to match collection name requirements (^[a-z0-9_]{1,64}$)
+	sanitizedTenant := sanitizeProjectName(tenantID)
 	projectName := sanitizeProjectName(filepath.Base(cleanPath))
-	collectionName := fmt.Sprintf("%s_%s_codebase", tenantID, projectName)
+	collectionName := fmt.Sprintf("%s_%s_codebase", sanitizedTenant, projectName)
 
 	// Collect documents to index
 	var docs []vectorstore.Document
@@ -235,6 +239,12 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 
 		// Skip binary files (invalid UTF-8)
 		if !utf8.Valid(content) {
+			return nil
+		}
+
+		// Skip empty files (embedding layer rejects empty content)
+		contentStr := strings.TrimSpace(string(content))
+		if contentStr == "" {
 			return nil
 		}
 

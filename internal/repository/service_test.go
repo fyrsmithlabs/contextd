@@ -335,6 +335,10 @@ func TestSanitizeProjectName(t *testing.T) {
 		{"---", "project"},
 		{"123", "123"},
 		{"a__b__c", "a_b_c"},
+		// Tenant ID patterns (github.com/user format)
+		{"github.com/dahendel", "github_com_dahendel"},
+		{"github.com/fyrsmithlabs", "github_com_fyrsmithlabs"},
+		{"gitlab.com/user/project", "gitlab_com_user_project"},
 	}
 
 	for _, tt := range tests {
@@ -524,6 +528,41 @@ func TestIndexRepository_MaxFileSizeExceeds(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("IndexRepository() error = nil, want error for file size > 10MB")
+	}
+}
+
+func TestIndexRepository_SkipsEmptyFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "content.txt", "actual content")
+	createTestFile(t, tmpDir, "empty.txt", "")
+	createTestFile(t, tmpDir, "whitespace.txt", "   \n\t\n   ")
+
+	store := &mockStore{}
+	svc := NewService(store)
+
+	opts := IndexOptions{
+		TenantID: "testuser",
+	}
+
+	result, err := svc.IndexRepository(context.Background(), tmpDir, opts)
+
+	if err != nil {
+		t.Fatalf("IndexRepository() error = %v", err)
+	}
+
+	// Should only index content.txt, skip empty.txt and whitespace.txt
+	if result.FilesIndexed != 1 {
+		t.Errorf("FilesIndexed = %d, want 1 (only content.txt)", result.FilesIndexed)
+	}
+
+	// Verify the indexed file is content.txt
+	if len(store.documents) != 1 {
+		t.Fatalf("got %d documents, want 1", len(store.documents))
+	}
+	if fp, ok := store.documents[0].Metadata["file_path"].(string); ok {
+		if fp != "content.txt" {
+			t.Errorf("indexed file = %q, want content.txt", fp)
+		}
 	}
 }
 
