@@ -6,79 +6,15 @@
   },
   "metadata": {
     "description": "Cross-session memory and context management for AI agents",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "contextd",
       "source": "./",
-      "description": "Skills, commands, and hooks for cross-session memory and context management. Provides session lifecycle, checkpoints, error remediation, and persistent learning workflows.",
+      "description": "Cross-session memory, checkpoints, and error remediation for AI agents. Includes skills, commands, hooks, and MCP server config. Requires contextd binary (brew install fyrsmithlabs/tap/contextd).",
       "version": "0.3.0",
-      "author": {
-        "name": "FyrSmith Labs",
-        "email": "contact@fyrsmithlabs.com"
-      },
-      "homepage": "https://github.com/fyrsmithlabs/contextd",
-      "repository": "https://github.com/fyrsmithlabs/contextd",
-      "license": "MIT",
-      "category": "productivity",
-      "keywords": [
-        "memory",
-        "context",
-        "checkpoints",
-        "session",
-        "learning",
-        "mcp",
-        "persistence"
-      ],
-      "commands": [
-        "./commands/checkpoint.md",
-        "./commands/consensus-review.md",
-        "./commands/diagnose.md",
-        "./commands/help.md",
-        "./commands/init.md",
-        "./commands/onboard.md",
-        "./commands/remember.md",
-        "./commands/resume.md",
-        "./commands/search.md",
-        "./commands/status.md",
-        "./commands/test-skill.md"
-      ],
-      "agents": [
-        "./agents/contextd-task-executor.md"
-      ]
-    },
-    {
-      "name": "contextd-mcp",
-      "source": "./",
-      "description": "MCP server for cross-session memory, checkpoints, and error remediation. Requires contextd binary - install via Homebrew (brew install fyrsmithlabs/tap/contextd) or download from GitHub releases.",
-      "version": "0.2.0",
-      "author": {
-        "name": "FyrSmith Labs",
-        "email": "contact@fyrsmithlabs.com"
-      },
-      "homepage": "https://github.com/fyrsmithlabs/contextd",
-      "repository": "https://github.com/fyrsmithlabs/contextd",
-      "license": "MIT",
-      "keywords": [
-        "mcp",
-        "memory",
-        "context",
-        "checkpoint",
-        "ai-agent",
-        "semantic-search",
-        "remediation"
-      ],
-      "category": "productivity",
-      "strict": false,
-      "mcpServers": {
-        "contextd": {
-          "type": "stdio",
-          "command": "contextd",
-          "args": ["--mcp", "--no-http"],
-          "env": {}
-        }
-      }
+      "strict": false
     }
   ]
 }
