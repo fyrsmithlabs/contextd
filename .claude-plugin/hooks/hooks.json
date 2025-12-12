@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/session-start.sh"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/precompact.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/precompact.sh"
           }
         ]
       }

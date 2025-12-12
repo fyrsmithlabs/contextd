@@ -19,21 +19,21 @@
     "remediation"
   ],
   "commands": [
-    "./commands/checkpoint.md",
-    "./commands/consensus-review.md",
-    "./commands/diagnose.md",
-    "./commands/help.md",
-    "./commands/init.md",
-    "./commands/install.md",
-    "./commands/onboard.md",
-    "./commands/remember.md",
-    "./commands/resume.md",
-    "./commands/search.md",
-    "./commands/status.md",
-    "./commands/test-skill.md"
+    "./.claude-plugin/commands/checkpoint.md",
+    "./.claude-plugin/commands/consensus-review.md",
+    "./.claude-plugin/commands/diagnose.md",
+    "./.claude-plugin/commands/help.md",
+    "./.claude-plugin/commands/init.md",
+    "./.claude-plugin/commands/install.md",
+    "./.claude-plugin/commands/onboard.md",
+    "./.claude-plugin/commands/remember.md",
+    "./.claude-plugin/commands/resume.md",
+    "./.claude-plugin/commands/search.md",
+    "./.claude-plugin/commands/status.md",
+    "./.claude-plugin/commands/test-skill.md"
   ],
   "agents": [
-    "./agents/contextd-task-executor.md"
+    "./.claude-plugin/agents/contextd-task-executor.md"
   ],
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./.claude-plugin/hooks/hooks.json"
 }
