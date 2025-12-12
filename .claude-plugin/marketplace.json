@@ -1,0 +1,65 @@
+{
+  "name": "contextd",
+  "owner": {
+    "name": "FyrSmith Labs",
+    "email": "contact@fyrsmithlabs.com"
+  },
+  "metadata": {
+    "description": "Cross-session memory and context management for AI agents",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "contextd",
+      "source": "./",
+      "description": "Cross-session memory, checkpoint save/resume, and error remediation tracking for AI agents. Uses semantic search over past learnings to provide relevant context.",
+      "version": "0.2.0",
+      "author": {
+        "name": "FyrSmith Labs",
+        "email": "contact@fyrsmithlabs.com"
+      },
+      "homepage": "https://github.com/fyrsmithlabs/contextd",
+      "repository": "https://github.com/fyrsmithlabs/contextd",
+      "license": "MIT",
+      "keywords": [
+        "mcp",
+        "memory",
+        "context",
+        "checkpoint",
+        "ai-agent",
+        "semantic-search",
+        "remediation"
+      ],
+      "category": "productivity",
+      "strict": false,
+      "mcpServers": {
+        "contextd": {
+          "type": "stdio",
+          "command": "contextd",
+          "args": [],
+          "env": {}
+        }
+      },
+      "setup": {
+        "instructions": "Run the setup script to download and install contextd for your platform. Windows is not yet supported - see releases page for manual installation.",
+        "script": "./mcp-setup.sh",
+        "platforms": {
+          "darwin-arm64": {
+            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
+          },
+          "darwin-amd64": {
+            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
+          },
+          "linux-amd64": {
+            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
+          }
+        },
+        "unsupported_platforms": {
+          "windows": {
+            "message": "Windows is not yet supported via the automated installer. Visit https://github.com/fyrsmithlabs/contextd/releases/latest to download manually."
+          }
+        }
+      }
+    }
+  ]
+}

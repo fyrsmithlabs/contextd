@@ -1,0 +1,23 @@
+{
+  "name": "contextd",
+  "description": "Cross-session memory and context management for AI agents. Provides semantic search over past learnings, checkpoint save/resume, and error remediation tracking.",
+  "version": "0.2.0",
+  "author": {
+    "name": "FyrSmith Labs",
+    "email": "contact@fyrsmithlabs.com"
+  },
+  "repository": "https://github.com/fyrsmithlabs/contextd",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "memory",
+    "context",
+    "checkpoint",
+    "ai-agent",
+    "semantic-search"
+  ],
+  "mcp": {
+    "setup": "./mcp-setup.sh",
+    "config": "./mcp.json"
+  }
+}
