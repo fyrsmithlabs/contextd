@@ -2,6 +2,8 @@ package project
 
 import (
 	"fmt"
+
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 )
 
 // CollectionType represents the type of data stored in a collection.
@@ -25,11 +27,16 @@ const (
 )
 
 // GetCollectionName returns the collection name for a project and type.
-// Format: {project_id}_{type}
+// Format: {sanitized_project_id}_{type}
+//
+// The project ID is sanitized to conform to collection name requirements:
+//   - Lowercase only
+//   - Hyphens and special chars replaced with underscores
+//   - Multiple underscores collapsed
 //
 // Examples:
-//   - "550e8400-e29b-41d4-a716-446655440000_memories"
-//   - "550e8400-e29b-41d4-a716-446655440000_checkpoints"
+//   - "simple-ctl" -> "simple_ctl_memories"
+//   - "my-project" -> "my_project_checkpoints"
 func GetCollectionName(projectID string, collectionType CollectionType) (string, error) {
 	if projectID == "" {
 		return "", ErrEmptyProjectID
@@ -38,7 +45,8 @@ func GetCollectionName(projectID string, collectionType CollectionType) (string,
 		return "", fmt.Errorf("collection type cannot be empty")
 	}
 
-	return fmt.Sprintf("%s_%s", projectID, collectionType), nil
+	sanitizedID := sanitize.Identifier(projectID)
+	return fmt.Sprintf("%s_%s", sanitizedID, collectionType), nil
 }
 
 // GetAllCollectionNames returns all collection names for a project.
