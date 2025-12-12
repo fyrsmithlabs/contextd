@@ -8,12 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `repository-search` skill in claude-plugin
+  - Documents semantic code search that finds code by meaning, not keywords
+  - Covers `repository_index` and `repository_search` tool usage
+  - Includes query writing tips and common mistakes
+- `/contextd:help` command listing all skills and commands
+- Shared error handling pattern (`_error-handling.md`) for DRY command definitions
 - Conversation indexing specification (SPEC.md, DESIGN.md, SCHEMA.md, CONFIG.md)
   - Index past Claude Code sessions for semantic search
   - Extract decisions with heuristic patterns and optional LLM refinement
   - Cross-reference conversations with files and commits
   - Support for langchain-go providers (Anthropic, OpenAI/Ollama)
   - Templated configuration with Go template functions
+- `secret-scrubbing` skill in claude-plugin
+  - Documents PostToolUse hook integration with `ctxd scrub`
+  - Explains HTTP server requirement (port 9090)
+  - Provides settings.json hook configuration for Read, Bash, Grep, WebFetch tools
+  - Includes troubleshooting for "connection refused" and other common issues
+
+### Changed
+- Updated `using-contextd` skill to reference new `secret-scrubbing` skill
+- Added HTTP server key concept note to `using-contextd` skill
+- Commands now reference shared `@_error-handling.md` for consistent error handling
+- Fixed `@kinney-guide.md` import to use explicit relative path `@./kinney-guide.md`
+- **Auto-checkpoint now supports meaningful summaries**
+  - `POST /api/v1/threshold` accepts `summary`, `context`, and `project_path` fields
+  - PreCompact hook now instructs Claude to call `checkpoint_save` with proper context
+  - Checkpoint name derived from summary (first 50 chars) instead of generic "Auto-checkpoint at 70%"
+  - `checkpoint-workflow` skill updated with auto-checkpoint guidance and examples
+
+### Improved
+- UX/Documentation improvements across claude-plugin skills:
+  - `using-contextd`: Explicit tenant ID derivation explanation with verification command
+  - `using-contextd`: Added example memory_search response with confidence scores
+  - `secret-scrubbing`: Moved critical prerequisite (HTTP server) to top of skill
+  - `cross-session-memory`: Added example memory_record response
+  - `cross-session-memory`: Added "Understanding Confidence Scores" section
+  - `checkpoint-workflow`: Added example checkpoint_save response
+  - `checkpoint-workflow`: Replaced vague resume levels with concrete token counts and content descriptions
+  - `session-lifecycle`: Added re-indexing efficiency clarification (idempotent, incremental, fast)
 
 ## [0.2.0-rc7] - 2025-12-09
 

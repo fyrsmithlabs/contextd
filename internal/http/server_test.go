@@ -619,6 +619,126 @@ func TestHandleThreshold(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
+
+	t.Run("uses provided summary and context", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Hooks").Return(mockHooks)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		// Mock checkpoint save - verify summary and context are passed
+		mockCp.On("Save", mock.Anything, mock.MatchedBy(func(req *checkpoint.SaveRequest) bool {
+			return req.SessionID == "sess_123" &&
+				req.TenantID == "tenant_456" &&
+				req.ProjectPath == "/home/user/project" &&
+				req.Summary == "Implementing auth middleware" &&
+				req.Context == "Using JWT with RS256" &&
+				req.AutoCreated == true
+		})).Return(&checkpoint.Checkpoint{
+			ID:        "cp_auto_456",
+			SessionID: "sess_123",
+			TenantID:  "tenant_456",
+		}, nil)
+
+		reqBody := ThresholdRequest{
+			ProjectID:   "tenant_456",
+			SessionID:   "sess_123",
+			Percent:     70,
+			Summary:     "Implementing auth middleware",
+			Context:     "Using JWT with RS256",
+			ProjectPath: "/home/user/project",
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp ThresholdResponse
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "cp_auto_456", resp.CheckpointID)
+		mockCp.AssertExpectations(t)
+	})
+
+	t.Run("truncates long summary for checkpoint name", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Hooks").Return(mockHooks)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		longSummary := "This is a very long summary that exceeds fifty characters and should be truncated"
+
+		// Mock checkpoint save - verify name is truncated
+		mockCp.On("Save", mock.Anything, mock.MatchedBy(func(req *checkpoint.SaveRequest) bool {
+			// Name should be truncated to 50 chars with "..."
+			return len(req.Name) == 50 &&
+				req.Name == longSummary[:47]+"..." &&
+				req.Summary == longSummary // Full summary preserved
+		})).Return(&checkpoint.Checkpoint{
+			ID:        "cp_auto_789",
+			SessionID: "sess_123",
+			TenantID:  "tenant_456",
+		}, nil)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+			Summary:   longSummary,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		mockCp.AssertExpectations(t)
+	})
 }
 
 // setupTestServer creates a test server with default configuration.

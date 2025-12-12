@@ -107,9 +107,12 @@ type ScrubResponse struct {
 
 // ThresholdRequest is the request body for POST /api/v1/threshold.
 type ThresholdRequest struct {
-	ProjectID string `json:"project_id"`
-	SessionID string `json:"session_id"`
-	Percent   int    `json:"percent"`
+	ProjectID   string `json:"project_id"`
+	SessionID   string `json:"session_id"`
+	Percent     int    `json:"percent"`
+	Summary     string `json:"summary,omitempty"`      // Brief summary of session work (recommended)
+	Context     string `json:"context,omitempty"`      // Additional context for resumption
+	ProjectPath string `json:"project_path,omitempty"` // Full project path (defaults to project_id)
 }
 
 // ThresholdResponse is the response body for POST /api/v1/threshold.
@@ -253,16 +256,36 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "project_id, session_id, and percent fields are required")
 	}
 
+	// Use provided values or fall back to defaults
+	projectPath := req.ProjectPath
+	if projectPath == "" {
+		projectPath = req.ProjectID
+	}
+
+	summary := req.Summary
+	if summary == "" {
+		summary = fmt.Sprintf("Context at %d%% threshold", req.Percent)
+	}
+
+	name := fmt.Sprintf("Auto-checkpoint at %d%%", req.Percent)
+	if req.Summary != "" {
+		// Use first 50 chars of summary as name if provided
+		name = req.Summary
+		if len(name) > 50 {
+			name = name[:47] + "..."
+		}
+	}
+
 	// Create auto-checkpoint via checkpoint service
 	ctx := c.Request().Context()
 	checkpoint, err := s.registry.Checkpoint().Save(ctx, &checkpoint.SaveRequest{
 		SessionID:   req.SessionID,
 		TenantID:    req.ProjectID,
-		ProjectPath: req.ProjectID,
-		Name:        fmt.Sprintf("Auto-checkpoint at %d%%", req.Percent),
+		ProjectPath: projectPath,
+		Name:        name,
 		Description: fmt.Sprintf("Automatic checkpoint created when context reached %d%% threshold", req.Percent),
-		Summary:     fmt.Sprintf("Context at %d%% threshold", req.Percent),
-		Context:     "",
+		Summary:     summary,
+		Context:     req.Context,
 		FullState:   "",
 		TokenCount:  0,
 		Threshold:   float64(req.Percent) / 100.0,
