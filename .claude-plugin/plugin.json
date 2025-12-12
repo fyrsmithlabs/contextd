@@ -36,8 +36,7 @@
   ],
   "mcpServers": {
     "contextd": {
-      "command": "contextd",
-      "args": ["--mcp", "--no-http"]
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/contextd-wrapper.sh"
     }
   }
 }

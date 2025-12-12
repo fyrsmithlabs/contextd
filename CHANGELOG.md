@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Allows multiple Claude Code sessions to run contextd simultaneously
   - Resolves "address already in use" port 9090 conflicts
   - HTTP server disabled by default in plugin configuration
+- **Plugin shell wrapper for auto-download**
+  - `bin/contextd-wrapper.sh` downloads binary on first run from GitHub releases
+  - Installs to `~/.local/bin/contextd` (or uses existing if in PATH)
+  - Detects platform (darwin/linux, amd64/arm64) automatically
+  - Checks if `--no-http` flag supported before using (backwards compatible)
 
 ### Improved
 - UX/Documentation improvements across claude-plugin skills:
