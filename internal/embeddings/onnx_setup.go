@@ -182,8 +182,14 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 			return fmt.Errorf("reading tar: %w", err)
 		}
 
+		// Normalize path - strip leading "./" if present
+		name := header.Name
+		if strings.HasPrefix(name, "./") {
+			name = name[2:]
+		}
+
 		// Only extract files from the lib directory
-		if !strings.HasPrefix(header.Name, expectedPrefix) {
+		if !strings.HasPrefix(name, expectedPrefix) {
 			continue
 		}
 
@@ -192,8 +198,8 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 			continue
 		}
 
-		// Get filename from path
-		filename := filepath.Base(header.Name)
+		// Get filename from normalized path
+		filename := filepath.Base(name)
 		destPath := filepath.Join(destDir, filename)
 
 		// Handle symlinks from the archive
