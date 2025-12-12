@@ -3,7 +3,7 @@
   "$id": "https://github.com/fyrsmithlabs/contextd/schemas/mcp-tools.schema.json",
   "title": "contextd MCP Tools Schema",
   "description": "JSON Schema for all contextd MCP tool inputs/outputs and skill file format. Use @contextd-mcp-tools.schema.json for lazy loading reference.",
-  "version": "0.2.0",
+  "version": "0.3.0",
 
   "$defs": {
     "checkpoint_save_input": {
@@ -199,12 +199,11 @@
       "type": "object",
       "description": "Output from memory_outcome tool",
       "properties": {
-        "memory_id": { "type": "string", "description": "Memory ID" },
-        "succeeded": { "type": "boolean", "description": "Outcome recorded" },
+        "recorded": { "type": "boolean", "description": "Whether outcome was recorded" },
         "new_confidence": { "type": "number", "description": "Updated confidence after outcome" },
-        "session_id": { "type": "string", "description": "Session ID" }
+        "message": { "type": "string", "description": "Result message" }
       },
-      "required": ["memory_id", "succeeded", "new_confidence"]
+      "required": ["recorded", "new_confidence", "message"]
     },
 
     "remediation_search_input": {

@@ -3,7 +3,7 @@
   "$id": "https://github.com/fyrsmithlabs/contextd/schemas/mcp-tools.schema.json",
   "title": "contextd MCP Tools Schema",
   "description": "JSON Schema for all contextd MCP tool inputs/outputs and skill file format. Use @contextd-mcp-tools.schema.json for lazy loading reference.",
-  "version": "0.1.0",
+  "version": "0.3.0",
 
   "$defs": {
     "checkpoint_save_input": {
@@ -23,7 +23,7 @@
         "auto_created": { "type": "boolean", "description": "True if auto-created by system" },
         "metadata": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Additional metadata" }
       },
-      "required": ["session_id", "tenant_id", "project_path", "name", "description", "summary", "context", "full_state", "token_count", "threshold", "auto_created"]
+      "required": ["session_id", "tenant_id", "project_path"]
     },
 
     "checkpoint_save_output": {
@@ -184,6 +184,28 @@
       "required": ["memory_id", "new_confidence", "helpful"]
     },
 
+    "memory_outcome_input": {
+      "type": "object",
+      "description": "Input for memory_outcome tool - records whether a memory led to successful outcome",
+      "properties": {
+        "memory_id": { "type": "string", "description": "Memory ID to record outcome for" },
+        "succeeded": { "type": "boolean", "description": "Whether the memory led to a successful outcome" },
+        "session_id": { "type": "string", "description": "Session ID where outcome was observed" }
+      },
+      "required": ["memory_id", "succeeded"]
+    },
+
+    "memory_outcome_output": {
+      "type": "object",
+      "description": "Output from memory_outcome tool",
+      "properties": {
+        "recorded": { "type": "boolean", "description": "Whether outcome was recorded" },
+        "new_confidence": { "type": "number", "description": "Updated confidence after outcome" },
+        "message": { "type": "string", "description": "Result message" }
+      },
+      "required": ["recorded", "new_confidence", "message"]
+    },
+
     "remediation_search_input": {
       "type": "object",
       "description": "Input for remediation_search tool",
@@ -267,8 +289,8 @@
       "type": "object",
       "description": "Input for repository_index tool",
       "properties": {
-        "path": { "type": "string", "description": "Repository path to index" },
-        "tenant_id": { "type": "string", "description": "Tenant identifier (defaults to git username)" },
+        "path": { "type": "string", "description": "Repository path to index. SECURITY: Path must be within user home directory or an authorized project directory." },
+        "tenant_id": { "type": "string", "description": "Tenant identifier (defaults to tenant derived from git remote URL org/owner name)" },
         "branch": { "type": "string", "description": "Git branch to index (auto-detects if empty)" },
         "include_patterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to include (e.g. *.go)" },
         "exclude_patterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to exclude (e.g. vendor/**)" },
@@ -297,8 +319,8 @@
       "description": "Input for repository_search tool",
       "properties": {
         "query": { "type": "string", "description": "Semantic search query" },
-        "project_path": { "type": "string", "description": "Project path to search within" },
-        "tenant_id": { "type": "string", "description": "Tenant identifier (defaults to git username)" },
+        "project_path": { "type": "string", "description": "Project path to search within. SECURITY: Path must be within user home directory or an authorized project directory." },
+        "tenant_id": { "type": "string", "description": "Tenant identifier (defaults to tenant derived from git remote URL org/owner name)" },
         "branch": { "type": "string", "description": "Filter by branch (empty = all branches)" },
         "limit": { "type": "integer", "default": 10, "description": "Maximum results (default: 10)" }
       },
@@ -460,6 +482,13 @@
           "properties": {
             "input": { "$ref": "#/$defs/memory_feedback_input" },
             "output": { "$ref": "#/$defs/memory_feedback_output" }
+          }
+        },
+        "memory_outcome": {
+          "type": "object",
+          "properties": {
+            "input": { "$ref": "#/$defs/memory_outcome_input" },
+            "output": { "$ref": "#/$defs/memory_outcome_output" }
           }
         },
         "remediation_search": {
