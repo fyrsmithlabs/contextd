@@ -1,0 +1,19 @@
+{
+  "name": "contextd",
+  "owner": {
+    "name": "FyrSmith Labs",
+    "email": "contact@fyrsmithlabs.com"
+  },
+  "metadata": {
+    "description": "Cross-session memory and context management for AI agents",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "contextd",
+      "source": "./",
+      "description": "Cross-session memory, checkpoints, and error remediation for AI agents",
+      "version": "0.3.0"
+    }
+  ]
+}

@@ -24,6 +24,7 @@
     "./commands/diagnose.md",
     "./commands/help.md",
     "./commands/init.md",
+    "./commands/install.md",
     "./commands/onboard.md",
     "./commands/remember.md",
     "./commands/resume.md",
@@ -33,11 +34,5 @@
   ],
   "agents": [
     "./agents/contextd-task-executor.md"
-  ],
-  "mcpServers": {
-    "contextd": {
-      "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/contextd-wrapper.sh"
-    }
-  }
+  ]
 }
