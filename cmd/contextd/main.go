@@ -55,6 +55,7 @@ func run() error {
 	showVersion := flag.Bool("version", false, "show version information")
 	httpPort := flag.Int("http-port", 0, "HTTP server port (overrides config, default: 9090)")
 	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
+	noHTTP := flag.Bool("no-http", false, "disable HTTP server (allows multiple instances)")
 	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
 	downloadModels := flag.Bool("download-models", false, "download embedding models and exit (for airgap/container builds)")
 	flag.Parse()
@@ -289,40 +290,50 @@ func run() error {
 	logger.Info(ctx, "services registry initialized")
 
 	// ============================================================================
-	// Initialize HTTP Server
+	// Initialize HTTP Server (unless --no-http)
 	// ============================================================================
-	// Determine HTTP server configuration (flags override config)
-	httpServerHost := "localhost"
-	if *httpHost != "" {
-		httpServerHost = *httpHost
-	}
+	var httpSrv *httpserver.Server
+	var httpErrChan chan error
+	var httpServerHost string
+	var httpServerPort int
 
-	httpServerPort := cfg.Server.Port
-	if *httpPort != 0 {
-		httpServerPort = *httpPort
-	}
-
-	httpCfg := &httpserver.Config{
-		Host: httpServerHost,
-		Port: httpServerPort,
-	}
-
-	httpSrv, err := httpserver.NewServer(registry, logger.Underlying(), httpCfg)
-	if err != nil {
-		return fmt.Errorf("initializing HTTP server: %w", err)
-	}
-	logger.Info(ctx, "HTTP server initialized",
-		zap.String("host", httpServerHost),
-		zap.Int("port", httpServerPort),
-	)
-
-	// Start HTTP server in background goroutine
-	httpErrChan := make(chan error, 1)
-	go func() {
-		if err := httpSrv.Start(); err != nil {
-			httpErrChan <- fmt.Errorf("HTTP server error: %w", err)
+	if !*noHTTP {
+		// Determine HTTP server configuration (flags override config)
+		httpServerHost = "localhost"
+		if *httpHost != "" {
+			httpServerHost = *httpHost
 		}
-	}()
+
+		httpServerPort = cfg.Server.Port
+		if *httpPort != 0 {
+			httpServerPort = *httpPort
+		}
+
+		httpCfg := &httpserver.Config{
+			Host: httpServerHost,
+			Port: httpServerPort,
+		}
+
+		var err error
+		httpSrv, err = httpserver.NewServer(registry, logger.Underlying(), httpCfg)
+		if err != nil {
+			return fmt.Errorf("initializing HTTP server: %w", err)
+		}
+		logger.Info(ctx, "HTTP server initialized",
+			zap.String("host", httpServerHost),
+			zap.Int("port", httpServerPort),
+		)
+
+		// Start HTTP server in background goroutine
+		httpErrChan = make(chan error, 1)
+		go func() {
+			if err := httpSrv.Start(); err != nil {
+				httpErrChan <- fmt.Errorf("HTTP server error: %w", err)
+			}
+		}()
+	} else {
+		logger.Info(ctx, "HTTP server disabled (--no-http)")
+	}
 
 	// ============================================================================
 	// Initialize MCP Server (if all services available)
@@ -403,17 +414,33 @@ func run() error {
 		serviceStatus = append(serviceStatus, "reasoningbank:unavailable")
 	}
 
-	logger.Info(ctx, "contextd initialized",
-		zap.String("http_host", httpServerHost),
-		zap.Int("http_port", httpServerPort),
-		zap.Strings("services", serviceStatus),
-	)
+	if httpSrv != nil {
+		logger.Info(ctx, "contextd initialized",
+			zap.String("http_host", httpServerHost),
+			zap.Int("http_port", httpServerPort),
+			zap.Strings("services", serviceStatus),
+		)
+	} else {
+		logger.Info(ctx, "contextd initialized (HTTP disabled)",
+			zap.Strings("services", serviceStatus),
+		)
+	}
 
 	// Wait for shutdown signal, HTTP server error, or MCP server error
+	// Use a goroutine to forward httpErrChan to avoid nil channel select
+	combinedErrChan := make(chan error, 1)
+	if httpErrChan != nil {
+		go func() {
+			if err := <-httpErrChan; err != nil {
+				combinedErrChan <- err
+			}
+		}()
+	}
+
 	select {
 	case <-ctx.Done():
 		logger.Info(ctx, "shutdown signal received")
-	case err := <-httpErrChan:
+	case err := <-combinedErrChan:
 		logger.Error(ctx, "HTTP server error", zap.Error(err))
 		return err
 	case err, ok := <-mcpErrChan:
@@ -427,14 +454,16 @@ func run() error {
 
 	logger.Info(ctx, "shutting down contextd")
 
-	// Gracefully shutdown HTTP server
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer shutdownCancel()
+	// Gracefully shutdown HTTP server (if running)
+	if httpSrv != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+		defer shutdownCancel()
 
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		logger.Error(ctx, "HTTP server shutdown error", zap.Error(err))
-	} else {
-		logger.Info(ctx, "HTTP server stopped")
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Error(ctx, "HTTP server shutdown error", zap.Error(err))
+		} else {
+			logger.Info(ctx, "HTTP server stopped")
+		}
 	}
 
 	logger.Info(ctx, "contextd stopped")

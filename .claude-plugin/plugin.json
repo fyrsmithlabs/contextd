@@ -18,13 +18,5 @@
   ],
   "mcp": {
     "setup": "./mcp-setup.sh"
-  },
-  "variants": {
-    "docker": {
-      "description": "Run contextd via Docker container (recommended for isolation and Windows support)",
-      "mcp": {
-        "setup": "./mcp-setup-docker.sh"
-      }
-    }
   }
 }

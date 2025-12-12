@@ -32,22 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commands now reference shared `@_error-handling.md` for consistent error handling
 - Fixed `@kinney-guide.md` import to use explicit relative path `@./kinney-guide.md`
 - **Auto-checkpoint now supports meaningful summaries**
-- **Plugin now supports Docker variant**: `/plugin install contextd:docker@fyrsmithlabs/contextd`
-  - `marketplace.json` updated with `mcpServers` auto-configuration for both binary and Docker
-  - Docker variant supports all platforms including Windows
   - `POST /api/v1/threshold` accepts `summary`, `context`, and `project_path` fields
   - PreCompact hook now instructs Claude to call `checkpoint_save` with proper context
   - Checkpoint name derived from summary (first 50 chars) instead of generic "Auto-checkpoint at 70%"
   - `checkpoint-workflow` skill updated with auto-checkpoint guidance and examples
-- **Docker variant redesigned for persistent container architecture**
-  - Persistent `contextd-server` container shared across all Claude Code sessions
-  - Eliminates 500-2000ms startup overhead per tool call (embedding model stays loaded)
-  - Auto-restarts on Docker/system restart (`--restart unless-stopped`)
-  - Resource limits: 2GB RAM, 2 CPUs
-  - Non-root execution via `--user $(id -u):$(id -g)`
-  - Home directory mounted read-only for repository indexing
-  - Wrapper script `~/.local/bin/contextd-docker` ensures container is running
-  - Input validation on `CONTEXTD_VERSION` environment variable
+- **Plugin simplified to native binary only** (Docker variant removed)
+  - Plugin uses `--mcp --no-http` flags by default for multi-session support
+  - Docker documentation moved to `docs/DOCKER.md` for manual setup
+- **Added `--no-http` flag** to disable HTTP server
+  - Allows multiple Claude Code sessions to run contextd simultaneously
+  - Resolves "address already in use" port 9090 conflicts
+  - HTTP server disabled by default in plugin configuration
 
 ### Improved
 - UX/Documentation improvements across claude-plugin skills:

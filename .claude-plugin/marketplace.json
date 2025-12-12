@@ -12,7 +12,7 @@
     {
       "name": "contextd",
       "source": "./",
-      "description": "Cross-session memory, checkpoint save/resume, and error remediation tracking for AI agents. Uses semantic search over past learnings to provide relevant context.",
+      "description": "Cross-session memory, checkpoint save/resume, and error remediation tracking for AI agents. Uses semantic search over past learnings to provide relevant context. Requires contextd binary - install via Homebrew (brew install fyrsmithlabs/tap/contextd) or download from GitHub releases.",
       "version": "0.2.0",
       "author": {
         "name": "FyrSmith Labs",
@@ -36,75 +36,8 @@
         "contextd": {
           "type": "stdio",
           "command": "contextd",
-          "args": [],
+          "args": ["--mcp", "--no-http"],
           "env": {}
-        }
-      },
-      "setup": {
-        "instructions": "Run the setup script to download and install contextd for your platform. Windows is not yet supported - see releases page for manual installation.",
-        "script": "./mcp-setup.sh",
-        "platforms": {
-          "darwin-arm64": {
-            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
-          },
-          "darwin-amd64": {
-            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
-          },
-          "linux-amd64": {
-            "url": "https://github.com/fyrsmithlabs/contextd/releases/latest"
-          }
-        },
-        "unsupported_platforms": {
-          "windows": {
-            "message": "Windows is not yet supported via the automated installer. Visit https://github.com/fyrsmithlabs/contextd/releases/latest to download manually."
-          }
-        }
-      }
-    },
-    {
-      "name": "contextd:docker",
-      "source": "./",
-      "description": "Cross-session memory and context management for AI agents (Docker variant). Runs in a persistent container for better isolation, cross-platform support, and fast tool calls.",
-      "version": "0.2.0",
-      "author": {
-        "name": "FyrSmith Labs",
-        "email": "contact@fyrsmithlabs.com"
-      },
-      "homepage": "https://github.com/fyrsmithlabs/contextd",
-      "repository": "https://github.com/fyrsmithlabs/contextd",
-      "license": "MIT",
-      "keywords": [
-        "mcp",
-        "memory",
-        "context",
-        "checkpoint",
-        "ai-agent",
-        "semantic-search",
-        "remediation",
-        "docker"
-      ],
-      "category": "productivity",
-      "strict": false,
-      "mcpServers": {
-        "contextd": {
-          "type": "stdio",
-          "command": "${HOME}/.local/bin/contextd-docker",
-          "args": [],
-          "env": {}
-        }
-      },
-      "setup": {
-        "instructions": "Requires Docker to be installed and running. The setup script creates a persistent container 'contextd-server' shared across all Claude Code sessions.",
-        "script": "./mcp-setup-docker.sh",
-        "platforms": {
-          "darwin-arm64": {},
-          "darwin-amd64": {},
-          "linux-amd64": {},
-          "linux-arm64": {},
-          "windows-amd64": {}
-        },
-        "requirements": {
-          "docker": "Docker must be installed and running"
         }
       }
     }
