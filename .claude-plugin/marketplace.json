@@ -10,9 +10,9 @@
   },
   "plugins": [
     {
-      "name": "contextd",
+      "name": "contextd-mcp",
       "source": "./",
-      "description": "Cross-session memory, checkpoint save/resume, and error remediation tracking for AI agents. Uses semantic search over past learnings to provide relevant context. Requires contextd binary - install via Homebrew (brew install fyrsmithlabs/tap/contextd) or download from GitHub releases.",
+      "description": "MCP server for cross-session memory, checkpoints, and error remediation. Requires contextd binary - install via Homebrew (brew install fyrsmithlabs/tap/contextd) or download from GitHub releases.",
       "version": "0.2.0",
       "author": {
         "name": "FyrSmith Labs",
