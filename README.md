@@ -83,12 +83,27 @@ After installation, restart Claude Code to activate.
 
 The Docker image includes everything: ContextD with embedded chromem vectorstore and FastEmbed embeddings (zero external dependencies).
 
+**Quick Setup (Persistent Container):**
+
 ```bash
-# Pull the latest image
+# Pull image
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
+
+# Create persistent container (shared across all sessions)
+docker run -d \
+  --name contextd-server \
+  --restart unless-stopped \
+  --memory=2g \
+  --cpus=2 \
+  --user "$(id -u):$(id -g)" \
+  -v contextd-data:/data \
+  -v "${HOME}:${HOME}:ro" \
+  -w "${HOME}" \
+  ghcr.io/fyrsmithlabs/contextd:latest \
+  tail -f /dev/null
 ```
 
-Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
+Add to your Claude Code MCP config (`~/.claude.json`):
 
 ```json
 {
@@ -97,16 +112,9 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
       "type": "stdio",
       "command": "docker",
       "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-v",
-        "contextd-data:/data",
-        "-v",
-        "${PWD}:${PWD}",
-        "-w",
-        "${PWD}",
-        "ghcr.io/fyrsmithlabs/contextd:latest"
+        "exec", "-i", "-w", "${PWD}",
+        "contextd-server",
+        "contextd", "-mcp"
       ],
       "env": {}
     }
@@ -114,9 +122,17 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
 }
 ```
 
-> **Note:** The `${PWD}:${PWD}` mount makes the current project directory accessible to contextd for `repository_index`. Data persists in the `contextd-data` volume.
+> **Why persistent?** contextd is designed for cross-session memory. A persistent container avoids 500-2000ms startup overhead per tool call and keeps the embedding model loaded.
 
-Restart Claude Code. That's it.
+**Container Management:**
+```bash
+docker stop contextd-server   # Stop
+docker start contextd-server  # Start
+docker logs contextd-server   # View logs
+docker rm -f contextd-server  # Remove (data preserved in volume)
+```
+
+Restart Claude Code to activate.
 
 ### Using Homebrew (macOS/Linux)
 

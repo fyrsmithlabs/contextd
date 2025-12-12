@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PreCompact hook now instructs Claude to call `checkpoint_save` with proper context
   - Checkpoint name derived from summary (first 50 chars) instead of generic "Auto-checkpoint at 70%"
   - `checkpoint-workflow` skill updated with auto-checkpoint guidance and examples
+- **Docker variant redesigned for persistent container architecture**
+  - Persistent `contextd-server` container shared across all Claude Code sessions
+  - Eliminates 500-2000ms startup overhead per tool call (embedding model stays loaded)
+  - Auto-restarts on Docker/system restart (`--restart unless-stopped`)
+  - Resource limits: 2GB RAM, 2 CPUs
+  - Non-root execution via `--user $(id -u):$(id -g)`
+  - Home directory mounted read-only for repository indexing
+  - Wrapper script `~/.local/bin/contextd-docker` ensures container is running
+  - Input validation on `CONTEXTD_VERSION` environment variable
 
 ### Improved
 - UX/Documentation improvements across claude-plugin skills:

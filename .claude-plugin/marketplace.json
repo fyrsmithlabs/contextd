@@ -64,7 +64,7 @@
     {
       "name": "contextd:docker",
       "source": "./",
-      "description": "Cross-session memory and context management for AI agents (Docker variant). Runs in a container for better isolation and cross-platform support.",
+      "description": "Cross-session memory and context management for AI agents (Docker variant). Runs in a persistent container for better isolation, cross-platform support, and fast tool calls.",
       "version": "0.2.0",
       "author": {
         "name": "FyrSmith Labs",
@@ -88,24 +88,13 @@
       "mcpServers": {
         "contextd": {
           "type": "stdio",
-          "command": "docker",
-          "args": [
-            "run",
-            "-i",
-            "--rm",
-            "-v",
-            "contextd-data:/data",
-            "-v",
-            "${PWD}:${PWD}",
-            "-w",
-            "${PWD}",
-            "ghcr.io/fyrsmithlabs/contextd:latest"
-          ],
+          "command": "${HOME}/.local/bin/contextd-docker",
+          "args": [],
           "env": {}
         }
       },
       "setup": {
-        "instructions": "Requires Docker to be installed and running. The setup script will pull the contextd Docker image.",
+        "instructions": "Requires Docker to be installed and running. The setup script creates a persistent container 'contextd-server' shared across all Claude Code sessions.",
         "script": "./mcp-setup-docker.sh",
         "platforms": {
           "darwin-arm64": {},
