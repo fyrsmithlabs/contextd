@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Progress bar during download
     - Network timeouts (30s API, 60s download) prevent infinite hangs
     - Empty version validation with actionable error message
-    - Platform-specific error messages (brew for macOS, GitHub/go install for Linux)
+    - Consistent error messages with brew (works on macOS and Linux) + GitHub fallback
     - PATH warning when `~/.local/bin` not in PATH
     - Extracted binary validation before move
     - Signal trap cleanup (INT, TERM, EXIT)

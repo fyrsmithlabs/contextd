@@ -33,34 +33,21 @@ get_latest_version() {
     | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
-# Show platform-appropriate install instructions
+# Show install instructions
 show_install_help() {
-  local platform="$1"
   echo "" >&2
   echo "Please install manually:" >&2
-  case "${platform}" in
-    darwin_*)
-      echo "  brew install fyrsmithlabs/tap/contextd" >&2
-      ;;
-    linux_*)
-      echo "  # Download from GitHub releases:" >&2
-      echo "  https://github.com/fyrsmithlabs/contextd/releases/latest" >&2
-      echo "" >&2
-      echo "  # Or build from source:" >&2
-      echo "  go install github.com/fyrsmithlabs/contextd/cmd/contextd@latest" >&2
-      ;;
-    *)
-      echo "  https://github.com/fyrsmithlabs/contextd/releases/latest" >&2
-      ;;
-  esac
+  echo "  brew install fyrsmithlabs/tap/contextd" >&2
+  echo "" >&2
+  echo "  # Or download from GitHub releases:" >&2
+  echo "  https://github.com/fyrsmithlabs/contextd/releases/latest" >&2
 }
 
 # Download and install contextd
 install_contextd() {
-  local platform version version_no_v url temp_dir os
+  local platform version version_no_v url temp_dir
 
   platform="$(detect_platform)"
-  os="${platform%%_*}"
 
   echo "⏳ Checking latest contextd version..." >&2
 
@@ -70,7 +57,7 @@ install_contextd() {
       echo "❌ Failed to get latest version from GitHub API" >&2
       echo "   This may be due to rate limiting or network issues." >&2
       echo "   Try setting CONTEXTD_VERSION=v0.2.0-rc7 (or desired version)" >&2
-      show_install_help "${platform}"
+      show_install_help
       exit 1
     fi
   else
@@ -100,14 +87,14 @@ install_contextd() {
        --progress-bar "${url}" | tar -xz -C "${temp_dir}"; then
     echo "" >&2
     echo "❌ Failed to download contextd" >&2
-    show_install_help "${platform}"
+    show_install_help
     exit 1
   fi
 
   # Verify binary was extracted
   if [ ! -f "${temp_dir}/contextd" ]; then
     echo "❌ Downloaded archive does not contain contextd binary" >&2
-    show_install_help "${platform}"
+    show_install_help
     exit 1
   fi
 
