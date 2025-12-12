@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `repository-search` skill in claude-plugin
+- **PreCompact hook for auto-checkpoint** - saves checkpoint before context compaction
+- `/contextd:install` command for guided MCP server installation (homebrew, binary, docker)
+
+### Changed
+- **Plugin restructured for marketplace distribution**
+  - marketplace.json uses object format for GitHub source: `{"source": "github", "repo": "fyrsmithlabs/contextd"}`
+  - All paths in plugin.json prefixed with `.claude-plugin/` for external source resolution
+  - hooks.json paths use `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/` format
+  - MCP server installation separated from plugin (manual via `/contextd:install` or homebrew)
+
+### Fixed
+- Path resolution for external GitHub source plugins (paths resolve from repo root, not .claude-plugin/)
+
+### Added (continued)
   - Documents semantic code search that finds code by meaning, not keywords
   - Covers `repository_index` and `repository_search` tool usage
   - Includes query writing tips and common mistakes
