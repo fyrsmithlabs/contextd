@@ -96,7 +96,9 @@
             "-v",
             "contextd-data:/data",
             "-v",
-            "${HOME}:${HOME}",
+            "${PWD}:${PWD}",
+            "-w",
+            "${PWD}",
             "ghcr.io/fyrsmithlabs/contextd:latest"
           ],
           "env": {}

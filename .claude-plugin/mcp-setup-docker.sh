@@ -73,7 +73,9 @@ generate_mcp_config() {
       "-v",
       "contextd-data:/data",
       "-v",
-      "\${HOME}:\${HOME}",
+      "\${PWD}:\${PWD}",
+      "-w",
+      "\${PWD}",
       "$image"
     ],
     "env": {}

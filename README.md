@@ -103,7 +103,9 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
         "-v",
         "contextd-data:/data",
         "-v",
-        "${HOME}:${HOME}",
+        "${PWD}:${PWD}",
+        "-w",
+        "${PWD}",
         "ghcr.io/fyrsmithlabs/contextd:latest"
       ],
       "env": {}
@@ -112,7 +114,7 @@ Add to your Claude Code MCP config (`~/.claude.json` or Claude Desktop config):
 }
 ```
 
-> **Note:** The `${HOME}:${HOME}` mount allows contextd to index repositories in your home directory.
+> **Note:** The `${PWD}:${PWD}` mount makes the current project directory accessible to contextd for `repository_index`. Data persists in the `contextd-data` volume.
 
 Restart Claude Code. That's it.
 
