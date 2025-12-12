@@ -1,4 +1,9 @@
-Install the contextd MCP server.
+Install the contextd MCP server and ctxd CLI.
+
+## What Gets Installed
+
+- **contextd** - MCP server for Claude Code integration
+- **ctxd** - CLI tool for manual operations (scrub, init, health checks)
 
 ## Step 1: Choose Installation Method
 
@@ -24,6 +29,7 @@ brew install fyrsmithlabs/tap/contextd
 Verify installation:
 ```bash
 contextd --version
+ctxd --version
 ```
 
 ### If Binary selected:
@@ -36,13 +42,14 @@ contextd --version
 2. Extract and move to PATH:
    ```bash
    tar -xzf contextd_*.tar.gz
-   chmod +x contextd
-   mv contextd ~/.local/bin/  # or /usr/local/bin/
+   chmod +x contextd ctxd
+   mv contextd ctxd ~/.local/bin/  # or /usr/local/bin/
    ```
 
 3. Verify:
    ```bash
    contextd --version
+   ctxd --version
    ```
 
 ### If Docker selected:
@@ -50,6 +57,8 @@ contextd --version
 ```bash
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
 ```
+
+Note: Docker only includes `contextd`. For `ctxd` CLI, use Homebrew or Binary install.
 
 ---
 
