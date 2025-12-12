@@ -60,6 +60,62 @@
           }
         }
       }
+    },
+    {
+      "name": "contextd:docker",
+      "source": "./",
+      "description": "Cross-session memory and context management for AI agents (Docker variant). Runs in a container for better isolation and cross-platform support.",
+      "version": "0.2.0",
+      "author": {
+        "name": "FyrSmith Labs",
+        "email": "contact@fyrsmithlabs.com"
+      },
+      "homepage": "https://github.com/fyrsmithlabs/contextd",
+      "repository": "https://github.com/fyrsmithlabs/contextd",
+      "license": "MIT",
+      "keywords": [
+        "mcp",
+        "memory",
+        "context",
+        "checkpoint",
+        "ai-agent",
+        "semantic-search",
+        "remediation",
+        "docker"
+      ],
+      "category": "productivity",
+      "strict": false,
+      "mcpServers": {
+        "contextd": {
+          "type": "stdio",
+          "command": "docker",
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-v",
+            "contextd-data:/data",
+            "-v",
+            "${HOME}:${HOME}",
+            "ghcr.io/fyrsmithlabs/contextd:latest"
+          ],
+          "env": {}
+        }
+      },
+      "setup": {
+        "instructions": "Requires Docker to be installed and running. The setup script will pull the contextd Docker image.",
+        "script": "./mcp-setup-docker.sh",
+        "platforms": {
+          "darwin-arm64": {},
+          "darwin-amd64": {},
+          "linux-amd64": {},
+          "linux-arm64": {},
+          "windows-amd64": {}
+        },
+        "requirements": {
+          "docker": "Docker must be installed and running"
+        }
+      }
     }
   ]
 }

@@ -56,7 +56,30 @@ ContextD is in active development. Here's what works today:
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Using Claude Code Plugin (Easiest)
+
+Install contextd directly in Claude Code using the plugin system:
+
+```bash
+# Install binary (downloads to ~/.local/bin)
+/plugin install contextd@fyrsmithlabs/contextd
+
+# OR install Docker variant (uses container)
+/plugin install contextd:docker@fyrsmithlabs/contextd
+```
+
+The plugin automatically:
+- Downloads the appropriate binary for your OS/architecture (or pulls Docker image)
+- Configures MCP settings
+- Sets up the contextd server
+
+After installation, restart Claude Code to activate.
+
+> **Note:** The default install downloads a native binary (~15MB). Use the `:docker` variant if you prefer container isolation or have issues with the binary.
+
+---
+
+### Using Docker (Recommended for Manual Setup)
 
 The Docker image includes everything: ContextD with embedded chromem vectorstore and FastEmbed embeddings (zero external dependencies).
 

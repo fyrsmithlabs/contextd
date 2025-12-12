@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commands now reference shared `@_error-handling.md` for consistent error handling
 - Fixed `@kinney-guide.md` import to use explicit relative path `@./kinney-guide.md`
 - **Auto-checkpoint now supports meaningful summaries**
+- **Plugin now supports Docker variant**: `/plugin install contextd:docker@fyrsmithlabs/contextd`
+  - `marketplace.json` updated with `mcpServers` auto-configuration for both binary and Docker
+  - Docker variant supports all platforms including Windows
   - `POST /api/v1/threshold` accepts `summary`, `context`, and `project_path` fields
   - PreCompact hook now instructs Claude to call `checkpoint_save` with proper context
   - Checkpoint name derived from summary (first 50 chars) instead of generic "Auto-checkpoint at 70%"
