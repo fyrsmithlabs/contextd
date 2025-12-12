@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
@@ -73,7 +74,7 @@ func TestIndexRepository_UsesCodebaseCollection(t *testing.T) {
 	}
 
 	// Collection should be {tenant}_{project}_codebase
-	projectName := sanitizeProjectName(filepath.Base(tmpDir))
+	projectName := sanitize.Identifier(filepath.Base(tmpDir))
 	expectedCollection := fmt.Sprintf("testuser_%s_codebase", projectName)
 
 	if store.lastCollection != expectedCollection {
@@ -321,7 +322,7 @@ func TestSearch_ReturnsBranchInResults(t *testing.T) {
 
 // ===== TESTS: COLLECTION NAMING =====
 
-func TestSanitizeProjectName(t *testing.T) {
+func TestSanitizeIdentifier(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
@@ -331,8 +332,8 @@ func TestSanitizeProjectName(t *testing.T) {
 		{"contextd-v2", "contextd_v2"},
 		{"PROJECT_NAME", "project_name"},
 		{"test.project.name", "test_project_name"},
-		{"", "project"},
-		{"---", "project"},
+		{"", "default"},    // sanitize.Identifier returns "default" for empty
+		{"---", "default"}, // all invalid chars -> default
 		{"123", "123"},
 		{"a__b__c", "a_b_c"},
 		// Tenant ID patterns (github.com/user format)
@@ -343,9 +344,9 @@ func TestSanitizeProjectName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := sanitizeProjectName(tt.input)
+			result := sanitize.Identifier(tt.input)
 			if result != tt.expected {
-				t.Errorf("sanitizeProjectName(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("sanitize.Identifier(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

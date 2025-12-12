@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
@@ -99,12 +100,9 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 		limit = 10
 	}
 
-	// Build collection name for codebase
+	// Build collection name for codebase using shared sanitize package
 	// Format: {tenant}_{project}_codebase (matches spec)
-	// Sanitize tenant ID to match collection name requirements (^[a-z0-9_]{1,64}$)
-	sanitizedTenant := sanitizeProjectName(opts.TenantID)
-	projectName := sanitizeProjectName(filepath.Base(opts.ProjectPath))
-	collectionName := fmt.Sprintf("%s_%s_codebase", sanitizedTenant, projectName)
+	collectionName := sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
 
 	// Build filters
 	filters := make(map[string]interface{})
@@ -189,11 +187,13 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 		branch = detectGitBranch(cleanPath)
 	}
 
-	// Build collection name: {tenant}_{project}_codebase
-	// Sanitize tenant ID to match collection name requirements (^[a-z0-9_]{1,64}$)
-	sanitizedTenant := sanitizeProjectName(tenantID)
-	projectName := sanitizeProjectName(filepath.Base(cleanPath))
-	collectionName := fmt.Sprintf("%s_%s_codebase", sanitizedTenant, projectName)
+	// Build collection name using shared sanitize package
+	// Format: {tenant}_{project}_codebase
+	projectName := filepath.Base(cleanPath)
+	collectionName := sanitize.CollectionName(tenantID, projectName, "codebase")
+
+	// Sanitize tenant ID for metadata consistency (store what we use for lookups)
+	sanitizedTenant := sanitize.Identifier(tenantID)
 
 	// Collect documents to index
 	var docs []vectorstore.Document
@@ -258,7 +258,7 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 				"extension":    filepath.Ext(relPath),
 				"branch":       branch,
 				"project_path": cleanPath,
-				"tenant_id":    tenantID,
+				"tenant_id":    sanitizedTenant, // Use sanitized for consistency with collection name
 				"indexed_at":   time.Now().UTC().Format(time.RFC3339),
 			},
 		}
@@ -327,29 +327,6 @@ func detectGitBranch(path string) string {
 	return "unknown"
 }
 
-// sanitizeProjectName converts a project name to a valid collection name component.
-// Converts to lowercase, replaces invalid chars with underscores.
-func sanitizeProjectName(name string) string {
-	name = strings.ToLower(name)
-	var result strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
-			result.WriteRune(r)
-		} else {
-			result.WriteRune('_')
-		}
-	}
-	// Trim leading/trailing underscores and collapse multiple underscores
-	s := result.String()
-	for strings.Contains(s, "__") {
-		s = strings.ReplaceAll(s, "__", "_")
-	}
-	s = strings.Trim(s, "_")
-	if s == "" {
-		s = "project"
-	}
-	return s
-}
 
 // validatePath validates and cleans a file path.
 func validatePath(path string) (string, error) {

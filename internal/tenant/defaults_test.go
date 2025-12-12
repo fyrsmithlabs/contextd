@@ -2,6 +2,8 @@ package tenant
 
 import (
 	"testing"
+
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 )
 
 func TestGetDefaultTenantID(t *testing.T) {
@@ -28,14 +30,14 @@ func TestSanitizeIdentifier(t *testing.T) {
 		{"john_doe", "john_doe"},
 		{"john123", "john123"},
 		{"testuser", "testuser"},
-		{"", "local"},
+		{"", "default"}, // sanitize.Identifier returns "default" for empty
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := sanitizeIdentifier(tt.input)
+			result := sanitize.Identifier(tt.input)
 			if result != tt.expected {
-				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("sanitize.Identifier(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -128,13 +130,12 @@ func TestSanitizeIdentifier_EdgeCases(t *testing.T) {
 		input    string
 		expected string
 	}{
-		// sanitizeIdentifier only keeps lowercase letters, numbers, and underscores
-		// It does NOT convert to lowercase - that's done by caller
-		{"uppercase letters", "JohnDoe", "ohnoe"}, // J and D are uppercase, filtered out
-		{"special characters", "john-doe@example.com", "johndoeexamplecom"},
-		{"spaces", "John Doe", "ohnoe"},          // Uppercase and spaces filtered
-		{"mixed", "John_Doe-123!", "ohn_oe123"}, // Uppercase letters filtered
-		{"all invalid", "!@#$%", "local"},
+		// sanitize.Identifier converts to lowercase AND replaces invalid chars
+		{"uppercase letters", "JohnDoe", "johndoe"},
+		{"special characters", "john-doe@example.com", "john_doe_example_com"},
+		{"spaces", "John Doe", "john_doe"},
+		{"mixed", "John_Doe-123!", "john_doe_123"},
+		{"all invalid", "!@#$%", "default"},
 		{"numbers only", "12345", "12345"},
 		{"underscores", "test_user_123", "test_user_123"},
 		{"already sanitized", "test_collection_1", "test_collection_1"},
@@ -142,9 +143,9 @@ func TestSanitizeIdentifier_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sanitizeIdentifier(tt.input)
+			result := sanitize.Identifier(tt.input)
 			if result != tt.expected {
-				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("sanitize.Identifier(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
