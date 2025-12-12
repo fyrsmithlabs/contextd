@@ -328,6 +328,7 @@ func run() error {
 	// Initialize MCP Server (if all services available)
 	// ============================================================================
 	var mcpServer *mcp.Server
+	var mcpErrChan chan error
 	if *mcpMode {
 		// MCP mode requires all services
 		if checkpointSvc == nil || remediationSvc == nil || repositorySvc == nil ||
@@ -364,11 +365,14 @@ func run() error {
 
 		logger.Info(ctx, "MCP server initialized, starting stdio transport")
 
-		// Run MCP server (blocks until context is cancelled)
-		if err := mcpServer.Run(ctx); err != nil {
-			return fmt.Errorf("MCP server error: %w", err)
-		}
-		return nil
+		// Run MCP server in background goroutine (no longer blocks)
+		mcpErrChan = make(chan error, 1)
+		go func() {
+			if err := mcpServer.Run(ctx); err != nil {
+				mcpErrChan <- fmt.Errorf("MCP server error: %w", err)
+			}
+			close(mcpErrChan)
+		}()
 	}
 
 	// Log service availability summary
@@ -405,13 +409,20 @@ func run() error {
 		zap.Strings("services", serviceStatus),
 	)
 
-	// Wait for shutdown signal or HTTP server error
+	// Wait for shutdown signal, HTTP server error, or MCP server error
 	select {
 	case <-ctx.Done():
 		logger.Info(ctx, "shutdown signal received")
 	case err := <-httpErrChan:
 		logger.Error(ctx, "HTTP server error", zap.Error(err))
 		return err
+	case err, ok := <-mcpErrChan:
+		if ok && err != nil {
+			logger.Error(ctx, "MCP server error", zap.Error(err))
+			return err
+		}
+		// MCP server exited cleanly (e.g., stdin closed)
+		logger.Info(ctx, "MCP server exited")
 	}
 
 	logger.Info(ctx, "shutting down contextd")
