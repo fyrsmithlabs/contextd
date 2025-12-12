@@ -34,5 +34,6 @@
   ],
   "agents": [
     "./agents/contextd-task-executor.md"
-  ]
+  ],
+  "hooks": "./hooks/hooks.json"
 }
