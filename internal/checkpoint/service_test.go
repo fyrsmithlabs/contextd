@@ -378,3 +378,82 @@ func TestService_Close(t *testing.T) {
 	_, err = svc.Save(context.Background(), &SaveRequest{TenantID: "t1"})
 	assert.Error(t, err)
 }
+
+// TestService_ListFiltersProjectPath verifies that List() correctly filters by project_path,
+// preventing checkpoints from one project leaking into queries for another project.
+// This is a regression test for a critical data isolation bug.
+func TestService_ListFiltersProjectPath(t *testing.T) {
+	store := newMockStore()
+	logger := zap.NewNop()
+	svc, err := NewService(nil, store, logger)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	ctx := context.Background()
+
+	// Save checkpoints for project A
+	_, err = svc.Save(ctx, &SaveRequest{
+		SessionID:   "sess-1",
+		TenantID:    "tenant-1",
+		ProjectPath: "/home/user/project-a",
+		Name:        "Project A Checkpoint 1",
+		Summary:     "Work on project A",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Save(ctx, &SaveRequest{
+		SessionID:   "sess-1",
+		TenantID:    "tenant-1",
+		ProjectPath: "/home/user/project-a",
+		Name:        "Project A Checkpoint 2",
+		Summary:     "More work on project A",
+	})
+	require.NoError(t, err)
+
+	// Save checkpoints for project B
+	_, err = svc.Save(ctx, &SaveRequest{
+		SessionID:   "sess-2",
+		TenantID:    "tenant-1",
+		ProjectPath: "/home/user/project-b",
+		Name:        "Project B Checkpoint",
+		Summary:     "Work on project B",
+	})
+	require.NoError(t, err)
+
+	// List checkpoints for project A only - should NOT include project B's checkpoint
+	listReqA := &ListRequest{
+		TenantID:    "tenant-1",
+		ProjectPath: "/home/user/project-a",
+		Limit:       10,
+	}
+
+	checkpointsA, err := svc.List(ctx, listReqA)
+	require.NoError(t, err)
+	assert.Len(t, checkpointsA, 2, "Should only return 2 checkpoints for project A")
+
+	for _, cp := range checkpointsA {
+		assert.Equal(t, "/home/user/project-a", cp.ProjectPath, "All checkpoints should be from project A")
+	}
+
+	// List checkpoints for project B only - should NOT include project A's checkpoints
+	listReqB := &ListRequest{
+		TenantID:    "tenant-1",
+		ProjectPath: "/home/user/project-b",
+		Limit:       10,
+	}
+
+	checkpointsB, err := svc.List(ctx, listReqB)
+	require.NoError(t, err)
+	assert.Len(t, checkpointsB, 1, "Should only return 1 checkpoint for project B")
+	assert.Equal(t, "/home/user/project-b", checkpointsB[0].ProjectPath)
+
+	// List all checkpoints (no project filter) - should return all 3
+	listReqAll := &ListRequest{
+		TenantID: "tenant-1",
+		Limit:    10,
+	}
+
+	checkpointsAll, err := svc.List(ctx, listReqAll)
+	require.NoError(t, err)
+	assert.Len(t, checkpointsAll, 3, "Should return all 3 checkpoints when no project filter")
+}

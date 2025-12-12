@@ -231,6 +231,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	span.SetAttributes(
 		attribute.String("tenant_id", req.TenantID),
 		attribute.String("session_id", req.SessionID),
+		attribute.String("project_path", req.ProjectPath),
 		attribute.Int("limit", req.Limit),
 	)
 
@@ -262,6 +263,9 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	filters := make(map[string]interface{})
 	if req.SessionID != "" {
 		filters["session_id"] = req.SessionID
+	}
+	if req.ProjectPath != "" {
+		filters["project_path"] = req.ProjectPath
 	}
 	if req.AutoOnly {
 		filters["auto_created"] = true
