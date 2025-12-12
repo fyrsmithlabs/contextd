@@ -6,13 +6,16 @@
   },
   "metadata": {
     "description": "Cross-session memory and context management for AI agents",
-    "version": "1.0.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "contextd",
-      "source": "./",
-      "description": "Cross-session memory, checkpoints, and error remediation for AI agents",
+      "source": {
+        "source": "github",
+        "repo": "fyrsmithlabs/contextd"
+      },
+      "description": "Skills, commands, and agents for contextd - cross-session memory, checkpoints, and error remediation. NOTE: The contextd MCP server must be installed separately via /contextd:install or brew install fyrsmithlabs/tap/contextd",
       "version": "0.3.0"
     }
   ]
