@@ -1,0 +1,42 @@
+{
+  "name": "@fyrsmithlabs/contextd-mcp",
+  "version": "0.2.0",
+  "description": "MCP server for cross-session memory, checkpoints, and error remediation for AI agents",
+  "main": "index.js",
+  "bin": {
+    "contextd-mcp": "./index.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai-agent",
+    "memory",
+    "context",
+    "checkpoint"
+  ],
+  "author": {
+    "name": "FyrSmith Labs",
+    "email": "contact@fyrsmithlabs.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fyrsmithlabs/contextd.git"
+  },
+  "homepage": "https://github.com/fyrsmithlabs/contextd",
+  "bugs": {
+    "url": "https://github.com/fyrsmithlabs/contextd/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.js",
+    "postinstall.js",
+    "bin/"
+  ]
+}

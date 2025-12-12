@@ -1,0 +1,4 @@
+# Don't include downloaded binaries in npm package
+bin/
+*.tgz
+.gitignore
