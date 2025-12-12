@@ -13,3 +13,8 @@ ctxd
 local_cache/
 internal/embeddings/local_cache/
 *.cache
+
+# Local config and test artifacts
+.mcp.json
+testagent
+test/
