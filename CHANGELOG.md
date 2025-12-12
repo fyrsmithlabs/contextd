@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Installs to `~/.local/bin/contextd` (or uses existing if in PATH)
   - Detects platform (darwin/linux, amd64/arm64) automatically
   - Checks if `--no-http` flag supported before using (backwards compatible)
+  - **UX improvements** (consensus review findings):
+    - Progress bar during download
+    - Network timeouts (30s API, 60s download) prevent infinite hangs
+    - Empty version validation with actionable error message
+    - Platform-specific error messages (brew for macOS, GitHub/go install for Linux)
+    - PATH warning when `~/.local/bin` not in PATH
+    - Extracted binary validation before move
+    - Signal trap cleanup (INT, TERM, EXIT)
 
 ### Improved
 - UX/Documentation improvements across claude-plugin skills:
