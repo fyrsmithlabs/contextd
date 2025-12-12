@@ -1,7 +1,7 @@
 # CLAUDE.md - contextd
 
 **Status**: Active Development (Phase 5 complete, Phase 6 pending)
-**Last Updated**: 2025-12-05
+**Last Updated**: 2025-12-11
 
 ---
 
@@ -11,7 +11,23 @@
 
 ---
 
-## ⚠️ CRITICAL: Update Claude Plugin on Changes (Priority #2)
+## ⚠️ CRITICAL: GitHub MCP over gh CLI (Priority #2)
+
+**ALWAYS use GitHub MCP tools (`mcp__github__*`) instead of `gh` CLI.**
+
+| Task | Use This | NOT This |
+|------|----------|----------|
+| Create PR | `mcp__github__create_pull_request` | `gh pr create` |
+| List issues | `mcp__github__list_issues` | `gh issue list` |
+| Get PR details | `mcp__github__get_pull_request` | `gh pr view` |
+| Create branch | `mcp__github__create_branch` | `gh repo clone && git checkout -b` |
+| Search code | `mcp__github__search_code` | `gh search code` |
+
+**Why:** MCP tools are structured, faster, and don't require shell escaping.
+
+---
+
+## ⚠️ CRITICAL: Update Claude Plugin on Changes (Priority #3)
 
 **After ANY feature/fix/release, update the contextd-marketplace claude-plugin.**
 

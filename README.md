@@ -38,7 +38,7 @@ ContextD is in active development. Here's what works today:
 | **Cross-session Memory** | Record and retrieve learnings across sessions | Working |
 | **Checkpoints** | Save and resume context snapshots | Working |
 | **Remediation Tracking** | Store error patterns and fixes | Working |
-| **Secret Scrubbing** | Automatic detection via gitleaks | Working |
+| **Secret Scrubbing** | Automatic detection via gitleaks (contextd tools only*) | Working |
 | **Vector Search** | Semantic search via chromem (embedded) or Qdrant | Working |
 | **Local Embeddings** | FastEmbed with ONNX (no API calls) | Working |
 | **MCP Integration** | Works with Claude Code out of the box | Working |
