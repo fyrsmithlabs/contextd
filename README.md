@@ -72,6 +72,35 @@ Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/release
 
 ---
 
+## Daily Workflow
+
+After installation, here's how to use contextd:
+
+```
+1. Session Start
+   └─→ Memories auto-searched, checkpoints listed
+   └─→ Resume from checkpoint if offered
+
+2. During Work
+   └─→ /contextd:search <topic>     Find relevant memories
+   └─→ /contextd:diagnose <error>   Get help with errors
+   └─→ Semantic search with repository_search()
+
+3. Task Complete
+   └─→ /contextd:remember           Record what you learned
+
+4. Context High (70%+)
+   └─→ /contextd:checkpoint         Save session state
+   └─→ /clear                       Reset context
+   └─→ /contextd:resume             Continue where you left off
+
+5. New Project
+   └─→ /contextd:init               Setup new project
+   └─→ /contextd:onboard            Analyze existing codebase
+```
+
+---
+
 ## Plugin Commands
 
 | Command | Description |
