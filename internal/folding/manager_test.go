@@ -229,6 +229,26 @@ func TestBranchManager_ReturnScrubberFailure(t *testing.T) {
 	}
 }
 
+func TestBranchManager_ReturnNilScrubber(t *testing.T) {
+	// CORR-004: Verify fail-closed behavior when scrubber is nil
+	repo := NewMemoryBranchRepository()
+	emitter := NewSimpleEventEmitter()
+	budget := NewBudgetTracker(emitter)
+
+	// Manager with nil scrubber
+	manager := NewBranchManager(repo, budget, nil, emitter, nil)
+	ctx := context.Background()
+
+	// Create branch
+	createResp, _ := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
+
+	// Return - should fail closed (not leak unscrubbed content)
+	_, err := manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "secret content"})
+	if err != ErrScrubbingFailed {
+		t.Errorf("Return() with nil scrubber error = %v, want ErrScrubbingFailed", err)
+	}
+}
+
 func TestBranchManager_ReturnWithActiveChildren(t *testing.T) {
 	repo := NewMemoryBranchRepository()
 	emitter := NewSimpleEventEmitter()
@@ -466,5 +486,113 @@ func TestBranchManager_GetActive(t *testing.T) {
 	}
 	if active == nil {
 		t.Error("GetActive() = nil, want branch")
+	}
+}
+
+func TestBranchManager_Health(t *testing.T) {
+	manager, _, _ := newTestManager()
+	ctx := context.Background()
+
+	// Initial health should be healthy
+	health := manager.Health()
+	if !health.Healthy {
+		t.Error("Health.Healthy = false, want true")
+	}
+	if health.IsShutdown {
+		t.Error("Health.IsShutdown = true, want false")
+	}
+	if health.ActiveCount != 0 {
+		t.Errorf("Health.ActiveCount = %d, want 0", health.ActiveCount)
+	}
+
+	// Create a branch
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
+
+	// Health should show 1 active
+	health = manager.Health()
+	if health.ActiveCount != 1 {
+		t.Errorf("Health.ActiveCount = %d, want 1", health.ActiveCount)
+	}
+}
+
+func TestBranchManager_Shutdown(t *testing.T) {
+	manager, _, _ := newTestManager()
+	ctx := context.Background()
+
+	// Create a branch with a timeout
+	_, _ = manager.Create(ctx, BranchRequest{
+		SessionID:      "sess_001",
+		Description:    "test",
+		Prompt:         "test",
+		TimeoutSeconds: 300,
+	})
+
+	// Shutdown should succeed
+	err := manager.Shutdown(ctx)
+	if err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	// IsShutdown should return true
+	if !manager.IsShutdown() {
+		t.Error("IsShutdown() = false, want true")
+	}
+
+	// Health should show shutdown
+	health := manager.Health()
+	if !health.IsShutdown {
+		t.Error("Health.IsShutdown = false, want true")
+	}
+	if health.Healthy {
+		t.Error("Health.Healthy = true, want false after shutdown")
+	}
+
+	// Creating a branch should fail
+	_, err = manager.Create(ctx, BranchRequest{SessionID: "sess_002", Description: "test", Prompt: "test"})
+	if err == nil {
+		t.Error("Create() after shutdown should fail")
+	}
+}
+
+func TestBranchManager_ShutdownIdempotent(t *testing.T) {
+	manager, _, _ := newTestManager()
+	ctx := context.Background()
+
+	// Shutdown multiple times should be safe
+	err := manager.Shutdown(ctx)
+	if err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	err = manager.Shutdown(ctx)
+	if err != nil {
+		t.Fatalf("Second Shutdown() error = %v", err)
+	}
+}
+
+func TestBranchManager_WithOptions(t *testing.T) {
+	repo := NewMemoryBranchRepository()
+	emitter := NewSimpleEventEmitter()
+	budget := NewBudgetTracker(emitter)
+	scrubber := &MockScrubber{}
+	config := DefaultFoldingConfig()
+
+	// Create with custom metrics and logger
+	metrics, _ := NewMetrics(nil)
+	logger := NewLogger(nil)
+
+	manager := NewBranchManager(repo, budget, scrubber, emitter, config,
+		WithMetrics(metrics),
+		WithLogger(logger),
+	)
+
+	if manager == nil {
+		t.Fatal("NewBranchManager with options returned nil")
+	}
+
+	// Health should work
+	health := manager.Health()
+	if !health.Healthy {
+		t.Error("Health.Healthy = false, want true")
 	}
 }

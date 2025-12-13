@@ -57,10 +57,10 @@ func TestBranchJSONRoundtrip(t *testing.T) {
 
 func TestBranchStatusTransitions(t *testing.T) {
 	tests := []struct {
-		name   string
-		from   BranchStatus
-		to     BranchStatus
-		valid  bool
+		name  string
+		from  BranchStatus
+		to    BranchStatus
+		valid bool
 	}{
 		{"created to active", BranchStatusCreated, BranchStatusActive, true},
 		{"created to completed", BranchStatusCreated, BranchStatusCompleted, false},
