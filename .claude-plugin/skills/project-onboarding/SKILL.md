@@ -134,15 +134,33 @@ Transform linter rules into ALWAYS/NEVER constraints.
 | Missing version numbers | Extract from lockfiles |
 | Skipping CI/CD analysis | Always check .github/workflows |
 
+## Contextd Tools Used
+
+| Phase | Tool | Purpose |
+|-------|------|---------|
+| Start | `memory_search` | Check for existing project knowledge |
+| Start | `checkpoint_list` | Resume previous onboarding work |
+| Discovery | `repository_search` | Semantic code search (if indexed) |
+| Finish | `repository_index` | Index codebase for semantic search |
+| Finish | `memory_record` | Record onboarding findings |
+
+**Before onboarding:** Always search contextd first:
+```
+memory_search(project_id, "project onboarding patterns")
+checkpoint_list(tenant_id, project_path)
+```
+
 ## Onboarding Checklist
 
+- [ ] Search contextd for existing knowledge
 - [ ] Clone/access repository
 - [ ] Run Phase 1 discovery
 - [ ] Run Phase 2 pattern extraction
 - [ ] Generate CLAUDE.md draft
 - [ ] Verify commands work (`npm run build`, `make test`, etc.)
 - [ ] Present draft to user for validation
-- [ ] Record memory with project context
+- [ ] Index repository with `repository_index`
+- [ ] Record findings with `memory_record`
 
 ## Quick Reference
 

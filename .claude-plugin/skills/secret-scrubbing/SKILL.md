@@ -200,6 +200,28 @@ If ctxd CLI is unavailable, use curl with jq to wrap content as JSON:
 | `ctxd scrub -` | Scrub from stdin |
 | `curl localhost:9090/health` | Direct health check |
 
+## Contextd Integration
+
+**If secrets are accidentally exposed:**
+
+1. Record as a remediation for future prevention:
+```
+remediation_record(
+  title: "Secret exposure in [context]",
+  problem: "Accidentally read credential file",
+  root_cause: "Did not check file type before reading",
+  solution: "Use existence checks, verify scrubbing is active",
+  category: "security",
+  scope: "org",
+  tenant_id: "<tenant>"
+)
+```
+
+2. Search for past incidents:
+```
+remediation_search(query: "secret exposure credential", tenant_id: "<tenant>")
+```
+
 ## CRITICAL
 
 **NEVER read .env files or credential files directly.**

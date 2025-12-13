@@ -165,6 +165,29 @@ Update CLAUDE.md when:
 - Claude asks the same question twice
 - ADRs change
 
+## Contextd Integration
+
+After creating or updating CLAUDE.md:
+
+```
+# Re-index repository with new documentation
+repository_index(path: ".")
+
+# Record the update as a memory
+memory_record(
+  project_id: "<project>",
+  title: "Updated CLAUDE.md with [changes]",
+  content: "Added/modified: [sections]. Key additions: [summary]",
+  outcome: "success",
+  tags: ["claude-md", "documentation"]
+)
+```
+
+**Before writing:** Search for existing patterns:
+```
+memory_search(project_id, "CLAUDE.md patterns")
+```
+
 ## Quick Reference
 
 | Section | Purpose |
