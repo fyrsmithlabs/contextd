@@ -119,19 +119,24 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return []Memory{}, nil
 	}
 
-	// Search with confidence filter
-	filters := map[string]interface{}{
-		"confidence": map[string]interface{}{
-			"$gte": MinConfidence,
-		},
+	// Search without store-level confidence filter (post-filter in service layer)
+	// This makes the service store-agnostic - works with any vectorstore implementation
+	// regardless of filter operator support ($gte, range queries, etc.)
+	// Use 3x multiplier to ensure enough results after filtering, with bounds
+	searchLimit := limit * 3
+	if searchLimit < 30 {
+		searchLimit = 30
+	}
+	if searchLimit > 200 {
+		searchLimit = 200 // Cap to prevent excessive fetching
 	}
 
-	results, err := s.store.SearchInCollection(ctx, collectionName, query, limit, filters)
+	results, err := s.store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
 	if err != nil {
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
 
-	// Convert results to Memory structs and record usage signals
+	// Convert results to Memory structs, filter by confidence, and record usage signals
 	memories := make([]Memory, 0, len(results))
 	for _, result := range results {
 		memory, err := s.resultToMemory(result)
@@ -139,6 +144,15 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			s.logger.Warn("skipping invalid memory",
 				zap.String("id", result.ID),
 				zap.Error(err))
+			continue
+		}
+
+		// Post-filter: skip memories below confidence threshold
+		if memory.Confidence < MinConfidence {
+			s.logger.Debug("skipping low-confidence memory",
+				zap.String("id", memory.ID),
+				zap.Float64("confidence", memory.Confidence),
+				zap.Float64("min_confidence", MinConfidence))
 			continue
 		}
 
@@ -153,6 +167,11 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		}
 
 		memories = append(memories, *memory)
+
+		// Stop once we have enough results
+		if len(memories) >= limit {
+			break
+		}
 	}
 
 	s.logger.Debug("search completed",

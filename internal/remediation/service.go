@@ -205,11 +205,21 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 		limit = 10
 	}
 
-	// Build metadata filters
+	// Build metadata filters (excludes confidence - that's post-filtered)
 	filters := s.buildSearchFilters(req)
 
 	// Determine which collections to search
 	collections := s.getSearchCollections(req)
+
+	// Fetch extra results to account for confidence post-filtering
+	// Use 3x multiplier to ensure enough results after filtering, with bounds
+	searchLimit := limit * 3
+	if searchLimit < 30 {
+		searchLimit = 30
+	}
+	if searchLimit > 200 {
+		searchLimit = 200 // Cap to prevent excessive fetching
+	}
 
 	var allResults []*ScoredRemediation
 
@@ -224,7 +234,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 			continue
 		}
 
-		results, err := s.store.SearchInCollection(ctx, collection, req.Query, limit, filters)
+		results, err := s.store.SearchInCollection(ctx, collection, req.Query, searchLimit, filters)
 		if err != nil {
 			s.logger.Warn("search failed", zap.String("collection", collection), zap.Error(err))
 			continue
@@ -232,12 +242,23 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 
 		for _, r := range results {
 			rem := s.resultToRemediation(r)
-			if rem != nil {
-				allResults = append(allResults, &ScoredRemediation{
-					Remediation: *rem,
-					Score:       float64(r.Score),
-				})
+			if rem == nil {
+				continue
 			}
+
+			// Post-filter: skip remediations below confidence threshold
+			if req.MinConfidence > 0 && rem.Confidence < req.MinConfidence {
+				s.logger.Debug("skipping low-confidence remediation",
+					zap.String("id", rem.ID),
+					zap.Float64("confidence", rem.Confidence),
+					zap.Float64("min_confidence", req.MinConfidence))
+				continue
+			}
+
+			allResults = append(allResults, &ScoredRemediation{
+				Remediation: *rem,
+				Score:       float64(r.Score),
+			})
 		}
 	}
 
@@ -257,17 +278,12 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 }
 
 // buildSearchFilters creates metadata filters from search request.
+// NOTE: Confidence filtering is done post-search in the service layer to remain
+// store-agnostic (not all vectorstores support $gte operators).
 func (s *service) buildSearchFilters(req *SearchRequest) map[string]interface{} {
 	filters := make(map[string]interface{})
 
-	// Confidence filter (for vector stores that support range filters)
-	if req.MinConfidence > 0 {
-		filters["confidence"] = map[string]interface{}{
-			"$gte": req.MinConfidence,
-		}
-	}
-
-	// Category filter
+	// Category filter (exact match - supported by all stores)
 	if req.Category != "" {
 		filters["category"] = string(req.Category)
 	}

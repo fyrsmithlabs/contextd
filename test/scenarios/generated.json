@@ -1,0 +1,668 @@
+{
+  "scenarios": [
+    {
+      "name": "replay_acaab22b",
+      "description": "Replay of session acaab22b-c5c9-434c-85e4-ee840eeff21c (26 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-12-09",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 23,
+      "actions": [
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "current task context recent work"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Designed and documented conversation indexing feature for contextd:\n\nKey decisions:\n- Separate _conversations collection per project (not shared with _codebase)\n- Heuristic decision detection with keyword patterns (default, extendable phase 2)\n- Optional LLM refinement via langchain-go (Anthropic/OpenAI providers)\n- OpenAI provider can connect to local Ollama (no separate Ollama integration needed)\n- Templated config with Go template functions for env var interpolation\n- Context tags auto-extracted (languages, domains, activities) - configurable phase 2\n- Cross-references: files discussed + commits made\n- Secret scrubbing on all content via gitleaks\n\nImplementation phases:\n1. Core indexing (parser, heuristics, MCP tools)\n2. LLM + CLI (langchain-go, ctxd commands, configurable patterns/tags)\n3. ReasoningBank integration (decision → memory distillation)\n4. Polish (session piggyback, first-use detection)\n\nSpec docs: docs/spec/conversation-indexing/{SPEC,DESIGN,SCHEMA,CONFIG}.md",
+            "outcome": "success",
+            "tags": [
+              "conversation-indexing",
+              "specification",
+              "design",
+              "langchain-go",
+              "architecture"
+            ],
+            "title": "Conversation indexing spec completed"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "NEVER add these to commit messages:\n- \"🤖 Generated with [Claude Code](https://claude.com/claude-code)\"\n- \"Co-Authored-By: Claude Opus 4.5 \u003cnoreply@anthropic.com\u003e\"\n- Any other Claude/AI attribution footer\n\nUser explicitly requested this multiple times. Just write clean commit messages with the actual changes - no AI attribution.",
+            "outcome": "failure",
+            "tags": [
+              "git",
+              "commits",
+              "workflow",
+              "anti-pattern"
+            ],
+            "title": "No Claude attribution in commit messages"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "self-improving confidence Bayesian reasoning bank implementation"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "When adding new MCP tools that interact with the vectorstore using tenant-scoped collections, ensure they all use the same tenant ID resolution logic. The repository_index uses tenant.GetTenantIDForPath() in the service layer. Any tool that searches or queries must use the same resolution to ensure collection names match. Fixed in issue #19 where repository_search was incorrectly defaulting to \"default\" instead of using GetTenantIDForPath().",
+            "outcome": "success",
+            "tags": [
+              "mcp-tools",
+              "tenant-id",
+              "collection-naming",
+              "vectorstore",
+              "bug-prevention"
+            ],
+            "title": "repository tools must use consistent tenant ID resolution"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "ONNX runtime fastembed setup installation"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "When dispatching implementation agents, strict TDD must be enforced and verified. The agent must commit in the pattern: 1) Write failing test (commit), 2) Run test to confirm failure, 3) Write minimal implementation (commit), 4) Run test to confirm pass. Accepting implementations that bundle tests+code together (\"accept as-is because tests exist\") is LAZY and defeats the purpose of TDD. Option 1 (accept as-is) should NEVER be offered as a choice - always require proper workflow compliance. If an agent doesn't follow TDD, the work must be redone correctly.",
+            "outcome": "failure",
+            "tags": [
+              "tdd",
+              "workflow",
+              "subagents",
+              "code-quality",
+              "anti-pattern",
+              "discipline"
+            ],
+            "title": "Never accept non-TDD implementations - enforce strict red-green-refactor"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "The claude-plugin/ directory in this repo manages skills, agents, and commands for the contextd-marketplace. When making builds, feature implementations, or releases, ensure the marketplace plugins are updated accordingly. This includes: updating skills when new features are added, updating agent definitions when behavior changes, updating commands when CLI interface changes, and syncing schema definitions. The plugin code should be kept in sync with the main contextd codebase.",
+            "outcome": "success",
+            "tags": [
+              "marketplace",
+              "plugins",
+              "releases",
+              "builds",
+              "sync",
+              "claude-plugin"
+            ],
+            "title": "Update contextd-marketplace plugins on builds/releases"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "TERRIBLE PATTERN: Testing `contextd --help` or any --help flag to verify that ONNX runtime works is completely useless. The --help flag doesn't initialize FastEmbed, doesn't load the ONNX library, and proves nothing about whether the dependency is functional.\n\nCORRECT APPROACH: To verify ONNX runtime works:\n1. Actually start the MCP server: `contextd --mcp`\n2. Or test embedding functionality directly with a tool call\n3. Or run a simple embedding test that loads the library\n\nThe --help flag only parses CLI arguments - it doesn't touch any of the actual runtime code paths. This is a lazy shortcut that provides false confidence.\n\nREMEDIATION: Always test the actual functionality you're verifying, not a tangential operation that happens to not crash.",
+            "outcome": "failure",
+            "tags": [
+              "testing",
+              "verification",
+              "onnx",
+              "anti-pattern",
+              "lazy-testing"
+            ],
+            "title": "Never use --help to verify runtime dependencies work"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "When ANY of the following occur in contextd, the claude-plugin in contextd-marketplace MUST be updated:\n\n1. New feature added\n2. New release candidate (rc) tagged\n3. Bug fix that affects user-facing behavior\n4. New skills/commands/agents added\n5. Changes to MCP tools or their signatures\n\nThe claude-plugin lives in contextd-marketplace and provides:\n- Skills for Claude Code users\n- Commands (slash commands)\n- Agent configurations\n\nWORKFLOW:\n1. Complete the contextd change\n2. Push and tag if applicable\n3. Update contextd-marketplace claude-plugin to reflect new capabilities\n4. This ensures users of the plugin get the latest features/fixes\n\nDO NOT forget this step. It's easy to complete work in contextd and forget that the plugin needs updating to expose new functionality to users.",
+            "outcome": "success",
+            "tags": [
+              "workflow",
+              "release",
+              "claude-plugin",
+              "contextd-marketplace",
+              "mandatory"
+            ],
+            "title": "ALWAYS update claude-plugin on features/releases/fixes"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "agent orchestrator architecture design sub-agents workflow guardrails"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Research issue opened for building a Go-based agent orchestrator that leverages contextd's existing services (memory, remediation, checkpoints) to enforce workflow compliance on sub-agents.\n\nKey decisions to research:\n1. Orchestration model: Direct API vs Claude CLI subprocess vs Hybrid\n2. Agent architecture: Responsibility-based (memory-agent, remediation-agent, task-runner)\n3. Guardrails: Phase gates, TDD enforcement, verification requirements\n\nResources identified:\n- Official Anthropic Go SDK exists\n- Community implementations: Ingenimax/agent-sdk-go, schlunsen/claude-agent-sdk-go, mark3labs/mcp-go\n\nEstimated effort: 2-4 weeks",
+            "outcome": "success",
+            "tags": [
+              "research",
+              "agent-orchestrator",
+              "go-sdk",
+              "guardrails",
+              "issue-20"
+            ],
+            "title": "Go Agent Orchestrator research initiated - Issue #20"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "self-improvement Bayesian confidence memory feedback reasoning bank"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 8,
+          "message": "Should record 8 memories"
+        }
+      ]
+    },
+    {
+      "name": "replay_433b72cd",
+      "description": "Replay of session 433b72cd-5513-4e5f-99d2-aeb464fe7205 (22 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-11-30",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 17,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "content": "Use go-git SDK to extract GitHub username from repo remote URL for default tenant ID. Avoids shelling out to git command. Parse both SSH (git@github.com:user/repo) and HTTPS (https://github.com/user/repo) formats.",
+            "outcome": "success",
+            "tags": [
+              "go-git",
+              "tenant",
+              "github",
+              "mcp"
+            ],
+            "title": "Go-git for tenant ID resolution"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Use go-git SDK to extract GitHub username from repo remote URL for default tenant ID. Avoids shelling out to git command. Parse both SSH (git@github.com:user/repo) and HTTPS (https://github.com/user/repo) formats.",
+            "outcome": "success",
+            "tags": [
+              "go-git",
+              "tenant",
+              "github",
+              "mcp"
+            ],
+            "title": "Go-git for tenant ID resolution"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 3,
+            "query": "tenant ID resolution github"
+          }
+        },
+        {
+          "type": "feedback",
+          "args": {
+            "helpful": true,
+            "memory_id": "last"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "contextd development debugging testing"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Planned contextd statusline integration:\n1. Add /api/v1/status endpoint (checkpoint/memory counts)\n2. PreCompact hook writes context % to state file\n3. Update ~/.claude/statusline.sh to show: 💾checkpoints 📝memories ⚡context%\nFormat: 📁 ~/contextd | 🌿 main ✓ | 🤖 Opus | 📡2 🟢contextd | 💾3 📝5 ⚡72%",
+            "outcome": "success",
+            "tags": [
+              "statusline",
+              "hooks",
+              "http-api",
+              "deferred"
+            ],
+            "title": "Statusline feature design"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Completed: Bug fixes (memory_feedback collection, troubleshoot null hypotheses), skills system spec (4 skills, 6 commands, agent-agnostic design), contextd-marketplace repo created, installation spec with Docker all-in-one container design. Config now fully supports env vars for container deployment. Next: FastEmbed integration, Dockerfile, Docker Hub publish.",
+            "outcome": "success",
+            "tags": [
+              "skills",
+              "installation",
+              "docker",
+              "alpha"
+            ],
+            "title": "Session: Skills system + installation spec complete"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 4,
+          "message": "Should record 4 memories"
+        }
+      ]
+    },
+    {
+      "name": "replay_c47acb9a",
+      "description": "Replay of session c47acb9a-c797-454f-9e0a-9f39b444d843 (15 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-12-06",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 17,
+      "actions": [
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "current project status phase progress recent work"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 3,
+            "query": "current project status phase 6 documentation"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "The release.yml workflow automatically pushes both the version tag (v0.2.0-rc4) and the 'latest' tag when creating a release. No manual intervention needed - just push a version tag (git tag vX.Y.Z \u0026\u0026 git push origin vX.Y.Z) and the workflow handles: 1) Linux binary build, 2) macOS builds (amd64/arm64), 3) GitHub release creation, 4) Homebrew formula update, 5) Docker image with version + latest tags.",
+            "outcome": "success",
+            "tags": [
+              "release",
+              "docker",
+              "github-actions",
+              "workflow"
+            ],
+            "title": "Release workflow creates Docker latest tag automatically"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "project status phases roadmap current work"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "project status phases roadmap"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "When designing new features for contextd, update the existing spec files in docs/spec/ rather than creating new plan documents in docs/plans/. The project has established spec structure: SPEC.md (requirements), DESIGN.md (implementation details), ARCH.md (architecture). New features should be added to these existing documents to keep documentation consolidated and maintainable.",
+            "outcome": "success",
+            "tags": [
+              "documentation",
+              "specs",
+              "workflow",
+              "design"
+            ],
+            "title": "Update existing specs rather than creating new plan files"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "For this project, do NOT include 'Co-Authored-By: Claude' or similar AI attribution lines in git commit messages. The user prefers clean commit messages without AI co-author attribution. Just use the standard commit message format with the content description.",
+            "outcome": "success",
+            "tags": [
+              "git",
+              "commits",
+              "workflow",
+              "preferences"
+            ],
+            "title": "Do not use Co-Authored-By Claude in commits"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 3,
+          "message": "Should record 3 memories"
+        }
+      ]
+    },
+    {
+      "name": "replay_10b1b621",
+      "description": "Replay of session 10b1b621-d586-4a94-985b-e673f931439b (12 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-12-04",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 17,
+      "actions": [
+        {
+          "type": "search",
+          "args": {
+            "limit": 3,
+            "query": "repository indexing configuration"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "HTTP server endpoints API scrub CLI phase 5"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 10,
+            "query": "HTTP server implementation endpoints scrub threshold health API"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 3,
+            "query": "repository_search semantic code search tool implementation"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Implemented three features in parallel:\n\n1. **repository_search MCP tool** (internal/mcp/tools.go:370-431)\n   - Semantic search over indexed repository code\n   - Uses vectorstore.SearchInCollection with filter `indexed=true`\n   - Input: query, project_path, tenant_id, limit\n   - Output: results array with file_path, content (scrubbed), score, metadata\n\n2. **/api/v1/status HTTP endpoint** (internal/http/server.go:144-216)\n   - Returns service availability (checkpoint, memory, remediation, repository, troubleshoot, scrubber)\n   - Returns resource counts (checkpoints, memories)\n   - Useful for statusline integration and health monitoring\n\n3. **repository.Search method** (internal/repository/service.go:102-148)\n   - Added VectorStore interface for search operations\n   - NewServiceWithStore() and SetVectorStore() for DI\n   - SearchOptions and RepoSearchResult types\n\n4. **CLAUDE.md updated**\n   - Phase 5 marked complete\n   - Added repository_search to MCP tools table\n   - Updated architecture diagram with cmd/ctxd/, internal/http/, internal/services/\n\nAll tests pass. Build succeeds.",
+            "outcome": "success",
+            "tags": [
+              "http",
+              "mcp",
+              "repository",
+              "search",
+              "phase5"
+            ],
+            "title": "HTTP status endpoint + repository_search MCP tool implemented"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "During refactor of repository service to use _codebase collection with branch support, wrote implementation code first without tests. This violates TDD (RED-GREEN-REFACTOR):\n\nWHAT HAPPENED:\n- Rewrote service.go with new Store interface, branch detection, _codebase collection\n- Updated types.go with Branch fields\n- Modified MCP tools.go with new input/output types\n- All without writing a single test first\n\nWHAT SHOULD HAVE HAPPENED:\n1. RED: Write failing tests first\n   - TestIndexRepository_UsesCodebaseCollection\n   - TestIndexRepository_DetectsBranch\n   - TestSearch_FiltersByBranch\n   - TestSanitizeProjectName\n2. GREEN: Implement minimal code to pass\n3. REFACTOR: Clean up while tests stay green\n\nWHY THIS MATTERS:\n- Tests document expected behavior BEFORE implementation\n- Catches design issues early (discovered during test writing)\n- Ensures all edge cases are covered\n- Implementation without tests = untested code in production\n\nNEXT TIME:\n- Stop and write test file first\n- Run test, watch it fail (RED)\n- Only then write implementation (GREEN)\n- Use superpowers:test-driven-development skill",
+            "outcome": "failure",
+            "tags": [
+              "tdd",
+              "testing",
+              "refactoring",
+              "process-violation",
+              "repository"
+            ],
+            "title": "TDD violation: Wrote implementation before tests during repository refactor"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Successfully refactored repository service to use dedicated _codebase collection instead of checkpoints collection. Key changes:\n\n1. New Store interface (AddDocuments, SearchInCollection) replaces CheckpointService dependency\n2. Collection naming: {tenant}_{project}_codebase per spec\n3. Branch detection using go-git library (auto-detects current branch)\n4. Branch metadata stored in documents for filtering\n5. Updated main.go wiring: repository.NewService(qdrantStore) instead of checkpointSvc\n6. Updated MCP tools to include Branch in opts and output\n7. Updated MCP server_test.go to use mockVectorStore\n\nFiles modified:\n- internal/repository/service.go - Store interface, branch detection\n- internal/repository/types.go - Branch field added\n- internal/repository/service_test.go - New mock and tests\n- internal/mcp/tools.go - Branch wiring for index and search\n- internal/mcp/server_test.go - Fix mock usage\n- cmd/contextd/main.go - Wire qdrantStore to repository service",
+            "outcome": "success",
+            "tags": [
+              "repository",
+              "refactor",
+              "branch-detection",
+              "codebase-collection",
+              "tdd"
+            ],
+            "title": "Repository refactor to _codebase collection with branch support"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 3,
+          "message": "Should record 3 memories"
+        }
+      ]
+    },
+    {
+      "name": "replay_47c59b26",
+      "description": "Replay of session 47c59b26-c892-4bb2-8834-0a30558b8048 (9 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-12-02",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 17,
+      "actions": [
+        {
+          "type": "search",
+          "args": {
+            "limit": 10,
+            "query": "self-improvement learning distiller automatic memory extraction session lifecycle"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 10,
+            "query": "skills system agent workflow session lifecycle hooks automatic"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Designed full hook lifecycle for contextd alpha. Three MCP tools (session_start, session_end, context_threshold), Service Registry interface pattern, HTTP /api/v1/threshold endpoint, session-lifecycle skill for contextd-marketplace, and Claude Code PreCompact hook as backstop. Key decisions: Claude-generated summaries with structured input (task/approach/outcome/tags), HTTP primary with MCP fallback for threshold, prompt user for checkpoint resume then memory prime. Design doc at docs/plans/2025-12-02-hook-lifecycle-design.md",
+            "outcome": "success",
+            "tags": [
+              "hooks",
+              "lifecycle",
+              "mcp",
+              "design",
+              "session",
+              "distiller",
+              "registry"
+            ],
+            "title": "Hook lifecycle design complete"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Architecture decisions for hook lifecycle:\n\n1. **Registry Interface Pattern**: Service access via interface with accessor methods (`registry.Checkpoint().Save()`). Why: idiomatic Go, single mock for tests, clear dependency boundary, extensible without constructor signature changes.\n\n2. **Claude-Generated Summaries**: Agent provides structured summary (task/approach/outcome/tags), not contextd inference. Why: only agent knows intent and success criteria. Skills enforce behavior, Claude Code hooks as backstop.\n\n3. **HTTP Primary for Threshold**: Shell script + curl for context_threshold notification, MCP as fallback. Why: no LLM in loop, faster, works if MCP busy. Configurable via hooks.context_threshold.method.\n\n4. **Prompt-Then-Prime for Session Start**: Ask user about checkpoint resume, then always prime with top 3 memories. Why: user control over context injection, memories always useful.\n\nADR doc: docs/plans/2025-12-02-design-patterns-adr.md",
+            "outcome": "success",
+            "tags": [
+              "adr",
+              "patterns",
+              "registry",
+              "interface",
+              "architecture",
+              "design-decisions"
+            ],
+            "title": "ADR patterns: Registry interface, Claude-generated summaries, HTTP-primary threshold"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "When design involves significant user input/discussion, always record:\n- WHAT was decided\n- WHY that approach (rejected alternatives, tradeoffs)\n- CONSEQUENCES (what changes, what to watch for)\n\nLots of user input = needs a why. The discussion IS the value - don't just record the outcome.\n\nUse ADR format for architectural decisions. Memory should be searchable by both the decision AND the reasoning.",
+            "outcome": "success",
+            "tags": [
+              "meta",
+              "process",
+              "documentation",
+              "adr",
+              "design-decisions"
+            ],
+            "title": "Meta: Always capture the WHY for design decisions"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Implementation plan for hook lifecycle at docs/plans/2025-12-02-hook-lifecycle-impl.md. 11 TDD tasks: Service Registry interface, session handlers (start/end/threshold), HTTP /api/v1/threshold endpoint, main.go wiring, session-lifecycle skill, PreCompact hook script, integration test. Key patterns: Registry interface for DI, handler approach matching existing code structure, dual MCP+HTTP paths for threshold.",
+            "outcome": "success",
+            "tags": [
+              "implementation",
+              "plan",
+              "hooks",
+              "tdd",
+              "tasks"
+            ],
+            "title": "Hook lifecycle implementation plan complete"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Completed full hook lifecycle implementation for contextd alpha:\n\nCOMMITS (chronological):\n- e920215: Service Registry interface (internal/services/)\n- ee16444: Session lifecycle types (handlers/session.go)\n- 34753e4: HTTP /api/v1/threshold endpoint\n- 7e67a00: main.go wiring with HookManager + Distiller\n- fce4ecb: Session handlers (Start/End/ContextThreshold)\n- cda8978: PreCompact hook script (.claude/hooks/)\n- 15ffb02: Register session tools in handler registry\n- 7a85052: Integration test placeholder\n\nFEATURES WORKING:\n- session_start: Checkpoint resume prompt + memory priming\n- session_end: Calls Distiller to extract learnings → memories\n- context_threshold: Auto-checkpoint via MCP tool or HTTP\n- HTTP /api/v1/threshold for Claude Code hooks\n- Session lifecycle skill in contextd-marketplace\n\nAll tests passing (22 packages). Build succeeds.",
+            "outcome": "success",
+            "tags": [
+              "implementation",
+              "hooks",
+              "lifecycle",
+              "complete",
+              "session",
+              "distiller",
+              "alpha"
+            ],
+            "title": "Hook lifecycle implementation complete - 11 tasks, all passing"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 5,
+          "message": "Should record 5 memories"
+        }
+      ]
+    },
+    {
+      "name": "replay_40b8eddf",
+      "description": "Replay of session 40b8eddf-8000-416b-9100-7c2633f6b654 (8 contextd calls)",
+      "persona": {
+        "name": "ReplayUser",
+        "description": "Replaying session from 2025-12-02",
+        "goals": null,
+        "constraints": null,
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-replay",
+      "max_turns": 16,
+      "actions": [
+        {
+          "type": "search",
+          "args": {
+            "limit": 10,
+            "query": "feature development progress implementation status"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "FastEmbed embedding integration Go implementation"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 5,
+            "query": "embeddings vector vectorstore qdrant embedding service"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Implemented FastEmbed provider for local ONNX embeddings (no external API needed):\n\nFILES CREATED:\n- internal/embeddings/fastembed.go - FastEmbed provider using github.com/anush008/fastembed-go\n- internal/embeddings/provider.go - Provider interface + factory function\n- internal/embeddings/fastembed_test.go - Tests (skip in short mode without ONNX)\n- internal/embeddings/provider_test.go - Factory tests\n\nKEY DESIGN:\n- Provider interface with Dimension() and Close() methods\n- Factory pattern: NewProvider(cfg) returns fastembed or TEI based on EMBEDDINGS_PROVIDER\n- Model name mapping: BAAI/bge-small-en-v1.5 -\u003e fastembed.BGESmallENV15\n- Automatic dimension detection per model (384 for bge-small, 768 for bge-base)\n- PassageEmbed for documents, QueryEmbed for queries (BGE prefix optimization)\n\nCONFIG:\n- EMBEDDINGS_PROVIDER: \"fastembed\" (default) or \"tei\"\n- EMBEDDINGS_MODEL: \"BAAI/bge-small-en-v1.5\" (default, 384 dims)\n- ONNX_PATH: Set if ONNX runtime not auto-detected\n\nREQUIRES: ONNX runtime (libonnxruntime.so on Linux)",
+            "outcome": "success",
+            "tags": [
+              "embeddings",
+              "fastembed",
+              "onnx",
+              "provider-pattern"
+            ],
+            "title": "FastEmbed integration complete - local ONNX embeddings"
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "content": "Applied fixes from 3-agent consensus code review of FastEmbed integration:\n\nCRITICAL FIXES:\n1. Dimension mismatch validation (main.go:207-214): Provider dimension now overrides config if different, with warning log\n2. TEI provider dimension detection (provider.go:31-63): Added detectDimensionFromModel() that uses model name patterns\n\nIMPORTANT FIXES:\n3. Unknown model validation (fastembed.go:73-75): Returns clear error with supported models list instead of silent fallback\n4. ONNX docs (installation.md:90-110): Added setup instructions for Ubuntu, macOS, and manual ONNX_PATH\n\nNEW TESTS:\n- TestTEIProvider_Dimension with multiple models (small, base, mini, unknown)\n- TestNewProvider_InvalidModel for error case\n\nCONSENSUS REVIEW WORKFLOW:\n- Deployed 3 parallel code-reviewer agents focusing on: core impl, wiring/config, tests/docs\n- Synthesized findings into Critical/Important/Minor categories\n- Fixed all Critical issues before proceeding",
+            "outcome": "success",
+            "tags": [
+              "code-review",
+              "consensus",
+              "fastembed",
+              "dimension-validation"
+            ],
+            "title": "Multi-agent consensus code review - FastEmbed fixes applied"
+          }
+        },
+        {
+          "type": "search",
+          "args": {
+            "limit": 3,
+            "query": "Docker container installation distribution dockerfile"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 2,
+          "message": "Should record 2 memories"
+        }
+      ]
+    }
+  ]
+}
