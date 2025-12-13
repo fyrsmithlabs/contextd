@@ -67,11 +67,12 @@ import (
 - **Document all options** in `docs/configuration.md`
 
 ### Architecture Patterns
+- **Vectorstore abstraction** in `internal/vectorstore/` (chromem default, Qdrant optional)
 - **Service interfaces** in `internal/services/`
 - **Dependency injection** via service registry
 - **Context cancellation** support throughout
 - **OpenTelemetry** for observability
-- **Secret scrubbing** on all outputs
+- **Secret scrubbing** on contextd MCP tool responses (gitleaks)
 
 ### Commit Messages
 Follow Conventional Commits: `type(scope): description`
