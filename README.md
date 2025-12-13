@@ -4,96 +4,55 @@
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Ffyrsmithlabs%2Fcontextd-blue)](https://ghcr.io/fyrsmithlabs/contextd)
 [![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Ftap-orange)](https://github.com/fyrsmithlabs/homebrew-tap)
 
-> **ALPHA** - This project is in active development. APIs may change.
+**Cross-session memory and context management for AI agents.**
 
-**A developer-first AI context and reasoning engine.**
-
-> **Note:** This README describes our vision and roadmap. See [Current Status](#current-status) for what's implemented today.
+ContextD helps AI coding assistants remember what works, learn from mistakes, and maintain context across sessions. It's designed for developers who want their AI tools to get smarter over time.
 
 ---
 
-## Vision
+## What It Does
 
-ContextD is designed to eliminate the complexity of building with AI. It gives teams a smart baseline for context management, organizational memory, and workflow-aware reasoning—without forcing them into rigid pipelines or spending weeks learning prompts, agents, and skills.
-
-**This is not RAG.** It's a self-improving system that learns how your team actually works, helping developers get real value from AI faster, safer, and with far less friction.
-
-### Core Principles
-
-- **Developer-first**: Works with your existing tools, not against them
-- **Zero lock-in**: Runs locally, on-prem, or in the cloud
-- **Self-improving**: Learns from successes and failures to get better over time
-- **Privacy-conscious**: Your data stays yours; secrets are automatically scrubbed
-
----
-
-## Current Status
-
-ContextD is in active development. Here's what works today:
-
-### Implemented
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Cross-session Memory** | Record and retrieve learnings across sessions | Working |
-| **Checkpoints** | Save and resume context snapshots | Working |
-| **Remediation Tracking** | Store error patterns and fixes | Working |
-| **Secret Scrubbing** | Automatic detection via gitleaks (contextd tools only*) | Working |
-| **Vector Search** | Semantic search via chromem (embedded) or Qdrant | Working |
-| **Local Embeddings** | FastEmbed with ONNX (no API calls) | Working |
-| **MCP Integration** | Works with Claude Code out of the box | Working |
-
-### Roadmap
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| Workflow-aware reasoning | Learn team patterns automatically | Planned |
-| Multi-tenant organization memory | Share learnings across teams | Planned |
-| Self-improving confidence scoring | Adjust based on feedback loops | In Progress |
-| Cloud deployment options | Managed hosting | Planned |
+| Feature | Description |
+|---------|-------------|
+| **Cross-session Memory** | Record and retrieve learnings across sessions with semantic search |
+| **Checkpoints** | Save and resume context snapshots before hitting limits |
+| **Error Remediation** | Track error patterns and fixes - never solve the same bug twice |
+| **Repository Search** | Semantic code search over your indexed codebase |
+| **Self-Reflection** | Analyze behavior patterns and improve documentation |
+| **Secret Scrubbing** | Automatic detection and removal via gitleaks |
 
 ---
 
 ## Quick Start
 
-### Using Claude Code Plugin (Recommended)
-
-Install contextd directly in Claude Code using the plugin system:
+### Option 1: Claude Code Plugin (Recommended)
 
 ```bash
-/plugin install contextd@fyrsmithlabs/contextd
+# Install the plugin (skills, commands, agents)
+claude plugins add fyrsmithlabs/contextd
+
+# Run the install command for MCP server setup
+/contextd:install
 ```
 
-The plugin automatically:
-- Downloads the appropriate binary for your OS/architecture
-- Configures MCP settings
-- Sets up the contextd server
+The install command will:
+- Download the appropriate binary for your OS/architecture
+- Configure MCP settings
+- Set up the contextd server
 
-After installation, restart Claude Code to activate.
-
-> **Prefer Docker?** See [docs/DOCKER.md](docs/DOCKER.md) for manual Docker setup.
-
----
-
-### Using Homebrew (macOS/Linux)
+### Option 2: Homebrew
 
 ```bash
 brew install fyrsmithlabs/tap/contextd
 ```
 
-Or tap first:
-
-```bash
-brew tap fyrsmithlabs/tap
-brew install contextd
-```
-
-Add to Claude Code MCP config (`~/.claude.json`):
+Add to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "contextd": {
+      "type": "stdio",
       "command": "contextd",
       "args": ["--mcp", "--no-http"]
     }
@@ -101,68 +60,156 @@ Add to Claude Code MCP config (`~/.claude.json`):
 }
 ```
 
-> **Note:** `--no-http` allows multiple Claude Code sessions to run simultaneously.
+### Option 3: Download Binary
 
-### Download Binary
+Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
 
-Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases):
-
-| Platform | Architecture | Download |
-|----------|--------------|----------|
-| macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
+| Platform | Architecture | File |
+|----------|--------------|------|
 | macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
+| macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
 | Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
 
-> **Note:** All binaries are built with CGO enabled for FastEmbed/ONNX support.
+---
 
-### Building from Source
+## Plugin Commands
 
-```bash
-git clone https://github.com/fyrsmithlabs/contextd.git
-cd contextd
+| Command | Description |
+|---------|-------------|
+| `/contextd:install` | Install contextd MCP server |
+| `/contextd:init` | Initialize contextd for a new project |
+| `/contextd:onboard` | Onboard to existing project with context priming |
+| `/contextd:checkpoint` | Save session checkpoint |
+| `/contextd:resume` | Resume from checkpoint |
+| `/contextd:search` | Search memories and remediations |
+| `/contextd:remember` | Record a learning or insight |
+| `/contextd:diagnose` | AI-powered error diagnosis |
+| `/contextd:reflect` | Analyze behavior patterns and improve docs |
+| `/contextd:status` | Show contextd status |
+| `/contextd:help` | Show available commands and skills |
 
-# Without CGO (uses TEI for embeddings)
-go build -o contextd ./cmd/contextd
-go build -o ctxd ./cmd/ctxd
+## Plugin Skills
 
-# With CGO + FastEmbed (requires ONNX runtime)
-CGO_ENABLED=1 go build -o contextd ./cmd/contextd
-```
+| Skill | Use When |
+|-------|----------|
+| `using-contextd` | Starting any session - overview of all tools |
+| `session-lifecycle` | Session start/end protocols |
+| `cross-session-memory` | Learning loop (search → do → record → feedback) |
+| `checkpoint-workflow` | Context approaching 70% capacity |
+| `error-remediation` | Resolving errors systematically |
+| `repository-search` | Semantic code search |
+| `self-reflection` | Reviewing behavior patterns, improving docs |
+| `writing-claude-md` | Creating effective CLAUDE.md files |
+| `secret-scrubbing` | Understanding secret detection |
+| `project-onboarding` | Onboarding to new projects |
+| `consensus-review` | Multi-agent code review with specialized reviewers |
 
 ---
 
-## Docker
+## MCP Tools
 
-For container isolation, see [docs/DOCKER.md](docs/DOCKER.md).
+ContextD exposes these tools to Claude Code:
 
-| Tag | Description |
-|-----|-------------|
-| `latest` | Latest stable release |
-| `v0.2.0-rcX` | Release candidates |
+### Memory
 
-```bash
-docker pull ghcr.io/fyrsmithlabs/contextd:latest
-```
+| Tool | Purpose |
+|------|---------|
+| `memory_search` | Find relevant strategies from past sessions |
+| `memory_record` | Save a new learning or strategy |
+| `memory_feedback` | Rate whether a memory was helpful |
+| `memory_outcome` | Report task success/failure after using a memory |
+
+### Checkpoints
+
+| Tool | Purpose |
+|------|---------|
+| `checkpoint_save` | Save current context for later |
+| `checkpoint_list` | List available checkpoints |
+| `checkpoint_resume` | Resume from a saved checkpoint |
+
+### Remediation
+
+| Tool | Purpose |
+|------|---------|
+| `remediation_search` | Find fixes for similar errors |
+| `remediation_record` | Record a new error fix |
+| `troubleshoot_diagnose` | AI-powered error diagnosis |
+
+### Repository
+
+| Tool | Purpose |
+|------|---------|
+| `repository_index` | Index a codebase for semantic search |
+| `repository_search` | Semantic search over indexed code |
 
 ---
 
-## Optional: External Qdrant
+## How It Works
 
-contextd uses embedded chromem by default. For external Qdrant:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Claude Code                            │
+│                           │                                  │
+│                      MCP Protocol                            │
+│                           │                                  │
+│  ┌────────────────────────▼────────────────────────────┐    │
+│  │                     ContextD                         │    │
+│  │                                                      │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │    │
+│  │  │  Reasoning  │  │ Checkpoint  │  │ Remediation │  │    │
+│  │  │    Bank     │  │   Service   │  │   Service   │  │    │
+│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │    │
+│  │         │                │                │         │    │
+│  │         └────────────────┼────────────────┘         │    │
+│  │                          │                          │    │
+│  │                   ┌──────▼──────┐                   │    │
+│  │                   │   chromem   │  (embedded)       │    │
+│  │                   │   Vectors   │  or Qdrant        │    │
+│  │                   └─────────────┘                   │    │
+│  │                                                      │    │
+│  │  + FastEmbed (local ONNX embeddings)                │    │
+│  │  + gitleaks (secret scrubbing)                      │    │
+│  └──────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key components:**
+- **chromem** - Embedded vector database (zero external dependencies)
+- **FastEmbed** - Local ONNX embeddings (no API calls required)
+- **gitleaks** - Secret detection and scrubbing
+- **Optional Qdrant** - External vector database for larger deployments
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
+| `VECTORSTORE_PATH` | `~/.config/contextd/vectorstore` | Data storage path |
+| `QDRANT_HOST` | `localhost` | Qdrant host (if using qdrant) |
+| `QDRANT_PORT` | `6334` | Qdrant gRPC port |
+| `EMBEDDING_PROVIDER` | `fastembed` | Embedding provider |
+| `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+
+### Using External Qdrant
 
 ```bash
-docker run -d --name contextd-qdrant \
+docker run -d --name qdrant \
   -p 6333:6333 -p 6334:6334 \
   -v $(pwd)/qdrant_data:/qdrant/storage \
   qdrant/qdrant
 ```
 
-Configure via environment:
+Configure in `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "contextd": {
+      "type": "stdio",
       "command": "contextd",
       "args": ["--mcp", "--no-http"],
       "env": {
@@ -177,98 +224,76 @@ Configure via environment:
 
 ---
 
-## MCP Tools
-
-ContextD exposes these tools to Claude Code:
-
-| Tool | Purpose |
-|------|---------|
-| `memory_search` | Find relevant strategies from past sessions |
-| `memory_record` | Save a new learning or strategy |
-| `memory_feedback` | Rate whether a memory was helpful |
-| `checkpoint_save` | Save current context for later |
-| `checkpoint_list` | List available checkpoints |
-| `checkpoint_resume` | Resume from a saved checkpoint |
-| `remediation_search` | Find fixes for similar errors |
-| `remediation_record` | Record a new error fix |
-| `troubleshoot_diagnose` | AI-powered error diagnosis |
-| `repository_index` | Index a codebase for semantic search |
-| `repository_search` | Semantic search over indexed code |
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Claude Code                          │
-│                         │                                │
-│                    MCP Protocol                          │
-│                         │                                │
-│  ┌──────────────────────▼──────────────────────────┐    │
-│  │                  ContextD                        │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐ │    │
-│  │  │ Reasoning   │  │ Checkpoint  │  │ Remediate│ │    │
-│  │  │ Bank        │  │ Service     │  │ Service  │ │    │
-│  │  └──────┬──────┘  └──────┬──────┘  └────┬─────┘ │    │
-│  │         │                │               │       │    │
-│  │         └────────────────┼───────────────┘       │    │
-│  │                          │                       │    │
-│  │                   ┌──────▼──────┐                │    │
-│  │                   │   chromem   │                │    │
-│  │                   │  (Vectors)  │  or Qdrant     │    │
-│  │                   └─────────────┘                │    │
-│  └──────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-```
-
-**All-in-one binary includes:**
-- ContextD MCP server
-- chromem embedded vector database (zero external dependencies)
-- FastEmbed for local embeddings (ONNX-based, no API calls)
-- Optional: Configure `VECTORSTORE_PROVIDER=qdrant` for external Qdrant
-
----
-
-## Data Persistence
+## Data & Backup
 
 Data is stored in `~/.config/contextd/vectorstore/` by default.
 
 **Backup:**
-
 ```bash
 tar czf contextd-backup.tar.gz ~/.config/contextd/
 ```
 
 **Restore:**
-
 ```bash
 tar xzf contextd-backup.tar.gz -C ~/
 ```
 
 ---
 
+## CLI Tools
+
+ContextD includes two binaries:
+
+| Binary | Purpose |
+|--------|---------|
+| `contextd` | MCP server (run with `--mcp --no-http`) |
+| `ctxd` | CLI utility for manual operations |
+
+### ctxd Commands
+
+```bash
+ctxd health              # Check server health
+ctxd scrub <file>        # Scrub secrets from a file
+ctxd init                # Initialize dependencies (ONNX runtime)
+ctxd migrate             # Migrate data from Qdrant to chromem
+```
+
+---
+
+## Building from Source
+
+```bash
+git clone https://github.com/fyrsmithlabs/contextd.git
+cd contextd
+
+# Build with FastEmbed (requires CGO)
+make build
+
+# Or install to $GOPATH/bin
+make go-install
+
+# Run tests
+make test
+```
+
+---
+
 ## Documentation
 
-See the [docs/](docs/) directory for detailed documentation:
-
-- [Architecture Overview](docs/architecture.md) - System design and component interactions
-- [Configuration Reference](docs/configuration.md) - Environment variables and settings
 - [Docker Setup](docs/DOCKER.md) - Running contextd in Docker
-- [MCP Tools API](docs/api/mcp-tools.md) - Complete tool reference with examples
-- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to ContextD
+- [Design Plans](docs/plans/) - Feature design documents
+- [Specifications](docs/spec/) - Technical specifications
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+Contributions welcome! Please:
 
-- Development setup
-- Coding standards
-- Testing requirements
-- Pull request process
+1. Fork the repository
+2. Create a feature branch
+3. Write tests for new functionality
+4. Submit a pull request
 
 ---
 
@@ -281,7 +306,7 @@ MIT License - See [LICENSE](LICENSE) for details.
 ## Links
 
 - [GitHub Repository](https://github.com/fyrsmithlabs/contextd)
-- [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases)
+- [Releases](https://github.com/fyrsmithlabs/contextd/releases)
 - [Docker Image](https://ghcr.io/fyrsmithlabs/contextd)
 - [Homebrew Tap](https://github.com/fyrsmithlabs/homebrew-tap)
-- [Issue Tracker](https://github.com/fyrsmithlabs/contextd/issues)
+- [Issues](https://github.com/fyrsmithlabs/contextd/issues)

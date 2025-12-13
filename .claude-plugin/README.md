@@ -5,13 +5,15 @@ Cross-session memory and context management for AI agents.
 ## Features
 
 - **Semantic Memory** - Search past learnings and strategies across sessions
-- **Checkpoints** - Save and resume session context at 70% capacity
+- **Checkpoints** - Save and resume session context before hitting limits
 - **Error Remediation** - Track and reuse solutions to errors
 - **Repository Search** - Semantic code search over indexed repositories
+- **Self-Reflection** - Analyze behavior patterns and improve documentation
+- **Secret Scrubbing** - Automatic detection via gitleaks
 
 ## Installation
 
-### 1. Install the Plugin (Skills & Commands)
+### 1. Install the Plugin
 
 ```bash
 claude plugins add fyrsmithlabs/contextd
@@ -20,6 +22,7 @@ claude plugins add fyrsmithlabs/contextd
 ### 2. Install the MCP Server
 
 Run the install command after adding the plugin:
+
 ```
 /contextd:install
 ```
@@ -33,11 +36,6 @@ brew install fyrsmithlabs/tap/contextd
 
 **Binary:**
 Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest)
-
-**Docker:**
-```bash
-docker pull ghcr.io/fyrsmithlabs/contextd:latest
-```
 
 ### 3. Configure Claude Code
 
@@ -55,32 +53,74 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-For Docker configuration, see `/contextd:install`.
+Restart Claude Code after configuration.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/contextd:install` | Install contextd MCP server |
+| `/contextd:install` | Install contextd MCP server (Homebrew, binary, or Docker) |
 | `/contextd:init` | Initialize contextd for a new project |
-| `/contextd:onboard` | Onboard to existing project |
+| `/contextd:onboard` | Onboard to existing project with context priming |
 | `/contextd:checkpoint` | Save session checkpoint |
 | `/contextd:resume` | Resume from checkpoint |
 | `/contextd:search` | Search memories and remediations |
-| `/contextd:remember` | Record a learning |
-| `/contextd:diagnose` | Diagnose an error |
-| `/contextd:status` | Show contextd status |
+| `/contextd:remember` | Record a learning or insight |
+| `/contextd:diagnose` | AI-powered error diagnosis |
+| `/contextd:reflect` | Analyze behavior patterns and improve docs |
+| `/contextd:status` | Show contextd status for session and project |
+| `/contextd:help` | Show available commands and skills |
+| `/contextd:consensus-review` | Multi-reviewer code review |
 
 ## Skills
 
 | Skill | Use When |
 |-------|----------|
-| `using-contextd` | Starting any session |
+| `using-contextd` | Starting any session - overview of all tools |
 | `session-lifecycle` | Session start/end protocols |
-| `cross-session-memory` | Learning loop (search, do, record) |
-| `checkpoint-workflow` | Context at 70% capacity |
-| `error-remediation` | Resolving errors |
+| `cross-session-memory` | Learning loop (search → do → record → feedback) |
+| `checkpoint-workflow` | Context approaching 70% capacity |
+| `error-remediation` | Resolving errors systematically |
 | `repository-search` | Semantic code search |
+| `self-reflection` | Reviewing behavior patterns, improving docs |
+| `writing-claude-md` | Creating effective CLAUDE.md files |
+| `secret-scrubbing` | Understanding secret detection |
+| `project-onboarding` | Onboarding to new projects |
+| `consensus-review` | Multi-agent code review |
+
+## MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `memory_search` | Find relevant strategies from past sessions |
+| `memory_record` | Save a new learning or strategy |
+| `memory_feedback` | Rate whether a memory was helpful |
+| `memory_outcome` | Report task success/failure after using a memory |
+| `checkpoint_save` | Save current context for later |
+| `checkpoint_list` | List available checkpoints |
+| `checkpoint_resume` | Resume from a saved checkpoint |
+| `remediation_search` | Find fixes for similar errors |
+| `remediation_record` | Record a new error fix |
+| `troubleshoot_diagnose` | AI-powered error diagnosis |
+| `repository_index` | Index a codebase for semantic search |
+| `repository_search` | Semantic search over indexed code |
+
+## Quick Start
+
+After installation:
+
+1. **New project**: `/contextd:init` to set up project context
+2. **Existing project**: `/contextd:onboard` to prime with existing knowledge
+3. **During work**: Memories are automatically searched and recorded
+4. **At 70% context**: `/contextd:checkpoint` then `/clear`
+5. **Next session**: `/contextd:resume` to continue where you left off
+
+## Hooks
+
+The plugin includes automatic hooks:
+
+- **SessionStart** - Searches memories and lists checkpoints on session start
+- **PreCompact** - Auto-saves checkpoint before context compaction
 
 ## Links
 

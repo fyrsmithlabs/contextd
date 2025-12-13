@@ -14,6 +14,7 @@ Skills are activated automatically based on context or can be referenced with `@
 | `checkpoint-workflow` | Save and resume session state when context gets full |
 | `error-remediation` | Error diagnosis, past fix search, and solution recording |
 | `repository-search` | Semantic code search - finds code by meaning, not keywords |
+| `self-reflection` | Analyze behavior patterns, improve docs with pressure testing |
 | `secret-scrubbing` | Configure PostToolUse hooks for automatic secret redaction |
 | `writing-claude-md` | Best practices for creating effective CLAUDE.md files |
 | `project-onboarding` | Analyze existing codebases to generate CLAUDE.md |
@@ -25,14 +26,16 @@ Commands are invoked with `/contextd:<command>`.
 
 | Command | Description |
 |---------|-------------|
-| `/contextd:search <query>` | Search across memories and remediations |
-| `/contextd:remember` | Record a learning or insight from current session |
-| `/contextd:checkpoint` | Save a checkpoint of current session state |
-| `/contextd:resume` | List and resume from a previous checkpoint |
-| `/contextd:status` | Show contextd status for current project |
-| `/contextd:diagnose <error>` | Diagnose an error using AI analysis and past fixes |
+| `/contextd:install` | Install contextd MCP server (Homebrew, binary, or Docker) |
 | `/contextd:init` | Initialize contextd for a new project |
 | `/contextd:onboard` | Analyze existing project and generate CLAUDE.md |
+| `/contextd:checkpoint` | Save a checkpoint of current session state |
+| `/contextd:resume` | List and resume from a previous checkpoint |
+| `/contextd:search <query>` | Search across memories and remediations |
+| `/contextd:remember` | Record a learning or insight from current session |
+| `/contextd:diagnose <error>` | Diagnose an error using AI analysis and past fixes |
+| `/contextd:reflect` | Analyze behavior patterns and improve docs |
+| `/contextd:status` | Show contextd status for current project |
 | `/contextd:consensus-review <path>` | Run multi-agent code review on files/directory |
 | `/contextd:test-skill <skill> <n>` | Run pressure test scenario against a skill |
 | `/contextd:help` | Show this help message |
@@ -46,6 +49,7 @@ Low-level tools available via `mcp__contextd__*`:
 | `memory_search` | Find relevant past strategies |
 | `memory_record` | Save new memory explicitly |
 | `memory_feedback` | Rate memory helpfulness (adjusts confidence) |
+| `memory_outcome` | Report task success/failure after using a memory |
 | `checkpoint_save` | Save context snapshot |
 | `checkpoint_list` | List available checkpoints |
 | `checkpoint_resume` | Resume from checkpoint |
