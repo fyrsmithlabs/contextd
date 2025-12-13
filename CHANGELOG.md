@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
+  - Research document with 2025 state-of-the-art (AgentFold, ACON, Claude Agent SDK)
+  - Consensus design review with 4 specialized agents (Security, Correctness, Performance, Architecture)
+  - TDD implementation plan with 10 phases
+  - Updated SPEC.md with security requirements (SEC-001 through SEC-005)
+  - Updated ARCH.md with architectural decisions (isolation model, event pattern)
+  - FR-009/FR-010: Child branch cleanup and session end cleanup requirements
 - `repository-search` skill in claude-plugin
 - **PreCompact hook for auto-checkpoint** - saves checkpoint before context compaction
 - `/contextd:install` command for guided MCP server installation (homebrew, binary, docker)

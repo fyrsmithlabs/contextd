@@ -2,14 +2,19 @@ package telemetry
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc/credentials"
 )
 
 // newResource creates a resource describing the service.
@@ -26,10 +31,46 @@ func newResource(cfg *Config) (*resource.Resource, error) {
 
 // newTracerProvider creates a TracerProvider with OTLP exporter.
 func newTracerProvider(ctx context.Context, cfg *Config, res *resource.Resource) (*trace.TracerProvider, error) {
-	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint(cfg.Endpoint),
-		otlptracegrpc.WithInsecure(), // TODO: Make TLS configurable
-	)
+	var exporter trace.SpanExporter
+	var err error
+
+	// Choose exporter based on protocol
+	protocol := cfg.Protocol
+	if protocol == "" {
+		protocol = "grpc"
+	}
+
+	switch protocol {
+	case "http/protobuf":
+		// HTTP/protobuf exporter for HTTPS endpoints
+		opts := []otlptracehttp.Option{
+			otlptracehttp.WithEndpoint(stripScheme(cfg.Endpoint)),
+		}
+		if cfg.Insecure {
+			opts = append(opts, otlptracehttp.WithInsecure())
+		} else if cfg.TLSSkipVerify {
+			// Skip TLS verification for internal CAs
+			opts = append(opts, otlptracehttp.WithTLSClientConfig(&tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // User explicitly requested
+			}))
+		}
+		exporter, err = otlptracehttp.New(ctx, opts...)
+	default: // "grpc"
+		// gRPC exporter (default)
+		opts := []otlptracegrpc.Option{
+			otlptracegrpc.WithEndpoint(cfg.Endpoint),
+		}
+		if cfg.Insecure {
+			opts = append(opts, otlptracegrpc.WithInsecure())
+		} else if cfg.TLSSkipVerify {
+			// Skip TLS verification for internal CAs
+			opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // User explicitly requested
+			})))
+		}
+		exporter, err = otlptracegrpc.New(ctx, opts...)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("creating trace exporter: %w", err)
 	}
@@ -62,10 +103,46 @@ func newMeterProvider(ctx context.Context, cfg *Config, res *resource.Resource) 
 		return nil, nil
 	}
 
-	exporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
-		otlpmetricgrpc.WithInsecure(), // TODO: Make TLS configurable
-	)
+	var exporter metric.Exporter
+	var err error
+
+	// Choose exporter based on protocol
+	protocol := cfg.Protocol
+	if protocol == "" {
+		protocol = "grpc"
+	}
+
+	switch protocol {
+	case "http/protobuf":
+		// HTTP/protobuf exporter for HTTPS endpoints
+		opts := []otlpmetrichttp.Option{
+			otlpmetrichttp.WithEndpoint(stripScheme(cfg.Endpoint)),
+		}
+		if cfg.Insecure {
+			opts = append(opts, otlpmetrichttp.WithInsecure())
+		} else if cfg.TLSSkipVerify {
+			// Skip TLS verification for internal CAs
+			opts = append(opts, otlpmetrichttp.WithTLSClientConfig(&tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // User explicitly requested
+			}))
+		}
+		exporter, err = otlpmetrichttp.New(ctx, opts...)
+	default: // "grpc"
+		// gRPC exporter (default)
+		opts := []otlpmetricgrpc.Option{
+			otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
+		}
+		if cfg.Insecure {
+			opts = append(opts, otlpmetricgrpc.WithInsecure())
+		} else if cfg.TLSSkipVerify {
+			// Skip TLS verification for internal CAs
+			opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // User explicitly requested
+			})))
+		}
+		exporter, err = otlpmetricgrpc.New(ctx, opts...)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("creating metric exporter: %w", err)
 	}
@@ -81,6 +158,14 @@ func newMeterProvider(ctx context.Context, cfg *Config, res *resource.Resource) 
 	)
 
 	return mp, nil
+}
+
+// stripScheme removes http:// or https:// from an endpoint URL.
+// The OTEL HTTP exporters expect just host:port, not full URLs.
+func stripScheme(endpoint string) string {
+	endpoint = strings.TrimPrefix(endpoint, "https://")
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	return endpoint
 }
 
 // TracerProviderOption configures TracerProvider creation.
