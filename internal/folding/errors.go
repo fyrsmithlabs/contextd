@@ -38,6 +38,9 @@ const (
 	ErrCodePromptTooLong      = "FOLD019"
 	ErrCodeEmptyBranchID      = "FOLD020"
 	ErrCodeMessageTooLong     = "FOLD021"
+
+	// Authorization errors (FOLD022) - SEC-004
+	ErrCodeSessionUnauthorized = "FOLD022"
 )
 
 // FoldingError represents a structured error with context and categorization.
@@ -193,6 +196,31 @@ func IsSystemError(err error) bool {
 	}
 }
 
+// IsAuthorizationError returns true if the error indicates an authorization failure.
+// SEC-004: These errors should result in HTTP 403 Forbidden responses.
+func IsAuthorizationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for sentinel error
+	if errors.Is(err, ErrSessionUnauthorized) {
+		return true
+	}
+
+	var foldingErr *FoldingError
+	if !errors.As(err, &foldingErr) {
+		return false
+	}
+
+	switch foldingErr.Code {
+	case ErrCodeSessionUnauthorized:
+		return true
+	default:
+		return false
+	}
+}
+
 // Validation errors (SEC-001) - kept for backward compatibility.
 var (
 	ErrEmptySessionID     = errors.New("session_id is required")
@@ -232,4 +260,9 @@ var (
 // Secret scrubbing errors (SEC-002) - kept for backward compatibility.
 var (
 	ErrScrubbingFailed = errors.New("secret scrubbing failed")
+)
+
+// Authorization errors (SEC-004) - kept for backward compatibility.
+var (
+	ErrSessionUnauthorized = errors.New("session access unauthorized")
 )

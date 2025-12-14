@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
+- **SEC-004: Session Authorization** for context-folding
+  - `SessionValidator` interface with `PermissiveSessionValidator` (default, single-user) and `StrictSessionValidator` (multi-tenant)
+  - `CallerID` field added to `BranchRequest` and `ReturnRequest`
+  - `ErrSessionUnauthorized` error code (FOLD022) and `IsAuthorizationError()` helper
+  - Authorization enforced in `BranchManager.Create()` and `BranchManager.Return()`
+  - Comprehensive test coverage for all validation scenarios
   - Research document with 2025 state-of-the-art (AgentFold, ACON, Claude Agent SDK)
   - Consensus design review with 4 specialized agents (Security, Correctness, Performance, Architecture)
   - TDD implementation plan with 10 phases

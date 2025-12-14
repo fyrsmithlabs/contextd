@@ -56,6 +56,39 @@ type MemorySearcher interface {
 	Search(ctx context.Context, query string, limit int, minConfidence float64) ([]InjectedItem, error)
 }
 
+// SessionValidator validates that a caller has access to a session.
+// This interface enables authentication/authorization enforcement (SEC-004).
+type SessionValidator interface {
+	// ValidateSession checks if the caller (identified by callerID) has access to sessionID.
+	// Returns nil if access is allowed, ErrSessionUnauthorized if not.
+	// The callerID can be extracted from MCP context, JWT claims, or other auth mechanisms.
+	ValidateSession(ctx context.Context, sessionID string, callerID string) error
+}
+
+// PermissiveSessionValidator allows all session access (for single-user deployments).
+type PermissiveSessionValidator struct{}
+
+// ValidateSession always returns nil (allows all access).
+func (v *PermissiveSessionValidator) ValidateSession(ctx context.Context, sessionID string, callerID string) error {
+	return nil
+}
+
+// StrictSessionValidator requires session ownership match.
+type StrictSessionValidator struct{}
+
+// ValidateSession requires callerID to match sessionID prefix or be the session owner.
+// Sessions are expected to follow format: "user_<userID>_<sessionID>" or callerID must match exactly.
+func (v *StrictSessionValidator) ValidateSession(ctx context.Context, sessionID string, callerID string) error {
+	if callerID == "" {
+		return ErrSessionUnauthorized
+	}
+	// Check if session belongs to caller (session starts with caller's ID or matches exactly)
+	if sessionID == callerID || len(sessionID) > len(callerID) && sessionID[:len(callerID)+1] == callerID+"_" {
+		return nil
+	}
+	return ErrSessionUnauthorized
+}
+
 // --- Event Types ---
 
 // BudgetExhaustedEvent is emitted when a branch exhausts its budget.

@@ -596,3 +596,139 @@ func TestBranchManager_WithOptions(t *testing.T) {
 		t.Error("Health.Healthy = false, want true")
 	}
 }
+
+// SEC-004: Session Authorization Tests
+
+func TestBranchManager_CreateWithStrictValidator(t *testing.T) {
+	repo := NewMemoryBranchRepository()
+	emitter := NewSimpleEventEmitter()
+	budget := NewBudgetTracker(emitter)
+	scrubber := &MockScrubber{}
+	config := DefaultFoldingConfig()
+
+	manager := NewBranchManager(repo, budget, scrubber, emitter, config,
+		WithSessionValidator(&StrictSessionValidator{}),
+	)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		sessionID   string
+		callerID    string
+		expectError bool
+	}{
+		{
+			name:        "matching caller allowed",
+			sessionID:   "user_123_session_001",
+			callerID:    "user_123",
+			expectError: false,
+		},
+		{
+			name:        "exact match allowed",
+			sessionID:   "user_123",
+			callerID:    "user_123",
+			expectError: false,
+		},
+		{
+			name:        "mismatched caller rejected",
+			sessionID:   "user_123_session_001",
+			callerID:    "user_456",
+			expectError: true,
+		},
+		{
+			name:        "empty caller rejected",
+			sessionID:   "user_123_session_001",
+			callerID:    "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := BranchRequest{
+				SessionID:   tt.sessionID,
+				CallerID:    tt.callerID,
+				Description: "test",
+				Prompt:      "test",
+			}
+
+			_, err := manager.Create(ctx, req)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Create() = nil error, want authorization error")
+				}
+				if err != ErrSessionUnauthorized {
+					t.Errorf("Create() error = %v, want ErrSessionUnauthorized", err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Create() error = %v, want nil", err)
+				}
+			}
+		})
+	}
+}
+
+func TestBranchManager_ReturnWithStrictValidator(t *testing.T) {
+	repo := NewMemoryBranchRepository()
+	emitter := NewSimpleEventEmitter()
+	budget := NewBudgetTracker(emitter)
+	scrubber := &MockScrubber{}
+	config := DefaultFoldingConfig()
+
+	manager := NewBranchManager(repo, budget, scrubber, emitter, config,
+		WithSessionValidator(&StrictSessionValidator{}),
+	)
+	ctx := context.Background()
+
+	// Create a branch with valid caller
+	createReq := BranchRequest{
+		SessionID:   "user_123_session_001",
+		CallerID:    "user_123",
+		Description: "test",
+		Prompt:      "test",
+	}
+	resp, err := manager.Create(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Try to return with wrong caller
+	_, err = manager.Return(ctx, ReturnRequest{
+		BranchID: resp.BranchID,
+		CallerID: "user_456",
+		Message:  "result",
+	})
+	if err != ErrSessionUnauthorized {
+		t.Errorf("Return() with wrong caller = %v, want ErrSessionUnauthorized", err)
+	}
+
+	// Return with correct caller should work
+	_, err = manager.Return(ctx, ReturnRequest{
+		BranchID: resp.BranchID,
+		CallerID: "user_123",
+		Message:  "result",
+	})
+	if err != nil {
+		t.Errorf("Return() with correct caller = %v, want nil", err)
+	}
+}
+
+func TestBranchManager_DefaultPermissiveValidator(t *testing.T) {
+	// Default manager should use permissive validator
+	manager, _, _ := newTestManager()
+	ctx := context.Background()
+
+	// Should allow any caller
+	req := BranchRequest{
+		SessionID:   "any_session",
+		CallerID:    "", // Empty caller should be allowed
+		Description: "test",
+		Prompt:      "test",
+	}
+
+	_, err := manager.Create(ctx, req)
+	if err != nil {
+		t.Errorf("Create() with permissive validator = %v, want nil", err)
+	}
+}

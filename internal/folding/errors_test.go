@@ -29,6 +29,7 @@ func TestErrorCodes(t *testing.T) {
 		ErrCodePromptTooLong,
 		ErrCodeEmptyBranchID,
 		ErrCodeMessageTooLong,
+		ErrCodeSessionUnauthorized, // SEC-004
 	}
 
 	seen := make(map[string]bool)
@@ -400,6 +401,64 @@ func TestWrapError(t *testing.T) {
 	// Should unwrap to original error
 	if !errors.Is(wrapped, originalErr) {
 		t.Error("wrapped error should unwrap to original error")
+	}
+}
+
+func TestIsAuthorizationError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "non-folding error",
+			err:      errors.New("some error"),
+			expected: false,
+		},
+		{
+			name:     "sentinel ErrSessionUnauthorized",
+			err:      ErrSessionUnauthorized,
+			expected: true,
+		},
+		{
+			name: "FoldingError with session unauthorized code",
+			err: &FoldingError{
+				Code:    ErrCodeSessionUnauthorized,
+				Message: "session access unauthorized",
+			},
+			expected: true,
+		},
+		{
+			name: "FoldingError with different code",
+			err: &FoldingError{
+				Code:    ErrCodeBranchNotFound,
+				Message: "branch not found",
+			},
+			expected: false,
+		},
+		{
+			name: "wrapped sentinel error",
+			err: &FoldingError{
+				Code:    "WRAP",
+				Message: "wrapped",
+				Cause:   ErrSessionUnauthorized,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsAuthorizationError(tt.err)
+			if result != tt.expected {
+				t.Errorf("IsAuthorizationError() = %v, want %v", result, tt.expected)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
+	"go.uber.org/zap"
 )
 
 // FoldingConfig holds configuration for context-folding.
@@ -52,6 +53,9 @@ type BranchManager struct {
 	metrics  *Metrics
 	logger   *Logger
 
+	// Session validation (SEC-004)
+	sessionValidator SessionValidator
+
 	// Timeout management
 	timeoutMu      sync.Mutex
 	timeoutCancels map[string]context.CancelFunc
@@ -82,6 +86,14 @@ func WithLogger(l *Logger) BranchManagerOption {
 	}
 }
 
+// WithSessionValidator sets a session validator for authorization (SEC-004).
+// If not set, PermissiveSessionValidator is used (allows all access).
+func WithSessionValidator(v SessionValidator) BranchManagerOption {
+	return func(bm *BranchManager) {
+		bm.sessionValidator = v
+	}
+}
+
 // NewBranchManager creates a new branch manager.
 func NewBranchManager(
 	repo BranchRepository,
@@ -100,15 +112,16 @@ func NewBranchManager(
 	logger := NewLogger(nil)
 
 	m := &BranchManager{
-		repo:           repo,
-		budget:         budget,
-		scrubber:       scrubber,
-		emitter:        emitter,
-		config:         config,
-		metrics:        metrics,
-		logger:         logger,
-		timeoutCancels: make(map[string]context.CancelFunc),
-		shutdownChan:   make(chan struct{}),
+		repo:             repo,
+		budget:           budget,
+		scrubber:         scrubber,
+		emitter:          emitter,
+		config:           config,
+		metrics:          metrics,
+		logger:           logger,
+		sessionValidator: &PermissiveSessionValidator{}, // SEC-004: Default allows all access
+		timeoutCancels:   make(map[string]context.CancelFunc),
+		shutdownChan:     make(chan struct{}),
 	}
 
 	// Apply options
@@ -164,6 +177,19 @@ func (m *BranchManager) Create(ctx context.Context, req BranchRequest) (*BranchR
 		return nil, err
 	}
 	req.ApplyDefaults()
+
+	// Validate session authorization (SEC-004)
+	if m.sessionValidator != nil {
+		if err := m.sessionValidator.ValidateSession(ctx, req.SessionID, req.CallerID); err != nil {
+			RecordError(ctx, err)
+			SetSpanStatus(ctx, codes.Error, "session authorization failed")
+			m.logger.Warn(ctx, "session authorization failed",
+				zap.String("session_id", req.SessionID),
+				zap.String("caller_id", req.CallerID),
+			)
+			return nil, err
+		}
+	}
 
 	// Check instance-level rate limit (SEC-003)
 	instanceCount := atomic.LoadInt64(&m.instanceBranchCount)
@@ -288,6 +314,20 @@ func (m *BranchManager) Return(ctx context.Context, req ReturnRequest) (*ReturnR
 		RecordError(ctx, err)
 		SetSpanStatus(ctx, codes.Error, "branch not found")
 		return nil, err
+	}
+
+	// Validate session authorization (SEC-004)
+	if m.sessionValidator != nil {
+		if err := m.sessionValidator.ValidateSession(ctx, branch.SessionID, req.CallerID); err != nil {
+			RecordError(ctx, err)
+			SetSpanStatus(ctx, codes.Error, "session authorization failed")
+			m.logger.Warn(ctx, "session authorization failed on return",
+				zap.String("session_id", branch.SessionID),
+				zap.String("branch_id", req.BranchID),
+				zap.String("caller_id", req.CallerID),
+			)
+			return nil, err
+		}
 	}
 
 	// Verify active status

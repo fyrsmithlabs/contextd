@@ -151,6 +151,16 @@ func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
 	l.logger.Debug(msg, allFields...)
 }
 
+// Warn logs a warning message with context.
+func (l *Logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
+	if l == nil || l.logger == nil {
+		return
+	}
+	allFields := l.traceFields(ctx)
+	allFields = append(allFields, fields...)
+	l.logger.Warn(msg, allFields...)
+}
+
 // baseFields returns common fields for branch events.
 func (l *Logger) baseFields(ctx context.Context, branchID, sessionID string, depth int) []zap.Field {
 	fields := []zap.Field{

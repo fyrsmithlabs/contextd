@@ -72,6 +72,7 @@ func (b *Branch) BudgetRemaining() int {
 // BranchRequest represents a request to create a new branch.
 type BranchRequest struct {
 	SessionID      string `json:"session_id"`
+	CallerID       string `json:"caller_id,omitempty"` // SEC-004: Caller identity for authorization
 	Description    string `json:"description"`
 	Prompt         string `json:"prompt"`
 	Budget         int    `json:"budget,omitempty"`
@@ -138,6 +139,7 @@ type InjectedItem struct {
 // ReturnRequest represents a request to complete a branch.
 type ReturnRequest struct {
 	BranchID      string `json:"branch_id"`
+	CallerID      string `json:"caller_id,omitempty"` // SEC-004: Caller identity for authorization
 	Message       string `json:"message"`
 	ExtractMemory bool   `json:"extract_memory,omitempty"`
 }
