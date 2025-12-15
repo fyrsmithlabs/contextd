@@ -4,10 +4,10 @@ package qdrant
 import (
 	"context"
 
-	"github.com/fyrsmithlabs/contextd/internal/remediation"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
-// RemediationAdapter adapts GRPCClient to implement remediation.QdrantClient interface.
+// RemediationAdapter adapts GRPCClient to implement vectorstore.QdrantClient interface.
 type RemediationAdapter struct {
 	client *GRPCClient
 }
@@ -38,8 +38,8 @@ func (a *RemediationAdapter) ListCollections(ctx context.Context) ([]string, err
 }
 
 // Upsert inserts or updates points in a collection.
-func (a *RemediationAdapter) Upsert(ctx context.Context, collection string, points []*remediation.QdrantPoint) error {
-	// Convert remediation points to qdrant points
+func (a *RemediationAdapter) Upsert(ctx context.Context, collection string, points []*vectorstore.QdrantPoint) error {
+	// Convert vectorstore points to qdrant points
 	qdrantPoints := make([]*Point, len(points))
 	for i, p := range points {
 		qdrantPoints[i] = &Point{
@@ -52,7 +52,7 @@ func (a *RemediationAdapter) Upsert(ctx context.Context, collection string, poin
 }
 
 // Search performs similarity search in a collection.
-func (a *RemediationAdapter) Search(ctx context.Context, collection string, vector []float32, limit uint64, filter *remediation.QdrantFilter) ([]*remediation.QdrantScoredPoint, error) {
+func (a *RemediationAdapter) Search(ctx context.Context, collection string, vector []float32, limit uint64, filter *vectorstore.QdrantFilter) ([]*vectorstore.QdrantScoredPoint, error) {
 	// Convert filter
 	var qdrantFilter *Filter
 	if filter != nil {
@@ -101,10 +101,10 @@ func (a *RemediationAdapter) Search(ctx context.Context, collection string, vect
 	}
 
 	// Convert results
-	remediationResults := make([]*remediation.QdrantScoredPoint, len(results))
+	adapterResults := make([]*vectorstore.QdrantScoredPoint, len(results))
 	for i, r := range results {
-		remediationResults[i] = &remediation.QdrantScoredPoint{
-			QdrantPoint: remediation.QdrantPoint{
+		adapterResults[i] = &vectorstore.QdrantScoredPoint{
+			QdrantPoint: vectorstore.QdrantPoint{
 				ID:      r.ID,
 				Vector:  r.Vector,
 				Payload: r.Payload,
@@ -112,26 +112,26 @@ func (a *RemediationAdapter) Search(ctx context.Context, collection string, vect
 			Score: r.Score,
 		}
 	}
-	return remediationResults, nil
+	return adapterResults, nil
 }
 
 // Get retrieves points by their IDs.
-func (a *RemediationAdapter) Get(ctx context.Context, collection string, ids []string) ([]*remediation.QdrantPoint, error) {
+func (a *RemediationAdapter) Get(ctx context.Context, collection string, ids []string) ([]*vectorstore.QdrantPoint, error) {
 	results, err := a.client.Get(ctx, collection, ids)
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert results
-	remediationPoints := make([]*remediation.QdrantPoint, len(results))
+	adapterPoints := make([]*vectorstore.QdrantPoint, len(results))
 	for i, r := range results {
-		remediationPoints[i] = &remediation.QdrantPoint{
+		adapterPoints[i] = &vectorstore.QdrantPoint{
 			ID:      r.ID,
 			Vector:  r.Vector,
 			Payload: r.Payload,
 		}
 	}
-	return remediationPoints, nil
+	return adapterPoints, nil
 }
 
 // Delete removes points from a collection.
@@ -149,5 +149,5 @@ func (a *RemediationAdapter) Close() error {
 	return a.client.Close()
 }
 
-// Ensure RemediationAdapter implements remediation.QdrantClient interface.
-var _ remediation.QdrantClient = (*RemediationAdapter)(nil)
+// Ensure RemediationAdapter implements vectorstore.QdrantClient interface.
+var _ vectorstore.QdrantClient = (*RemediationAdapter)(nil)
