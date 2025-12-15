@@ -15,6 +15,7 @@ func TestNewDefaultConfig(t *testing.T) {
 	assert.False(t, cfg.Enabled) // Disabled by default for new users without OTEL collector
 	assert.Equal(t, "localhost:4317", cfg.Endpoint)
 	assert.Equal(t, "contextd", cfg.ServiceName)
+	assert.Equal(t, "0.1.0", cfg.ServiceVersion)
 	assert.Equal(t, 1.0, cfg.Sampling.Rate)
 	assert.True(t, cfg.Sampling.AlwaysOnErrors)
 	assert.True(t, cfg.Metrics.Enabled)
@@ -44,9 +45,10 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "missing endpoint",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "",
-				ServiceName: "test",
+				Enabled:        true,
+				Endpoint:       "",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
 			},
 			wantErr: true,
 			errMsg:  "endpoint is required",
@@ -54,21 +56,34 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "missing service name",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "localhost:4317",
-				ServiceName: "",
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "",
+				ServiceVersion: "0.1.0",
 			},
 			wantErr: true,
 			errMsg:  "service_name is required",
 		},
 		{
+			name: "missing service version",
+			config: &Config{
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "",
+			},
+			wantErr: true,
+			errMsg:  "service_version is required",
+		},
+		{
 			name: "sampling rate too low",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "localhost:4317",
-				ServiceName: "test",
-				Sampling:    SamplingConfig{Rate: -0.1},
-				Shutdown:    ShutdownConfig{Timeout: config.Duration(time.Second)},
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Sampling:       SamplingConfig{Rate: -0.1},
+				Shutdown:       ShutdownConfig{Timeout: config.Duration(time.Second)},
 			},
 			wantErr: true,
 			errMsg:  "sampling.rate must be between 0 and 1",
@@ -76,11 +91,12 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "sampling rate too high",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "localhost:4317",
-				ServiceName: "test",
-				Sampling:    SamplingConfig{Rate: 1.1},
-				Shutdown:    ShutdownConfig{Timeout: config.Duration(time.Second)},
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Sampling:       SamplingConfig{Rate: 1.1},
+				Shutdown:       ShutdownConfig{Timeout: config.Duration(time.Second)},
 			},
 			wantErr: true,
 			errMsg:  "sampling.rate must be between 0 and 1",
@@ -88,10 +104,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid metrics export interval",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "localhost:4317",
-				ServiceName: "test",
-				Sampling:    SamplingConfig{Rate: 1.0},
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Sampling:       SamplingConfig{Rate: 1.0},
 				Metrics: MetricsConfig{
 					Enabled:        true,
 					ExportInterval: config.Duration(0),
@@ -104,10 +121,11 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid shutdown timeout",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "localhost:4317",
-				ServiceName: "test",
-				Sampling:    SamplingConfig{Rate: 1.0},
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Sampling:       SamplingConfig{Rate: 1.0},
 				Metrics:     MetricsConfig{Enabled: false},
 				Shutdown:    ShutdownConfig{Timeout: config.Duration(0)},
 			},
@@ -117,9 +135,10 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "valid with custom values",
 			config: &Config{
-				Enabled:     true,
-				Endpoint:    "collector.prod:4317",
-				ServiceName: "my-service",
+				Enabled:        true,
+				Endpoint:       "collector.prod:4317",
+				ServiceName:    "my-service",
+				ServiceVersion: "1.2.3",
 				Sampling: SamplingConfig{
 					Rate:           0.5,
 					AlwaysOnErrors: true,
