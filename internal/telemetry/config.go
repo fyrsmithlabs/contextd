@@ -13,6 +13,7 @@ type Config struct {
 	Enabled     bool           `koanf:"enabled"`
 	Endpoint    string         `koanf:"endpoint"`
 	ServiceName string         `koanf:"service_name"`
+	Insecure    bool           `koanf:"insecure"`
 	Sampling    SamplingConfig `koanf:"sampling"`
 	Metrics     MetricsConfig  `koanf:"metrics"`
 	Shutdown    ShutdownConfig `koanf:"shutdown"`
@@ -43,6 +44,7 @@ func NewDefaultConfig() *Config {
 		Enabled:     false,
 		Endpoint:    "localhost:4317",
 		ServiceName: "contextd",
+		Insecure:    true,
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev
 			AlwaysOnErrors: true,

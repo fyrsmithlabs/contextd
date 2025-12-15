@@ -15,6 +15,7 @@ func TestNewDefaultConfig(t *testing.T) {
 	assert.False(t, cfg.Enabled) // Disabled by default for new users without OTEL collector
 	assert.Equal(t, "localhost:4317", cfg.Endpoint)
 	assert.Equal(t, "contextd", cfg.ServiceName)
+	assert.True(t, cfg.Insecure)
 	assert.Equal(t, 1.0, cfg.Sampling.Rate)
 	assert.True(t, cfg.Sampling.AlwaysOnErrors)
 	assert.True(t, cfg.Metrics.Enabled)
