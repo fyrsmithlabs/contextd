@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Enabled     bool           `koanf:"enabled"`
 	Endpoint    string         `koanf:"endpoint"`
+	Insecure    bool           `koanf:"insecure"`
 	ServiceName string         `koanf:"service_name"`
 	Sampling    SamplingConfig `koanf:"sampling"`
 	Metrics     MetricsConfig  `koanf:"metrics"`
@@ -20,7 +21,7 @@ type Config struct {
 
 // SamplingConfig controls trace sampling behavior.
 type SamplingConfig struct {
-	Rate           float64 `koanf:"rate"`            // 0.0-1.0, default 1.0
+	Rate           float64 `koanf:"rate"`             // 0.0-1.0, default 1.0
 	AlwaysOnErrors bool    `koanf:"always_on_errors"` // Always capture error traces
 }
 
@@ -42,6 +43,7 @@ func NewDefaultConfig() *Config {
 	return &Config{
 		Enabled:     false,
 		Endpoint:    "localhost:4317",
+		Insecure:    true,
 		ServiceName: "contextd",
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev

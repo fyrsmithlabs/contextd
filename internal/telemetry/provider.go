@@ -26,10 +26,15 @@ func newResource(cfg *Config) (*resource.Resource, error) {
 
 // newTracerProvider creates a TracerProvider with OTLP exporter.
 func newTracerProvider(ctx context.Context, cfg *Config, res *resource.Resource) (*trace.TracerProvider, error) {
-	exporter, err := otlptracegrpc.New(ctx,
+	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.Endpoint),
-		otlptracegrpc.WithInsecure(), // TODO: Make TLS configurable
-	)
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating trace exporter: %w", err)
 	}
@@ -62,10 +67,15 @@ func newMeterProvider(ctx context.Context, cfg *Config, res *resource.Resource) 
 		return nil, nil
 	}
 
-	exporter, err := otlpmetricgrpc.New(ctx,
+	opts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
-		otlpmetricgrpc.WithInsecure(), // TODO: Make TLS configurable
-	)
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	}
+
+	exporter, err := otlpmetricgrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating metric exporter: %w", err)
 	}
