@@ -205,6 +205,7 @@ func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]str
 	// Convert documents to chromem format
 	chromemDocs := make([]chromem.Document, len(docs))
 	ids := make([]string, len(docs))
+	texts := make([]string, len(docs))
 
 	for i, doc := range docs {
 		ids[i] = doc.ID
@@ -216,19 +217,22 @@ func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]str
 				zap.Int("index", i),
 			)
 		}
+		texts[i] = doc.Content
+	}
 
-		// Generate embedding
-		embedding, err := s.embedder.EmbedQuery(ctx, doc.Content)
-		if err != nil {
-			span.RecordError(err)
-			return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
-		}
+	// Generate embeddings in batch
+	embeddings, err := s.embedder.EmbedDocuments(ctx, texts)
+	if err != nil {
+		span.RecordError(err)
+		return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+	}
 
+	for i, doc := range docs {
 		chromemDocs[i] = chromem.Document{
 			ID:        ids[i],
 			Content:   doc.Content,
 			Metadata:  convertMetadataToString(doc.Metadata),
-			Embedding: embedding,
+			Embedding: embeddings[i],
 		}
 	}
 
