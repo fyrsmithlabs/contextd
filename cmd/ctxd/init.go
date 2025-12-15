@@ -54,7 +54,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cmd.Printf("Downloading ONNX runtime v%s...\n", embeddings.DefaultONNXRuntimeVersion)
 
 	// Use the download function from embeddings package
-	if err := embeddings.DownloadONNXRuntime(context.Background(), ""); err != nil {
+	if err := embeddings.DownloadONNXRuntime(context.Background(), "", true); err != nil {
 		return fmt.Errorf("failed to download ONNX runtime: %w", err)
 	}
 

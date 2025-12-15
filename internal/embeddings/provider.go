@@ -26,6 +26,8 @@ type ProviderConfig struct {
 	BaseURL string
 	// CacheDir is the model cache directory (only used for FastEmbed)
 	CacheDir string
+	// ShowProgress enables progress bars for downloads
+	ShowProgress bool
 }
 
 // detectDimensionFromModel returns the embedding dimension for a model name.
@@ -66,8 +68,9 @@ func NewProvider(cfg ProviderConfig) (Provider, error) {
 	switch cfg.Provider {
 	case "fastembed", "":
 		return NewFastEmbedProvider(FastEmbedConfig{
-			Model:    cfg.Model,
-			CacheDir: cfg.CacheDir,
+			Model:        cfg.Model,
+			CacheDir:     cfg.CacheDir,
+			ShowProgress: cfg.ShowProgress,
 		})
 	case "tei":
 		svc, err := NewService(Config{

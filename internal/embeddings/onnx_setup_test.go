@@ -116,7 +116,7 @@ func TestDownloadONNXRuntime_Integration(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
-	err := downloadONNXRuntimeTo(ctx, DefaultONNXRuntimeVersion, tmpDir)
+	err := downloadONNXRuntimeTo(ctx, DefaultONNXRuntimeVersion, tmpDir, false)
 	require.NoError(t, err)
 
 	// Verify library file exists
@@ -138,7 +138,7 @@ func TestEnsureONNXRuntime_AlreadyExists(t *testing.T) {
 	t.Setenv("ONNX_PATH", libPath)
 
 	ctx := context.Background()
-	path, err := EnsureONNXRuntime(ctx)
+	path, err := EnsureONNXRuntime(ctx, false)
 	require.NoError(t, err)
 	assert.Equal(t, libPath, path)
 }
