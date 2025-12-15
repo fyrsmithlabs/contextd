@@ -17,13 +17,19 @@ func TestNewResource(t *testing.T) {
 	// Resource should contain service name attribute
 	attrs := res.Attributes()
 	var foundServiceName bool
+	var foundServiceVersion bool
 	for _, attr := range attrs {
 		if string(attr.Key) == "service.name" {
 			assert.Equal(t, cfg.ServiceName, attr.Value.AsString())
 			foundServiceName = true
 		}
+		if string(attr.Key) == "service.version" {
+			assert.Equal(t, cfg.ServiceVersion, attr.Value.AsString())
+			foundServiceVersion = true
+		}
 	}
 	assert.True(t, foundServiceName, "service.name attribute not found")
+	assert.True(t, foundServiceVersion, "service.version attribute not found")
 }
 
 func TestTracerProviderOption(t *testing.T) {
