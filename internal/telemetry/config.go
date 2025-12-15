@@ -10,12 +10,13 @@ import (
 
 // Config holds telemetry configuration.
 type Config struct {
-	Enabled     bool           `koanf:"enabled"`
-	Endpoint    string         `koanf:"endpoint"`
-	ServiceName string         `koanf:"service_name"`
-	Sampling    SamplingConfig `koanf:"sampling"`
-	Metrics     MetricsConfig  `koanf:"metrics"`
-	Shutdown    ShutdownConfig `koanf:"shutdown"`
+	Enabled        bool           `koanf:"enabled"`
+	Endpoint       string         `koanf:"endpoint"`
+	ServiceName    string         `koanf:"service_name"`
+	ServiceVersion string         `koanf:"service_version"`
+	Sampling       SamplingConfig `koanf:"sampling"`
+	Metrics        MetricsConfig  `koanf:"metrics"`
+	Shutdown       ShutdownConfig `koanf:"shutdown"`
 }
 
 // SamplingConfig controls trace sampling behavior.
@@ -40,9 +41,10 @@ type ShutdownConfig struct {
 // Set OTEL_ENABLE=true or configure telemetry in config.yaml to enable.
 func NewDefaultConfig() *Config {
 	return &Config{
-		Enabled:     false,
-		Endpoint:    "localhost:4317",
-		ServiceName: "contextd",
+		Enabled:        false,
+		Endpoint:       "localhost:4317",
+		ServiceName:    "contextd",
+		ServiceVersion: "0.1.0",
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev
 			AlwaysOnErrors: true,
@@ -69,6 +71,10 @@ func (c *Config) Validate() error {
 
 	if c.ServiceName == "" {
 		return fmt.Errorf("service_name is required when telemetry is enabled")
+	}
+
+	if c.ServiceVersion == "" {
+		return fmt.Errorf("service_version is required when telemetry is enabled")
 	}
 
 	if c.Sampling.Rate < 0 || c.Sampling.Rate > 1 {
