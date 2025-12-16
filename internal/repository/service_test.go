@@ -841,3 +841,139 @@ func TestGrep_SkipsBinaryFiles(t *testing.T) {
 		t.Errorf("Matched file = %s, want valid.txt", results[0].FilePath)
 	}
 }
+
+func TestGrep_InvalidPath(t *testing.T) {
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: "/nonexistent/path",
+	}
+
+	_, err := svc.Grep(context.Background(), "pattern", opts)
+	if err == nil {
+		t.Error("Grep() should error on invalid path")
+	}
+}
+
+func TestGrep_InvalidPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "test.go", "content")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	_, err := svc.Grep(context.Background(), "[invalid", opts)
+	if err == nil {
+		t.Error("Grep() should error on invalid regex pattern")
+	}
+}
+
+func TestGrep_ContextCancellation(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create many files to increase chance of context check
+	for i := 0; i < 50; i++ {
+		createTestFile(t, tmpDir, fmt.Sprintf("file%d.go", i), "package main\n\nfunc main() {}")
+	}
+
+	svc := NewService(&mockStore{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	_, err := svc.Grep(ctx, "main", opts)
+	// Error may or may not occur depending on timing, but should not panic
+	_ = err
+}
+
+func TestGrep_CaseSensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "test.go", "Hello World\nhello world\nHELLO WORLD")
+
+	svc := NewService(&mockStore{})
+
+	// Case insensitive (default)
+	opts := GrepOptions{
+		ProjectPath:   tmpDir,
+		CaseSensitive: false,
+	}
+
+	results, err := svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Case insensitive: got %d results, want 3", len(results))
+	}
+
+	// Case sensitive
+	opts.CaseSensitive = true
+	results, err = svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Case sensitive: got %d results, want 1", len(results))
+	}
+}
+
+func TestGrep_ExcludePatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+	createTestFile(t, tmpDir, "main_test.go", "package main")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath:     tmpDir,
+		ExcludePatterns: []string{"*_test.go"},
+	}
+
+	results, err := svc.Grep(context.Background(), "package", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Got %d results, want 1 (main.go only)", len(results))
+	}
+}
+
+func TestGrep_SkipsDefaultDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+
+	// Create a file in .git directory that should be skipped
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, gitDir, "config", "package git")
+
+	// Create a file in node_modules that should be skipped
+	nmDir := filepath.Join(tmpDir, "node_modules")
+	if err := os.MkdirAll(nmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, nmDir, "pkg.js", "package node")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	results, err := svc.Grep(context.Background(), "package", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	// Should only find main.go, not .git/config or node_modules/pkg.js
+	if len(results) != 1 {
+		t.Errorf("Got %d results, want 1 (should skip .git and node_modules)", len(results))
+	}
+}

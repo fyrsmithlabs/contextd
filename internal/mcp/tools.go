@@ -452,11 +452,11 @@ func (s *Server) registerRepositoryTools() {
 
 			// Parse project's ignore files for grep
 			excludePatterns := []string{}
-			parsed, err := s.ignoreParser.ParseProject(args.ProjectPath)
-			if err != nil {
+			parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath)
+			if parseErr != nil {
 				s.logger.Warn("failed to parse ignore files for grep, using fallback",
 					zap.String("path", args.ProjectPath),
-					zap.Error(err))
+					zap.Error(parseErr))
 				excludePatterns = s.ignoreParser.FallbackPatterns
 			} else {
 				excludePatterns = parsed

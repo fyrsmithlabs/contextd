@@ -172,7 +172,6 @@ func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([
 			// Skip unreadable files
 			return nil
 		}
-		defer file.Close()
 
 		// Scan lines
 		scanner := bufio.NewScanner(file)
@@ -195,7 +194,14 @@ func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([
 			}
 		}
 
-		if scanErr := scanner.Err(); scanErr != nil {
+		// Check scanner error (e.g., line too long for buffer)
+		scanErr := scanner.Err()
+
+		// Close file explicitly to avoid holding handles during the rest of the walk
+		// (defer in a walk callback holds all handles until walk completes)
+		file.Close()
+
+		if scanErr != nil {
 			return scanErr
 		}
 
