@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/config"
+	"github.com/fyrsmithlabs/contextd/internal/embeddings"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 var (
@@ -22,6 +28,8 @@ var (
 	statuslineInterval time.Duration
 	// statuslineOnce runs once and exits (for one-shot mode)
 	statuslineOnce bool
+	// statuslineDirect queries database directly without HTTP
+	statuslineDirect bool
 )
 
 func init() {
@@ -33,6 +41,9 @@ func init() {
 
 	statuslineRunCmd.Flags().DurationVar(&statuslineInterval, "interval", 5*time.Second, "polling interval")
 	statuslineRunCmd.Flags().BoolVar(&statuslineOnce, "once", false, "run once and exit")
+	statuslineRunCmd.Flags().BoolVar(&statuslineDirect, "direct", false, "query database directly (no HTTP server needed)")
+
+	statuslineTestCmd.Flags().BoolVar(&statuslineDirect, "direct", false, "query database directly (no HTTP server needed)")
 }
 
 // statuslineCmd is the parent command for statusline operations
@@ -169,7 +180,15 @@ func runStatuslineRun(cmd *cobra.Command, args []string) error {
 
 // outputStatusline fetches status and outputs formatted line
 func outputStatusline() error {
-	status, err := fetchStatus()
+	var status *StatusResponse
+	var err error
+
+	if statuslineDirect {
+		status, err = fetchStatusDirect()
+	} else {
+		status, err = fetchStatusHTTP()
+	}
+
 	if err != nil {
 		return err
 	}
@@ -179,8 +198,8 @@ func outputStatusline() error {
 	return nil
 }
 
-// fetchStatus fetches status from the contextd server
-func fetchStatus() (*StatusResponse, error) {
+// fetchStatusHTTP fetches status from the contextd HTTP server
+func fetchStatusHTTP() (*StatusResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/status", serverURL)
 
 	client := &http.Client{
@@ -204,6 +223,64 @@ func fetchStatus() (*StatusResponse, error) {
 	}
 
 	return &status, nil
+}
+
+// fetchStatusDirect queries the database directly without HTTP
+func fetchStatusDirect() (*StatusResponse, error) {
+	ctx := context.Background()
+
+	// Load config
+	cfg := config.Load()
+
+	// Create a silent logger for statusline (no output)
+	logger := zap.NewNop()
+
+	// Initialize embedder
+	embedder, err := embeddings.NewProvider(embeddings.ProviderConfig{
+		Provider: cfg.Embeddings.Provider,
+		Model:    cfg.Embeddings.Model,
+		CacheDir: cfg.Embeddings.CacheDir,
+		BaseURL:  cfg.Embeddings.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create embedder: %w", err)
+	}
+
+	// Initialize vectorstore
+	store, err := vectorstore.NewStore(cfg, embedder, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create vectorstore: %w", err)
+	}
+	defer store.Close()
+
+	// Initialize checkpoint service
+	checkpointSvc, err := checkpoint.NewService(nil, store, logger) // nil config uses defaults
+	if err != nil {
+		return nil, fmt.Errorf("failed to create checkpoint service: %w", err)
+	}
+
+	// Build status response
+	status := &StatusResponse{
+		Status:   "ok",
+		Services: make(map[string]string),
+		Counts:   StatusCounts{},
+	}
+
+	// All services are "ok" in direct mode (we have access)
+	status.Services["checkpoint"] = "ok"
+	status.Services["memory"] = "ok"
+	status.Services["vectorstore"] = "ok"
+
+	// Get checkpoint count
+	checkpoints, err := checkpointSvc.List(ctx, &checkpoint.ListRequest{Limit: 1000})
+	if err == nil {
+		status.Counts.Checkpoints = len(checkpoints)
+	}
+
+	// Memory count would require project_id, leave as 0 for now
+	status.Counts.Memories = 0
+
+	return status, nil
 }
 
 // formatStatusline formats the status response as a statusline string
@@ -276,8 +353,15 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve ctxd path: %w", err)
 	}
 
-	// Build the statusline command
-	statuslineScript := fmt.Sprintf("%s statusline run --server %s", ctxdPath, serverURL)
+	// Build the statusline command - use --direct by default (no HTTP server needed)
+	var statuslineScript string
+	if serverURL != "http://localhost:9090" {
+		// User specified a custom server, use HTTP mode
+		statuslineScript = fmt.Sprintf("%s statusline run --server %s", ctxdPath, serverURL)
+	} else {
+		// Default to direct mode (queries database directly)
+		statuslineScript = fmt.Sprintf("%s statusline run --direct", ctxdPath)
+	}
 
 	// Get Claude Code settings path
 	settingsPath := getClaudeSettingsPath()
@@ -290,6 +374,57 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		settings = make(map[string]interface{})
+	}
+
+	// Check for existing statusline and append if needed
+	existingStatusLine := ""
+
+	// Handle both string and object formats for statusLine
+	if existing, ok := settings["statusLine"].(string); ok {
+		existingStatusLine = existing
+	} else if statusLineObj, ok := settings["statusLine"].(map[string]interface{}); ok {
+		if cmd, ok := statusLineObj["command"].(string); ok {
+			existingStatusLine = cmd
+		}
+	}
+
+	// Auto-detect common statusline script locations if no statusLine configured
+	if existingStatusLine == "" {
+		homeDir, _ := os.UserHomeDir()
+		commonPaths := []string{
+			filepath.Join(homeDir, ".claude", "statusline.sh"),
+			filepath.Join(homeDir, ".claude", "statusline"),
+			filepath.Join(homeDir, ".config", "claude", "statusline.sh"),
+		}
+		for _, path := range commonPaths {
+			if _, err := os.Stat(path); err == nil {
+				existingStatusLine = path
+				fmt.Printf("Auto-detected existing statusline script: %s\n", path)
+				break
+			}
+		}
+	}
+
+	// Show current statusline before modifying
+	if existingStatusLine != "" {
+		fmt.Printf("Current statusline: %s\n", existingStatusLine)
+	}
+
+	// If there's an existing statusline that doesn't contain ctxd, append our script
+	if existingStatusLine != "" && !strings.Contains(existingStatusLine, "ctxd") {
+		// Create a combined script that runs both
+		statuslineScript = fmt.Sprintf("%s; echo -n ' │ '; %s", existingStatusLine, statuslineScript)
+	} else if existingStatusLine != "" && strings.Contains(existingStatusLine, "ctxd") {
+		// Replace existing ctxd command but preserve any prefix
+		// Find where ctxd starts and replace from there
+		if idx := strings.Index(existingStatusLine, "ctxd"); idx > 0 {
+			prefix := existingStatusLine[:idx]
+			// Check if there's a semicolon before ctxd (another command)
+			if lastSemi := strings.LastIndex(prefix, ";"); lastSemi >= 0 {
+				prefix = strings.TrimSpace(existingStatusLine[:lastSemi+1])
+				statuslineScript = fmt.Sprintf("%s %s", prefix, statuslineScript)
+			}
+		}
 	}
 
 	// Update statusline setting
@@ -362,7 +497,14 @@ func runStatuslineUninstall(cmd *cobra.Command, args []string) error {
 
 // runStatuslineTest handles the statusline test command
 func runStatuslineTest(cmd *cobra.Command, args []string) error {
-	status, err := fetchStatus()
+	var status *StatusResponse
+	var err error
+
+	if statuslineDirect {
+		status, err = fetchStatusDirect()
+	} else {
+		status, err = fetchStatusHTTP()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to fetch status: %w", err)
 	}
