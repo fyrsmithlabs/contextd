@@ -36,36 +36,6 @@ func main() { fmt.Println("test") }`
 	assert.False(t, math.IsInf(result.Metadata.CompressionRatio, 0), "compression ratio should not be +Inf")
 }
 
-// TestExtractiveCompressor_SelectSentencesSkipsLongIncludesShort verifies that
-// when a high-scoring sentence is too long, smaller sentences are still considered.
-// This tests the specific bug fix where the loop continued instead of breaking.
-func TestExtractiveCompressor_SelectSentencesSkipsLongIncludesShort(t *testing.T) {
-	compressor := NewExtractiveCompressor(Config{
-		DefaultAlgorithm: AlgorithmExtractive,
-		TargetRatio:      2.0,
-	})
-
-	// Test the internal selectSentences function directly
-	// First sentence is long and high-scoring (position bonus)
-	// Second sentence is short enough to fit
-	sentences := []string{
-		"This is a very long first sentence that should have a high position score but will not fit in the target length because it exceeds the limit significantly.",
-		"Short one.",
-	}
-
-	// Score the sentences - first will have higher position bonus
-	scores := compressor.scoreSentences(sentences)
-
-	// Target length that only fits the short sentence
-	targetLength := 20
-
-	selected := compressor.selectSentences(sentences, scores, targetLength)
-
-	// The short sentence should be selected even though the long one scored higher
-	assert.NotEmpty(t, selected, "should select at least one sentence")
-	assert.Contains(t, selected, "Short one.", "should include the shorter sentence that fits")
-}
-
 // TestExtractiveCompressor_SelectSentencesMinimum verifies at least one sentence is always selected
 func TestExtractiveCompressor_SelectSentencesMinimum(t *testing.T) {
 	config := Config{
@@ -111,4 +81,34 @@ func TestExtractiveCompressor_SelectSentencesMinimum(t *testing.T) {
 			assert.False(t, math.IsInf(result.Metadata.CompressionRatio, 0), "compression ratio should not be infinity")
 		})
 	}
+}
+
+// TestExtractiveCompressor_SelectSentencesContinue verifies that selectSentences
+// continues to check subsequent sentences even if the first one is too long.
+func TestExtractiveCompressor_SelectSentencesContinue(t *testing.T) {
+	// A long sentence that should score high (due to position and length) but exceed target
+	// A short sentence that should score lower but fit in target
+
+	// We construct a content where first sentence is very long, second is short.
+	longSentence := "This is a very long sentence that will definitely exceed the target length which we will set to be quite small relative to this sentence."
+	shortSentence := "Short one."
+
+	content := longSentence + " " + shortSentence
+
+	config := Config{
+		DefaultAlgorithm: AlgorithmExtractive,
+		TargetRatio:      5.0,
+	}
+	compressor := NewExtractiveCompressor(config)
+
+	ctx := context.Background()
+	result, err := compressor.Compress(ctx, content, AlgorithmExtractive, 5.0)
+	require.NoError(t, err)
+
+	// If `break` was used, it would select longSentence (via fallback) -> result length > 30.
+	// If `continue` is used, it skips longSentence, selects shortSentence -> result length <= 30.
+
+	assert.LessOrEqual(t, len(result.Content), 30, "Should have selected the short sentence that fits target length")
+	assert.Contains(t, result.Content, "Short one", "Should contain the short sentence")
+	assert.NotContains(t, result.Content, "This is a very long sentence", "Should NOT contain the long sentence")
 }
