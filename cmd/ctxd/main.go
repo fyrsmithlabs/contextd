@@ -163,7 +163,7 @@ func runScrub(cmd *cobra.Command, args []string) error {
 
 	// If findings were made, log to stderr
 	if scrubResp.FindingsCount > 0 {
-		fmt.Fprintf(os.Stderr, "\n[ctxd] Scrubbed %d secret(s)\n", scrubResp.FindingsCount)
+		fmt.Fprintf(os.Stderr, "\n🧹 Scrubbed %d secret(s)\n", scrubResp.FindingsCount)
 	}
 
 	return nil
@@ -197,8 +197,8 @@ func runHealth(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	fmt.Printf("Server Status: %s\n", healthResp.Status)
-	fmt.Printf("Server URL: %s\n", serverURL)
+	fmt.Printf("✅ Server Status: %s\n", healthResp.Status)
+	fmt.Printf("🌐 Server URL:    %s\n", serverURL)
 
 	return nil
 }
