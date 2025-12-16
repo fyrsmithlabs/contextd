@@ -534,24 +534,30 @@ func runStatuslineTest(cmd *cobra.Command, args []string) error {
 }
 
 // getClaudeSettingsPath returns the path to Claude Code settings
+// Claude Code checks multiple locations; we prefer ~/.claude/settings.json if it exists
 func getClaudeSettingsPath() string {
-	var configDir string
+	home, _ := os.UserHomeDir()
 
+	// Check ~/.claude/settings.json first (primary location for Claude Code)
+	primaryPath := filepath.Join(home, ".claude", "settings.json")
+	if _, err := os.Stat(primaryPath); err == nil {
+		return primaryPath
+	}
+
+	// Fall back to platform-specific locations
+	var configDir string
 	switch runtime.GOOS {
 	case "darwin":
-		home, _ := os.UserHomeDir()
 		configDir = filepath.Join(home, "Library", "Application Support", "Claude")
 	case "linux":
 		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 			configDir = filepath.Join(xdg, "claude")
 		} else {
-			home, _ := os.UserHomeDir()
 			configDir = filepath.Join(home, ".config", "claude")
 		}
 	case "windows":
 		configDir = filepath.Join(os.Getenv("APPDATA"), "Claude")
 	default:
-		home, _ := os.UserHomeDir()
 		configDir = filepath.Join(home, ".claude")
 	}
 
