@@ -328,3 +328,59 @@ func TestTelemetry_ShutdownWithProviders(t *testing.T) {
 	health := tt.Health()
 	assert.False(t, health.Healthy)
 }
+
+func TestTelemetry_HealthStateWithDegraded(t *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.Enabled = false
+
+	tel, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+
+	// Initially healthy and not degraded
+	health := tel.Health()
+	assert.True(t, health.Healthy)
+	assert.False(t, health.Degraded)
+
+	// Simulate degraded state
+	tel.setDegraded("test error: %s", "something failed")
+
+	// Should now be degraded
+	health = tel.Health()
+	assert.True(t, health.Healthy) // Still healthy because providers weren't initialized to fail
+	assert.True(t, health.Degraded)
+}
+
+func TestTelemetry_UpdateHealthState(t *testing.T) {
+	// Test that updateHealthState correctly sets healthy=false when no providers initialized
+	cfg := NewDefaultConfig()
+	cfg.Enabled = true
+
+	tel := &Telemetry{
+		config:         cfg,
+		tracerProvider: nil, // No providers
+		meterProvider:  nil,
+	}
+	tel.healthy.Store(true)
+	tel.degraded.Store(false)
+
+	// Before updateHealthState, healthy is true
+	assert.True(t, tel.healthy.Load())
+
+	// After updateHealthState, should be unhealthy since no providers
+	tel.updateHealthState()
+	assert.False(t, tel.healthy.Load())
+}
+
+func TestTelemetry_UpdateHealthState_WithProviders(t *testing.T) {
+	// Test that updateHealthState keeps healthy=true when providers exist
+	tt := NewTestTelemetry()
+
+	// Ensure providers are set
+	require.NotNil(t, tt.tracerProvider)
+	require.NotNil(t, tt.meterProvider)
+
+	// Health should be true
+	health := tt.Health()
+	assert.True(t, health.Healthy)
+	assert.False(t, health.Degraded)
+}

@@ -16,6 +16,7 @@ func TestNewDefaultConfig(t *testing.T) {
 	assert.Equal(t, "localhost:4317", cfg.Endpoint)
 	assert.Equal(t, "contextd", cfg.ServiceName)
 	assert.Equal(t, "0.1.0", cfg.ServiceVersion)
+	assert.True(t, cfg.Insecure) // Insecure by default for local dev
 	assert.Equal(t, 1.0, cfg.Sampling.Rate)
 	assert.True(t, cfg.Sampling.AlwaysOnErrors)
 	assert.True(t, cfg.Metrics.Enabled)
@@ -133,12 +134,13 @@ func TestConfig_Validate(t *testing.T) {
 			errMsg:  "shutdown.timeout must be positive",
 		},
 		{
-			name: "valid with custom values",
+			name: "valid with custom values and TLS",
 			config: &Config{
 				Enabled:        true,
 				Endpoint:       "collector.prod:4317",
 				ServiceName:    "my-service",
 				ServiceVersion: "1.2.3",
+				Insecure:       false, // TLS enabled for remote endpoint
 				Sampling: SamplingConfig{
 					Rate:           0.5,
 					AlwaysOnErrors: true,
@@ -153,6 +155,49 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "insecure allowed for localhost",
+			config: &Config{
+				Enabled:        true,
+				Endpoint:       "localhost:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Insecure:       true,
+				Sampling:       SamplingConfig{Rate: 1.0},
+				Metrics:        MetricsConfig{Enabled: false},
+				Shutdown:       ShutdownConfig{Timeout: config.Duration(time.Second)},
+			},
+			wantErr: false,
+		},
+		{
+			name: "insecure allowed for 127.0.0.1",
+			config: &Config{
+				Enabled:        true,
+				Endpoint:       "127.0.0.1:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Insecure:       true,
+				Sampling:       SamplingConfig{Rate: 1.0},
+				Metrics:        MetricsConfig{Enabled: false},
+				Shutdown:       ShutdownConfig{Timeout: config.Duration(time.Second)},
+			},
+			wantErr: false,
+		},
+		{
+			name: "insecure not allowed for remote endpoint",
+			config: &Config{
+				Enabled:        true,
+				Endpoint:       "collector.prod:4317",
+				ServiceName:    "test",
+				ServiceVersion: "0.1.0",
+				Insecure:       true, // Security violation: insecure to remote
+				Sampling:       SamplingConfig{Rate: 1.0},
+				Metrics:        MetricsConfig{Enabled: false},
+				Shutdown:       ShutdownConfig{Timeout: config.Duration(time.Second)},
+			},
+			wantErr: true,
+			errMsg:  "insecure connections to remote endpoints are not allowed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -164,6 +209,32 @@ func TestConfig_Validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestConfig_IsLocalEndpoint(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		isLocal  bool
+	}{
+		{"localhost:4317", true},
+		{"localhost", true},
+		{"127.0.0.1:4317", true},
+		{"127.0.0.1", true},
+		{"127.0.1.1:4317", true},
+		{"::1:4317", true},
+		{"::1", true},
+		{"collector.prod:4317", false},
+		{"otel.example.com:4317", false},
+		{"192.168.1.1:4317", false},
+		{"10.0.0.1:4317", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.endpoint, func(t *testing.T) {
+			cfg := &Config{Endpoint: tt.endpoint}
+			assert.Equal(t, tt.isLocal, cfg.isLocalEndpoint())
 		})
 	}
 }

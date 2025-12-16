@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `repository-search` skill in claude-plugin
+
+### Security
+- **SEC-005: Block insecure telemetry to remote endpoints** (#17)
+  - Added `isLocalEndpoint()` validation in telemetry config
+  - Insecure gRPC connections now only allowed for localhost/127.0.0.1/::1
+  - Remote endpoints require `insecure: false` for TLS
+
+### Fixed
+- **Telemetry health state consistency** - `healthy` now correctly set to `false` when enabled but no providers initialized
+- **Telemetry degradation logging** - `setDegraded()` now logs warnings via slog instead of silently discarding errors
+- **TestTelemetry atomic boolean initialization** - atomic booleans now properly initialized in test harness
+
+### Added (continued)
 - **PreCompact hook for auto-checkpoint** - saves checkpoint before context compaction
 - `/contextd:install` command for guided MCP server installation (homebrew, binary, docker)
 

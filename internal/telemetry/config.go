@@ -3,6 +3,7 @@ package telemetry
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
@@ -14,6 +15,7 @@ type Config struct {
 	Endpoint       string         `koanf:"endpoint"`
 	ServiceName    string         `koanf:"service_name"`
 	ServiceVersion string         `koanf:"service_version"`
+	Insecure       bool           `koanf:"insecure"` // Use insecure connection (no TLS)
 	Sampling       SamplingConfig `koanf:"sampling"`
 	Metrics        MetricsConfig  `koanf:"metrics"`
 	Shutdown       ShutdownConfig `koanf:"shutdown"`
@@ -45,6 +47,7 @@ func NewDefaultConfig() *Config {
 		Endpoint:       "localhost:4317",
 		ServiceName:    "contextd",
 		ServiceVersion: "0.1.0",
+		Insecure:       true, // Insecure by default for local dev; set false for production TLS
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev
 			AlwaysOnErrors: true,
@@ -77,6 +80,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("service_version is required when telemetry is enabled")
 	}
 
+	// Security: Prevent insecure connections to remote endpoints
+	if c.Insecure && !c.isLocalEndpoint() {
+		return fmt.Errorf("insecure connections to remote endpoints are not allowed; set insecure=false for TLS or use a local endpoint (localhost/127.0.0.1)")
+	}
+
 	if c.Sampling.Rate < 0 || c.Sampling.Rate > 1 {
 		return fmt.Errorf("sampling.rate must be between 0 and 1, got %f", c.Sampling.Rate)
 	}
@@ -90,4 +98,32 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// isLocalEndpoint checks if the endpoint is a local address.
+func (c *Config) isLocalEndpoint() bool {
+	host := c.Endpoint
+
+	// Handle IPv6 addresses (may be bracketed like [::1]:4317)
+	if strings.HasPrefix(host, "[") {
+		// Bracketed IPv6: [::1]:4317
+		if idx := strings.Index(host, "]:"); idx != -1 {
+			host = host[1:idx] // Extract between [ and ]
+		} else if strings.HasSuffix(host, "]") {
+			host = host[1 : len(host)-1] // [::1] without port
+		}
+	} else if strings.Count(host, ":") == 1 {
+		// IPv4 or hostname with port: localhost:4317
+		if idx := strings.LastIndex(host, ":"); idx != -1 {
+			host = host[:idx]
+		}
+	}
+	// For IPv6 without brackets (::1, ::1:4317), we check the full string
+
+	// Check for common local addresses
+	return host == "localhost" ||
+		host == "127.0.0.1" ||
+		host == "::1" ||
+		strings.HasPrefix(host, "127.") ||
+		strings.HasPrefix(c.Endpoint, "::1")
 }
