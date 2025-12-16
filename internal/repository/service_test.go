@@ -320,6 +320,69 @@ func TestSearch_ReturnsBranchInResults(t *testing.T) {
 	}
 }
 
+// TestSearch_WithCollectionName verifies that CollectionName bypasses tenant_id derivation.
+// This fixes the bug where repository_index with explicit tenant_id produces a different
+// collection name than repository_search with derived tenant_id.
+func TestSearch_WithCollectionName(t *testing.T) {
+	store := &mockStore{
+		searchResults: []vectorstore.SearchResult{
+			{ID: "1", Content: "test content", Score: 0.9, Metadata: map[string]interface{}{"file_path": "main.go"}},
+		},
+	}
+	svc := NewService(store)
+
+	// Use CollectionName directly - no tenant_id/project_path needed
+	opts := SearchOptions{
+		CollectionName: "dahendel_onprem_pw_codebase",
+		Limit:          10,
+	}
+
+	// Execute
+	_, err := svc.Search(context.Background(), "test query", opts)
+
+	// Verify
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Should use collection name directly
+	if store.lastCollection != "dahendel_onprem_pw_codebase" {
+		t.Errorf("Search collection = %q, want %q", store.lastCollection, "dahendel_onprem_pw_codebase")
+	}
+}
+
+// TestSearch_HyphenatedProjectName verifies that hyphenated project names are handled correctly.
+// Bug: "onprem-pw" should produce collection "tenant_onprem_pw_codebase" consistently.
+func TestSearch_HyphenatedProjectName(t *testing.T) {
+	store := &mockStore{
+		searchResults: []vectorstore.SearchResult{
+			{ID: "1", Content: "test", Score: 0.9, Metadata: map[string]interface{}{"file_path": "main.go"}},
+		},
+	}
+	svc := NewService(store)
+
+	// Using tenant_id + project_path with hyphen
+	opts := SearchOptions{
+		ProjectPath: "/Users/dahendel/projects/onprem-pw",
+		TenantID:    "dahendel",
+		Limit:       10,
+	}
+
+	// Execute
+	_, err := svc.Search(context.Background(), "query", opts)
+
+	// Verify
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Hyphen should be converted to underscore
+	expectedCollection := "dahendel_onprem_pw_codebase"
+	if store.lastCollection != expectedCollection {
+		t.Errorf("Search collection = %q, want %q", store.lastCollection, expectedCollection)
+	}
+}
+
 // ===== TESTS: COLLECTION NAMING =====
 
 func TestSanitizeIdentifier(t *testing.T) {

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `repository-search` skill in claude-plugin
+- **`collection_name` parameter for `repository_search`** - allows passing collection name directly from `repository_index` output, avoiding tenant_id derivation issues
+
+### Fixed
+- **`repository_search` collection not found** - when `repository_index` used explicit `tenant_id` but `repository_search` derived tenant_id differently (e.g., from git config), search would fail with "collection not found"
+  - Added `collection_name` parameter to `repository_search` (preferred over tenant_id + project_path)
+  - `repository_index` output includes `collection_name` - use this value for subsequent searches
+  - Existing tenant_id + project_path derivation still works as fallback
 
 ### Security
 - **SEC-005: Block insecure telemetry to remote endpoints** (#17)

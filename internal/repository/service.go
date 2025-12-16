@@ -65,10 +65,11 @@ func NewService(store Store) *Service {
 
 // SearchOptions configures repository search behavior.
 type SearchOptions struct {
-	ProjectPath string // Required: project path to search within
-	TenantID    string // Required: tenant identifier
-	Branch      string // Optional: filter by branch (empty = all branches)
-	Limit       int    // Max results (default: 10)
+	CollectionName string // Preferred: direct collection name from repository_index
+	ProjectPath    string // Required if CollectionName not provided
+	TenantID       string // Required if CollectionName not provided
+	Branch         string // Optional: filter by branch (empty = all branches)
+	Limit          int    // Max results (default: 10)
 }
 
 // RepoSearchResult from repository search.
@@ -88,21 +89,28 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	if opts.ProjectPath == "" {
-		return nil, fmt.Errorf("project_path is required")
-	}
-	if opts.TenantID == "" {
-		return nil, fmt.Errorf("tenant_id is required")
-	}
 
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10
 	}
 
-	// Build collection name for codebase using shared sanitize package
-	// Format: {tenant}_{project}_codebase (matches spec)
-	collectionName := sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
+	// Use collection name directly if provided (preferred - avoids tenant_id derivation issues)
+	// Otherwise derive from tenant_id + project_path
+	var collectionName string
+	if opts.CollectionName != "" {
+		collectionName = opts.CollectionName
+	} else {
+		if opts.ProjectPath == "" {
+			return nil, fmt.Errorf("project_path is required when collection_name not provided")
+		}
+		if opts.TenantID == "" {
+			return nil, fmt.Errorf("tenant_id is required when collection_name not provided")
+		}
+		// Build collection name for codebase using shared sanitize package
+		// Format: {tenant}_{project}_codebase (matches spec)
+		collectionName = sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
+	}
 
 	// Build filters
 	filters := make(map[string]interface{})
