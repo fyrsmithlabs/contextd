@@ -132,8 +132,18 @@ func TestBranchRequestValidation(t *testing.T) {
 			wantErr: ErrEmptySessionID,
 		},
 		{
+			name:    "whitespace-only session_id",
+			req:     BranchRequest{SessionID: "   ", Description: "test", Prompt: "do something"},
+			wantErr: ErrEmptySessionID,
+		},
+		{
 			name:    "empty description",
 			req:     BranchRequest{SessionID: "sess_1", Prompt: "do something"},
+			wantErr: ErrEmptyDescription,
+		},
+		{
+			name:    "whitespace-only description",
+			req:     BranchRequest{SessionID: "sess_1", Description: "   \t\n  ", Prompt: "do something"},
 			wantErr: ErrEmptyDescription,
 		},
 		{
@@ -144,6 +154,11 @@ func TestBranchRequestValidation(t *testing.T) {
 		{
 			name:    "empty prompt",
 			req:     BranchRequest{SessionID: "sess_1", Description: "test"},
+			wantErr: ErrEmptyPrompt,
+		},
+		{
+			name:    "whitespace-only prompt",
+			req:     BranchRequest{SessionID: "sess_1", Description: "test", Prompt: "   \t  "},
 			wantErr: ErrEmptyPrompt,
 		},
 		{

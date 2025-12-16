@@ -3,6 +3,7 @@
 package folding
 
 import (
+	"strings"
 	"time"
 )
 
@@ -90,17 +91,18 @@ const (
 )
 
 // Validate checks the request against SEC-001 requirements.
+// Trims whitespace before checking for empty values to prevent whitespace-only inputs.
 func (r *BranchRequest) Validate() error {
-	if r.SessionID == "" {
+	if strings.TrimSpace(r.SessionID) == "" {
 		return ErrEmptySessionID
 	}
-	if len(r.Description) == 0 {
+	if len(strings.TrimSpace(r.Description)) == 0 {
 		return ErrEmptyDescription
 	}
 	if len(r.Description) > MaxDescriptionLength {
 		return ErrDescriptionTooLong
 	}
-	if len(r.Prompt) == 0 {
+	if len(strings.TrimSpace(r.Prompt)) == 0 {
 		return ErrEmptyPrompt
 	}
 	if len(r.Prompt) > MaxPromptLength {

@@ -378,9 +378,13 @@ func (m *BranchManager) Return(ctx context.Context, req ReturnRequest) (*ReturnR
 	// Get final token usage
 	tokensUsed, _ := m.budget.Used(branch.ID)
 
-	// Update branch state
+	// Update branch state with validated transition
 	now := time.Now()
-	branch.Status = BranchStatusCompleted
+	if err := m.transitionTo(branch, BranchStatusCompleted); err != nil {
+		RecordError(ctx, err)
+		SetSpanStatus(ctx, codes.Error, "invalid state transition")
+		return nil, err
+	}
 	branch.Result = &scrubbedMsg
 	branch.CompletedAt = &now
 	branch.BudgetUsed = tokensUsed
@@ -463,9 +467,13 @@ func (m *BranchManager) ForceReturn(ctx context.Context, branchID string, reason
 	// Get token usage
 	tokensUsed, _ := m.budget.Used(branchID)
 
-	// Update branch
+	// Update branch with validated transition
 	now := time.Now()
-	branch.Status = status
+	if err := m.transitionTo(branch, status); err != nil {
+		RecordError(ctx, err)
+		SetSpanStatus(ctx, codes.Error, "invalid state transition")
+		return err
+	}
 	branch.Error = &reason
 	branch.CompletedAt = &now
 	branch.BudgetUsed = tokensUsed
@@ -651,5 +659,21 @@ func (m *BranchManager) checkShutdown() error {
 	if m.IsShutdown() {
 		return fmt.Errorf("branch manager is shut down")
 	}
+	return nil
+}
+
+// transitionTo validates and applies a state transition.
+// Returns ErrInvalidTransition if the transition is not allowed by the state machine.
+func (m *BranchManager) transitionTo(branch *Branch, newStatus BranchStatus) error {
+	if !branch.Status.CanTransitionTo(newStatus) {
+		return NewFoldingError(
+			ErrCodeInvalidTransition,
+			fmt.Sprintf("cannot transition from %s to %s", branch.Status, newStatus),
+			nil,
+			branch.ID,
+			branch.SessionID,
+		)
+	}
+	branch.Status = newStatus
 	return nil
 }
