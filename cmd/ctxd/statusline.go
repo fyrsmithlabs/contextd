@@ -259,6 +259,13 @@ func fetchStatusDirect() (*StatusResponse, error) {
 		return nil, fmt.Errorf("failed to create checkpoint service: %w", err)
 	}
 
+	// Get tenant_id - use $USER since that's what's commonly used
+	// TODO: Make this configurable or detect from existing data
+	tenantID := os.Getenv("USER")
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
 	// Build status response
 	status := &StatusResponse{
 		Status:   "ok",
@@ -271,14 +278,22 @@ func fetchStatusDirect() (*StatusResponse, error) {
 	status.Services["memory"] = "ok"
 	status.Services["vectorstore"] = "ok"
 
-	// Get checkpoint count
-	checkpoints, err := checkpointSvc.List(ctx, &checkpoint.ListRequest{Limit: 1000})
+	// Get checkpoint count (filter by tenant)
+	checkpoints, err := checkpointSvc.List(ctx, &checkpoint.ListRequest{
+		TenantID: tenantID,
+		Limit:    1000,
+	})
 	if err == nil {
 		status.Counts.Checkpoints = len(checkpoints)
+	} else {
+		// Log error but don't fail - direct mode may have collection loading issues
+		// TODO: Fix chromem collection loading for direct queries
+		status.Counts.Checkpoints = -1 // -1 indicates unknown
 	}
 
-	// Memory count would require project_id, leave as 0 for now
-	status.Counts.Memories = 0
+	// Memory count - would require reasoningbank service
+	// TODO: Add reasoningbank service query when available
+	status.Counts.Memories = -1 // -1 indicates unknown in direct mode
 
 	return status, nil
 }
@@ -291,11 +306,19 @@ func formatStatusline(status *StatusResponse) string {
 	healthIcon := getHealthIcon(status)
 	parts = append(parts, healthIcon)
 
-	// Memory count
-	parts = append(parts, fmt.Sprintf("\U0001f9e0%d", status.Counts.Memories))
+	// Memory count (-1 means unknown in direct mode)
+	if status.Counts.Memories >= 0 {
+		parts = append(parts, fmt.Sprintf("\U0001f9e0%d", status.Counts.Memories))
+	} else {
+		parts = append(parts, "\U0001f9e0?")
+	}
 
-	// Checkpoint count
-	parts = append(parts, fmt.Sprintf("\U0001f4be%d", status.Counts.Checkpoints))
+	// Checkpoint count (-1 means unknown in direct mode)
+	if status.Counts.Checkpoints >= 0 {
+		parts = append(parts, fmt.Sprintf("\U0001f4be%d", status.Counts.Checkpoints))
+	} else {
+		parts = append(parts, "\U0001f4be?")
+	}
 
 	// Context usage (if available)
 	if status.Context != nil {
