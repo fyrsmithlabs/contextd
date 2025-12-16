@@ -750,6 +750,141 @@ func TestHandleThreshold(t *testing.T) {
 	})
 }
 
+func TestHandleStatus(t *testing.T) {
+	t.Run("returns status with all services available", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Memory").Return((*reasoningbank.Service)(nil))
+		registry.On("Remediation").Return((remediation.Service)(nil))
+		registry.On("Repository").Return((*repository.Service)(nil))
+		registry.On("Troubleshoot").Return((*troubleshoot.Service)(nil))
+		registry.On("Compression").Return((*compression.Service)(nil))
+		registry.On("Hooks").Return(mockHooks)
+
+		// Mock checkpoint list for count
+		mockCp.On("List", mock.Anything, mock.Anything).Return([]*checkpoint.Checkpoint{
+			{ID: "cp-1"},
+			{ID: "cp-2"},
+		}, nil)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp StatusResponse
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "ok", resp.Status)
+		assert.Equal(t, "ok", resp.Services["checkpoint"])
+		assert.Equal(t, "ok", resp.Services["scrubber"])
+		assert.Equal(t, 2, resp.Counts.Checkpoints)
+	})
+
+	t.Run("returns unavailable for missing services", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return((checkpoint.Service)(nil))
+		registry.On("Memory").Return((*reasoningbank.Service)(nil))
+		registry.On("Remediation").Return((remediation.Service)(nil))
+		registry.On("Repository").Return((*repository.Service)(nil))
+		registry.On("Troubleshoot").Return((*troubleshoot.Service)(nil))
+		registry.On("Compression").Return((*compression.Service)(nil))
+		registry.On("Hooks").Return((*hooks.HookManager)(nil))
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp StatusResponse
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "ok", resp.Status)
+		assert.Equal(t, "unavailable", resp.Services["checkpoint"])
+		assert.Equal(t, "unavailable", resp.Services["memory"])
+		assert.Equal(t, "unavailable", resp.Services["remediation"])
+		assert.Equal(t, 0, resp.Counts.Checkpoints)
+	})
+
+	t.Run("handles checkpoint list error gracefully", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockCp := &mockCheckpointService{}
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(mockCp)
+		registry.On("Memory").Return((*reasoningbank.Service)(nil))
+		registry.On("Remediation").Return((remediation.Service)(nil))
+		registry.On("Repository").Return((*repository.Service)(nil))
+		registry.On("Troubleshoot").Return((*troubleshoot.Service)(nil))
+		registry.On("Compression").Return((*compression.Service)(nil))
+		registry.On("Hooks").Return((*hooks.HookManager)(nil))
+
+		// Mock checkpoint list error
+		mockCp.On("List", mock.Anything, mock.Anything).Return(nil, assert.AnError)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		// Should still return 200 OK, just with zero count
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp StatusResponse
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "ok", resp.Status)
+		assert.Equal(t, 0, resp.Counts.Checkpoints)
+	})
+}
+
 // setupTestServer creates a test server with default configuration.
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()

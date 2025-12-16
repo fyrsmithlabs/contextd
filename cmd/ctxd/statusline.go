@@ -18,8 +18,6 @@ import (
 )
 
 var (
-	// statuslineInterval is the polling interval for periodic updates
-	statuslineInterval time.Duration
 	// statuslineOnce runs once and exits (for one-shot mode)
 	statuslineOnce bool
 )
@@ -31,7 +29,6 @@ func init() {
 	statuslineCmd.AddCommand(statuslineUninstallCmd)
 	statuslineCmd.AddCommand(statuslineTestCmd)
 
-	statuslineRunCmd.Flags().DurationVar(&statuslineInterval, "interval", 5*time.Second, "polling interval")
 	statuslineRunCmd.Flags().BoolVar(&statuslineOnce, "once", false, "run once and exit")
 }
 
