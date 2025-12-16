@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
@@ -39,6 +40,15 @@ type Service struct {
 	signalStore SignalStore
 	confCalc    *ConfidenceCalculator
 	logger      *zap.Logger
+
+	// Stats tracking for statusline
+	statsMu        sync.RWMutex
+	lastConfidence float64
+}
+
+// Stats contains memory service statistics for statusline display.
+type Stats struct {
+	LastConfidence float64
 }
 
 // ServiceOption configures a Service.
@@ -172,6 +182,13 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		if len(memories) >= limit {
 			break
 		}
+	}
+
+	// Track last confidence for statusline (use first result's confidence)
+	if len(memories) > 0 {
+		s.statsMu.Lock()
+		s.lastConfidence = memories[0].Confidence
+		s.statsMu.Unlock()
 	}
 
 	s.logger.Debug("search completed",
@@ -514,6 +531,45 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 		Metadata:   metadata,
 		Collection: collectionName,
 	}
+}
+
+// Stats returns current memory statistics for statusline display.
+func (s *Service) Stats() Stats {
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+	return Stats{
+		LastConfidence: s.lastConfidence,
+	}
+}
+
+// Count returns the number of memories for a specific project.
+func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
+	if projectID == "" {
+		return 0, ErrEmptyProjectID
+	}
+
+	// Get collection name for this project's memories
+	collectionName, err := project.GetCollectionName(projectID, project.CollectionMemories)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection name: %w", err)
+	}
+
+	// Check if collection exists
+	exists, err := s.store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return 0, fmt.Errorf("checking collection existence: %w", err)
+	}
+	if !exists {
+		return 0, nil
+	}
+
+	// Use GetCollectionInfo to get the point count
+	info, err := s.store.GetCollectionInfo(ctx, collectionName)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection info: %w", err)
+	}
+
+	return info.PointCount, nil
 }
 
 // resultToMemory converts a vectorstore SearchResult to a Memory.
