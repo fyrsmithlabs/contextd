@@ -128,15 +128,36 @@ type HealthResponse struct {
 
 // StatusResponse is the response body for GET /api/v1/status.
 type StatusResponse struct {
-	Status   string            `json:"status"`
-	Services map[string]string `json:"services"`
-	Counts   StatusCounts      `json:"counts"`
+	Status      string              `json:"status"`
+	Services    map[string]string   `json:"services"`
+	Counts      StatusCounts        `json:"counts"`
+	Context     *ContextStatus      `json:"context,omitempty"`
+	Compression *CompressionStatus  `json:"compression,omitempty"`
+	Memory      *MemoryStatus       `json:"memory,omitempty"`
 }
 
 // StatusCounts contains count information for various resources.
 type StatusCounts struct {
 	Checkpoints int `json:"checkpoints"`
 	Memories    int `json:"memories"`
+}
+
+// ContextStatus contains context usage information.
+type ContextStatus struct {
+	UsagePercent     int  `json:"usage_percent"`
+	ThresholdWarning bool `json:"threshold_warning"`
+}
+
+// CompressionStatus contains compression metrics.
+type CompressionStatus struct {
+	LastRatio       float64 `json:"last_ratio"`
+	LastQuality     float64 `json:"last_quality"`
+	OperationsTotal int64   `json:"operations_total"`
+}
+
+// MemoryStatus contains memory/reasoning bank metrics.
+type MemoryStatus struct {
+	LastConfidence float64 `json:"last_confidence"`
 }
 
 // handleHealth returns a simple health check response.
@@ -193,6 +214,13 @@ func (s *Server) handleStatus(c echo.Context) error {
 		services["scrubber"] = "unavailable"
 	}
 
+	// Check compression service
+	if s.registry.Compression() != nil {
+		services["compression"] = "ok"
+	} else {
+		services["compression"] = "unavailable"
+	}
+
 	// Get counts (best effort - don't fail if services unavailable)
 	counts := StatusCounts{}
 
@@ -207,15 +235,35 @@ func (s *Server) handleStatus(c echo.Context) error {
 		}
 	}
 
-	// Note: Memory count would require a Count method on ReasoningBank
-	// For now, we report 0 if not available
+	// Memory count (requires project_id, leave as 0 for global status)
 	counts.Memories = 0
 
-	return c.JSON(http.StatusOK, StatusResponse{
+	// Build response with optional status fields
+	resp := StatusResponse{
 		Status:   "ok",
 		Services: services,
 		Counts:   counts,
-	})
+	}
+
+	// Add compression stats if available
+	if s.registry.Compression() != nil {
+		compStats := s.registry.Compression().Stats()
+		resp.Compression = &CompressionStatus{
+			LastRatio:       compStats.LastRatio,
+			LastQuality:     compStats.LastQuality,
+			OperationsTotal: compStats.OperationsTotal,
+		}
+	}
+
+	// Add memory stats if available
+	if s.registry.Memory() != nil {
+		memStats := s.registry.Memory().Stats()
+		resp.Memory = &MemoryStatus{
+			LastConfidence: memStats.LastConfidence,
+		}
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // handleScrub scrubs secrets from the provided content.
