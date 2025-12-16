@@ -299,8 +299,14 @@ func GenerateScenarioFromStats(stats *ConversationStats) *Scenario {
 		actions = actions[:50]
 	}
 
+	// Safe substring for session ID (avoid panic if < 8 chars)
+	sessionPrefix := stats.SessionID
+	if len(sessionPrefix) > 8 {
+		sessionPrefix = sessionPrefix[:8]
+	}
+
 	return &Scenario{
-		Name:        fmt.Sprintf("replay_%s", stats.SessionID[:8]),
+		Name:        fmt.Sprintf("replay_%s", sessionPrefix),
 		Description: fmt.Sprintf("Replay of session %s (%d contextd calls)", stats.SessionID, len(stats.ContextdToolCalls)),
 		Persona: Persona{
 			Name:          "ReplayUser",
