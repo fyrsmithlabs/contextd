@@ -4,6 +4,17 @@
 **Status**: Draft
 **Created**: 2025-11-22
 
+## Architectural Decisions (from Consensus Review 2025-12-13)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Isolation Model** | Goroutine + strict data separation | Cheap, sufficient for context isolation, no IPC overhead |
+| **Token Counting** | Server-side proxy via MCP interceptor | Cannot trust agent self-reporting (security) |
+| **Event Pattern** | BudgetTracker emits events, BranchManager subscribes | Breaks circular dependency |
+| **Session Tracking** | `active_branch_id` per session in contextd | MCP is stateless, contextd manages state |
+| **Secret Scrubbing** | gitleaks on return() content | Leverage existing infrastructure |
+| **Budget Accounting** | Independent per branch, deduct from parent at creation | No per-token propagation to ancestors |
+
 ## System Context
 
 ```
@@ -22,6 +33,16 @@
 │  │  │   Branch    │  │   Budget    │  │   Memory    │      │   │
 │  │  │   Manager   │  │   Tracker   │  │   Injector  │      │   │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘      │   │
+│  │         │               │                                │   │
+│  │         │    events     │                                │   │
+│  │         │◄──────────────┤                                │   │
+│  │         │  (budget      │                                │   │
+│  │         │   exhausted)  │                                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Session Context Tracker                     │   │
+│  │         (active_branch_id per MCP session)               │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -30,6 +51,34 @@
 │                    ReasoningBank (Layer 2)                      │
 │            (Memory retrieval for branch injection)              │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+## Isolation Model
+
+**Decision**: Goroutine-based isolation with strict data separation.
+
+Branches are isolated via:
+1. **Separate goroutine** for timeout enforcement
+2. **No shared memory access** - branches only see description, prompt, and injected memories
+3. **Session context tracking** - contextd maintains `active_branch_id` to route tool calls
+4. **Budget isolation** - each branch has independent budget counter
+
+```
+Session State:
+┌────────────────────────────────────────┐
+│ session_id: "sess_123"                 │
+│ active_branch_id: "br_456"             │
+│ branches: [br_001, br_456, br_789]     │
+│ root_budget_remaining: 50000           │
+└────────────────────────────────────────┘
+
+Branch br_456 sees ONLY:
+┌────────────────────────────────────────┐
+│ description: "Find database config"    │
+│ prompt: "Search for DB connection..."  │
+│ injected_memories: [mem_001, mem_002]  │
+│ budget_remaining: 8000                 │
+└────────────────────────────────────────┘
 ```
 
 ## Component Architecture

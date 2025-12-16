@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/folding"
 	"github.com/fyrsmithlabs/contextd/internal/ignore"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
@@ -28,6 +29,7 @@ type Server struct {
 	repositorySvc    *repository.Service
 	troubleshootSvc  *troubleshoot.Service
 	reasoningbankSvc *reasoningbank.Service
+	foldingSvc       *folding.BranchManager
 	scrubber         secrets.Scrubber
 	ignoreParser     *ignore.Parser
 	logger           *zap.Logger
@@ -81,6 +83,7 @@ func NewServer(
 	repositorySvc *repository.Service,
 	troubleshootSvc *troubleshoot.Service,
 	reasoningbankSvc *reasoningbank.Service,
+	foldingSvc *folding.BranchManager,
 	scrubber secrets.Scrubber,
 ) (*Server, error) {
 	if cfg == nil {
@@ -101,6 +104,7 @@ func NewServer(
 	if reasoningbankSvc == nil {
 		return nil, fmt.Errorf("reasoningbank service is required")
 	}
+	// foldingSvc is optional - context folding is an optional feature
 	if scrubber == nil {
 		return nil, fmt.Errorf("scrubber is required")
 	}
@@ -124,6 +128,7 @@ func NewServer(
 		repositorySvc:    repositorySvc,
 		troubleshootSvc:  troubleshootSvc,
 		reasoningbankSvc: reasoningbankSvc,
+		foldingSvc:       foldingSvc,
 		scrubber:         scrubber,
 		ignoreParser:     ignoreParser,
 		logger:           cfg.Logger,

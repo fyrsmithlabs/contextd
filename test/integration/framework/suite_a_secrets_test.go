@@ -36,7 +36,8 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 		// Use unique project ID for isolation
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a4-1",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a4_1", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -74,7 +75,8 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 	t.Run("GitHub token is scrubbed before storage", func(t *testing.T) {
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a4-2",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a4_2", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -111,7 +113,8 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 	t.Run("multiple secrets are all scrubbed", func(t *testing.T) {
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a4-3",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a4_3", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -155,7 +158,8 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 	t.Run("non-secrets are preserved", func(t *testing.T) {
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a4-4",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a4_4", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -216,7 +220,8 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 	t.Run("search results are scrubbed on retrieval", func(t *testing.T) {
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a5-1",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a5_1", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -257,7 +262,8 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 		// In tests: Developer scrubs on RecordMemory AND SearchMemory
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a5-2",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a5_2", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -295,7 +301,8 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 	t.Run("multiple searches return consistently scrubbed results", func(t *testing.T) {
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-a5-3",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_a5_3", // Unique per subtest
 		}, shared)
 		require.NoError(t, err)
@@ -354,7 +361,8 @@ func TestSuiteA_Secrets_A6_SecretScrubbingBypassDetection(t *testing.T) {
 
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-secrets-a6-1",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets",
 		})
 		require.NoError(t, err)
@@ -400,7 +408,8 @@ func TestSuiteA_Secrets_A6_SecretScrubbingBypassDetection(t *testing.T) {
 
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-secrets-a6-2",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets",
 		})
 		require.NoError(t, err)
@@ -453,7 +462,8 @@ MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz
 
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-secrets-a6-3",
-			TenantID:  "test-tenant-secrets",
+			TenantID:  "test_tenant_secrets",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets",
 		})
 		require.NoError(t, err)

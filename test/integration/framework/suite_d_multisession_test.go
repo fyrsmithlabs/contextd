@@ -52,7 +52,8 @@ func TestSuiteD_MultiSession_CleanResume(t *testing.T) {
 		// Session 1: Developer starts work and saves checkpoint
 		dev1, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d1",
-			TenantID:  "test-tenant-d1",
+			TenantID:  "test_tenant_d1",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d1",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -88,7 +89,8 @@ func TestSuiteD_MultiSession_CleanResume(t *testing.T) {
 		// Session 2: New developer instance resumes from checkpoint
 		dev2, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d1-session2",
-			TenantID:  "test-tenant-d1",
+			TenantID:  "test_tenant_d1",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d1",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -129,7 +131,8 @@ func TestSuiteD_MultiSession_CheckpointListAndSelection(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d2",
-			TenantID:  "test-tenant-d2",
+			TenantID:  "test_tenant_d2",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d2",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -204,7 +207,8 @@ func TestSuiteD_MultiSession_PartialWorkResume(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d3",
-			TenantID:  "test-tenant-d3",
+			TenantID:  "test_tenant_d3",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d3",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -269,7 +273,8 @@ func TestSuiteD_MultiSession_CrossSessionMemoryAccumulation(t *testing.T) {
 		// Session 1: Record memories and save checkpoint
 		dev1, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d4",
-			TenantID:  "test-tenant-d4",
+			TenantID:  "test_tenant_d4",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d4",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -304,7 +309,8 @@ func TestSuiteD_MultiSession_CrossSessionMemoryAccumulation(t *testing.T) {
 		// Session 2: Resume and verify memories are accessible
 		dev2, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d4-session2",
-			TenantID:  "test-tenant-d4",
+			TenantID:  "test_tenant_d4",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d4",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -352,7 +358,8 @@ func TestSuiteD_MultiSession_CheckpointStats(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d5",
-			TenantID:  "test-tenant-d5",
+			TenantID:  "test_tenant_d5",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d5",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -409,7 +416,8 @@ func TestSuiteD_MultiSession_SessionIDPreservation(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-d6",
-			TenantID:  "test-tenant-d6",
+			TenantID:  "test_tenant_d6",
+			TeamID:    "test_team",
 			ProjectID: "test_project_multisession_d6",
 		}, sharedStore)
 		require.NoError(t, err)

@@ -82,6 +82,7 @@ func TestDeveloperSessionWorkflow(t *testing.T) {
 			Developer: DeveloperConfig{
 				ID:        "dev-a",
 				TenantID:  "tenant-a",
+				TeamID:    "test_team",
 				ProjectID: "test_project",
 			},
 			Steps: []SessionStep{
@@ -116,6 +117,7 @@ func TestDeveloperSessionWorkflow(t *testing.T) {
 			Developer: DeveloperConfig{
 				ID:        "dev-a",
 				TenantID:  "tenant-a",
+				TeamID:    "test_team",
 				ProjectID: "test_project",
 			},
 			Steps: []SessionStep{

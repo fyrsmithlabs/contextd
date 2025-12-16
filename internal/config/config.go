@@ -142,8 +142,12 @@ type ServerConfig struct {
 
 // ObservabilityConfig holds OpenTelemetry configuration.
 type ObservabilityConfig struct {
-	EnableTelemetry bool   `koanf:"enable_telemetry"`
-	ServiceName     string `koanf:"service_name"`
+	EnableTelemetry   bool   `koanf:"enable_telemetry"`
+	ServiceName       string `koanf:"service_name"`
+	OTLPEndpoint      string `koanf:"otlp_endpoint"`       // OTLP endpoint (default: localhost:4317)
+	OTLPProtocol      string `koanf:"otlp_protocol"`       // "grpc" or "http/protobuf" (default: grpc)
+	OTLPInsecure      bool   `koanf:"otlp_insecure"`       // Use insecure connection (default: true for localhost)
+	OTLPTLSSkipVerify bool   `koanf:"otlp_tls_skip_verify"` // Skip TLS verification for internal CAs
 }
 
 // PreFetchConfig holds pre-fetch engine configuration.

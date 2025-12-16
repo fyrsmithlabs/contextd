@@ -57,7 +57,8 @@ func TestSuiteC_BugFix_SameBugRetrieval(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-c1",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_bugfix_c1",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -123,7 +124,8 @@ func TestSuiteC_BugFix_SimilarBugAdaptation(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-c2",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_bugfix_c2",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -185,7 +187,8 @@ func TestSuiteC_BugFix_FalsePositivePrevention(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-c3",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_bugfix_c3",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -240,7 +243,8 @@ func TestSuiteC_BugFix_ConfidenceDecayOnNegativeFeedback(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-c4",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_bugfix_c4",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -303,14 +307,16 @@ func TestSuiteC_BugFix_KnowledgeTransferWorkflow(t *testing.T) {
 
 		devSenior, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "senior-dev",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: sharedProject,
 		}, sharedStore)
 		require.NoError(t, err)
 
 		devJunior, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "junior-dev",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: sharedProject,
 		}, sharedStore)
 		require.NoError(t, err)

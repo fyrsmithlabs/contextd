@@ -322,6 +322,7 @@ func (m *mockVectorStore) GetCollectionInfo(ctx context.Context, collectionName 
 type DeveloperConfig struct {
 	ID        string
 	TenantID  string
+	TeamID    string
 	ProjectID string
 	Logger    *zap.Logger
 }
@@ -355,6 +356,7 @@ type SessionStats struct {
 type Developer struct {
 	id        string
 	tenantID  string
+	teamID    string
 	projectID string
 	logger    *zap.Logger
 
@@ -395,6 +397,7 @@ func NewDeveloper(cfg DeveloperConfig) (*Developer, error) {
 	return &Developer{
 		id:        cfg.ID,
 		tenantID:  cfg.TenantID,
+		teamID:    cfg.TeamID,
 		projectID: cfg.ProjectID,
 		logger:    logger,
 	}, nil
@@ -421,6 +424,7 @@ func NewDeveloperWithStore(cfg DeveloperConfig, shared *SharedStore) (*Developer
 	return &Developer{
 		id:          cfg.ID,
 		tenantID:    cfg.TenantID,
+		teamID:      cfg.TeamID,
 		projectID:   cfg.ProjectID,
 		logger:      logger,
 		sharedStore: shared,
@@ -649,6 +653,8 @@ func (d *Developer) SaveCheckpoint(ctx context.Context, req CheckpointSaveReques
 	cp, err := d.checkpointService.Save(ctx, &checkpoint.SaveRequest{
 		SessionID:   d.sessionID,
 		TenantID:    d.tenantID,
+		TeamID:      d.teamID,
+		ProjectID:   d.projectID,
 		ProjectPath: d.projectID,
 		Name:        req.Name,
 		Summary:     req.Summary,
@@ -678,8 +684,10 @@ func (d *Developer) ListCheckpoints(ctx context.Context, limit int) ([]Checkpoin
 	}
 
 	cps, err := d.checkpointService.List(ctx, &checkpoint.ListRequest{
-		TenantID: d.tenantID,
-		Limit:    limit,
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+		Limit:     limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing checkpoints: %w", err)
@@ -711,6 +719,8 @@ func (d *Developer) ResumeCheckpoint(ctx context.Context, checkpointID string) (
 
 	resp, err := d.checkpointService.Resume(ctx, &checkpoint.ResumeRequest{
 		TenantID:     d.tenantID,
+		TeamID:       d.teamID,
+		ProjectID:    d.projectID,
 		CheckpointID: checkpointID,
 		Level:        checkpoint.ResumeContext,
 	})

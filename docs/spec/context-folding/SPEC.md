@@ -70,16 +70,68 @@ Branches MUST return results to parent via `return(message)` tool call.
 Each branch MUST have a token budget. The system MUST force return when budget is exhausted.
 
 ### FR-005: Memory Injection
-Branches SHOULD receive relevant ReasoningBank memories based on branch description. [NEEDS CLARIFICATION: injection budget allocation]
+Branches SHOULD receive relevant ReasoningBank memories based on branch description.
+- Memory injection budget: 20% of branch budget (configurable)
+- Maximum items: 10 memories (configurable)
+- Minimum confidence: 0.7 (configurable)
 
 ### FR-006: Nested Branches
 The system MUST support nested branches up to configurable depth (default: 3).
+- When max depth exceeded: reject with `ErrMaxDepthExceeded`
+- Depth is zero-indexed (root session = depth 0, first branch = depth 1)
 
 ### FR-007: Branch Timeout
 Branches MUST have configurable timeout. System MUST force return on timeout.
+- Timeout enforcement via goroutine with context.WithTimeout
+- Timeout goroutine MUST be cancelled on normal return
 
 ### FR-008: Failed Branch Handling
 Failed branches MUST return error context to parent. Failures SHOULD be candidates for anti-pattern extraction.
+
+### FR-009: Child Branch Cleanup
+Before a branch can return, the system MUST force-return all active child branches recursively.
+- Children are force-returned with reason "parent returning"
+- Cleanup proceeds deepest-first (leaf branches first)
+- Parent return blocks until all children completed
+
+### FR-010: Session End Cleanup
+On session end, the system MUST force-return all active branches for that session.
+- Cleanup has bounded total timeout (default: 30 seconds)
+- Branches not completed within timeout transition to "failed" state
+
+## Security Requirements
+
+### SEC-001: Input Validation
+The system MUST validate all inputs to branch() and return():
+- `description`: Max 500 characters, strip control characters
+- `prompt`: Max 10,000 characters, strip control characters
+- `message`: Max 50,000 characters, secret scrubbing required
+- Invalid inputs rejected with 400 Bad Request
+
+### SEC-002: Secret Scrubbing on Return
+ALL content passed to `return(message)` MUST be scrubbed for secrets before reaching parent context.
+- Uses existing gitleaks SDK integration
+- Secrets replaced with `[REDACTED:secret_type]`
+- Scrubbing failures MUST NOT leak unscrubbed content (fail closed)
+
+### SEC-003: Rate Limiting
+The system MUST enforce rate limits on branch creation:
+- Per session: max 10 concurrent branches (configurable)
+- Per instance: max 100 concurrent branches (configurable)
+- Creation rate: max 5 branches/minute/session (configurable)
+- Exceeded limits rejected with 429 Too Many Requests
+
+### SEC-004: Authentication
+Branch and return operations MUST validate session authentication:
+- Session ID validated against active sessions
+- JWT claims propagated to branches (no privilege escalation)
+- Cross-session branch access prohibited
+
+### SEC-005: Memory Injection Safety
+Injected memories MUST be validated before injection:
+- Memories from untrusted sources flagged
+- Prompt injection patterns in memories logged and optionally blocked
+- Memory provenance tracked (source session, user)
 
 ## Success Criteria
 

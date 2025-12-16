@@ -25,6 +25,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devA, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-a",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -53,6 +54,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devB, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-b",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -91,6 +93,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devA, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-a",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project_feedback",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -110,6 +113,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devB, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-b",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project_feedback",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -138,6 +142,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devA, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-a",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project_multi",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -157,6 +162,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devB, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-b",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project_multi",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -176,6 +182,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		devC, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-c",
 			TenantID:  "team-alpha",
+			TeamID:    "test_team",
 			ProjectID: "shared_project_multi",
 		}, sharedStore)
 		require.NoError(t, err)

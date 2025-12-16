@@ -13,9 +13,11 @@ import (
 type Config struct {
 	Enabled        bool           `koanf:"enabled"`
 	Endpoint       string         `koanf:"endpoint"`
+	Protocol       string         `koanf:"protocol"`        // "grpc" or "http/protobuf" (default: "grpc")
+	Insecure       bool           `koanf:"insecure"`        // Use insecure connection (default: true for localhost)
+	TLSSkipVerify  bool           `koanf:"tls_skip_verify"` // Skip TLS certificate verification (for internal CAs)
 	ServiceName    string         `koanf:"service_name"`
 	ServiceVersion string         `koanf:"service_version"`
-	Insecure       bool           `koanf:"insecure"` // Use insecure connection (no TLS)
 	Sampling       SamplingConfig `koanf:"sampling"`
 	Metrics        MetricsConfig  `koanf:"metrics"`
 	Shutdown       ShutdownConfig `koanf:"shutdown"`
@@ -45,9 +47,10 @@ func NewDefaultConfig() *Config {
 	return &Config{
 		Enabled:        false,
 		Endpoint:       "localhost:4317",
+		Protocol:       "grpc",
+		Insecure:       true, // Safe default for localhost
 		ServiceName:    "contextd",
 		ServiceVersion: "0.1.0",
-		Insecure:       true, // Insecure by default for local dev; set false for production TLS
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev
 			AlwaysOnErrors: true,
@@ -78,6 +81,11 @@ func (c *Config) Validate() error {
 
 	if c.ServiceVersion == "" {
 		return fmt.Errorf("service_version is required when telemetry is enabled")
+	}
+
+	// Validate protocol
+	if c.Protocol != "" && c.Protocol != "grpc" && c.Protocol != "http/protobuf" {
+		return fmt.Errorf("protocol must be 'grpc' or 'http/protobuf', got %q", c.Protocol)
 	}
 
 	// Security: Prevent insecure connections to remote endpoints

@@ -22,6 +22,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/embeddings"
+	"github.com/fyrsmithlabs/contextd/internal/folding"
 	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	httpserver "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
@@ -42,6 +43,17 @@ var (
 	commit    = "unknown"
 	buildDate = "unknown"
 )
+
+// foldingScrubberAdapter adapts secrets.Scrubber to folding.SecretScrubber interface.
+type foldingScrubberAdapter struct {
+	scrubber secrets.Scrubber
+}
+
+// Scrub implements folding.SecretScrubber.
+func (a *foldingScrubberAdapter) Scrub(content string) (string, error) {
+	result := a.scrubber.Scrub(content)
+	return result.Scrubbed, nil
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -93,32 +105,7 @@ func run() error {
 	)
 
 	// ============================================================================
-	// Initialize Telemetry (VITAL)
-	// ============================================================================
-	telCfg := telemetry.NewDefaultConfig()
-	telCfg.ServiceName = "contextd"
-	// Disable telemetry if OTEL_SDK_DISABLED=true or TELEMETRY_ENABLED=false
-	if os.Getenv("OTEL_SDK_DISABLED") == "true" || os.Getenv("TELEMETRY_ENABLED") == "false" {
-		telCfg.Enabled = false
-	}
-	tel, err := telemetry.New(ctx, telCfg)
-	if err != nil {
-		logger.Warn(ctx, "telemetry initialization failed, continuing without telemetry",
-			zap.Error(err),
-		)
-	} else {
-		defer func() {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer shutdownCancel()
-			if shutdownErr := tel.Shutdown(shutdownCtx); shutdownErr != nil {
-				logger.Error(ctx, "telemetry shutdown error", zap.Error(shutdownErr))
-			}
-		}()
-		logger.Info(ctx, "telemetry initialized")
-	}
-
-	// ============================================================================
-	// Load Configuration
+	// Load Configuration (before telemetry so we can use config values)
 	// ============================================================================
 	// Ensure config directory exists for new users
 	if err := config.EnsureConfigDir(); err != nil {
@@ -147,6 +134,49 @@ func run() error {
 		} else {
 			logger.Info(ctx, "config loaded from default location (~/.config/contextd/config.yaml)")
 		}
+	}
+
+	// ============================================================================
+	// Initialize Telemetry (using config values)
+	// ============================================================================
+	telCfg := telemetry.NewDefaultConfig()
+	telCfg.ServiceName = cfg.Observability.ServiceName
+	telCfg.Enabled = cfg.Observability.EnableTelemetry
+	if cfg.Observability.OTLPEndpoint != "" {
+		telCfg.Endpoint = cfg.Observability.OTLPEndpoint
+	}
+	if cfg.Observability.OTLPProtocol != "" {
+		telCfg.Protocol = cfg.Observability.OTLPProtocol
+	}
+	// Only override insecure/TLS settings if protocol is set (indicates intentional config)
+	if cfg.Observability.OTLPProtocol != "" {
+		telCfg.Insecure = cfg.Observability.OTLPInsecure
+		telCfg.TLSSkipVerify = cfg.Observability.OTLPTLSSkipVerify
+	}
+	// Environment variables can still override config file
+	if os.Getenv("OTEL_SDK_DISABLED") == "true" || os.Getenv("TELEMETRY_ENABLED") == "false" {
+		telCfg.Enabled = false
+	}
+	tel, err := telemetry.New(ctx, telCfg)
+	if err != nil {
+		logger.Warn(ctx, "telemetry initialization failed, continuing without telemetry",
+			zap.Error(err),
+		)
+	} else {
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if shutdownErr := tel.Shutdown(shutdownCtx); shutdownErr != nil {
+				logger.Error(ctx, "telemetry shutdown error", zap.Error(shutdownErr))
+			}
+		}()
+		logger.Info(ctx, "telemetry initialized",
+			zap.Bool("enabled", telCfg.Enabled),
+			zap.String("endpoint", telCfg.Endpoint),
+			zap.String("protocol", telCfg.Protocol),
+			zap.Bool("insecure", telCfg.Insecure),
+			zap.String("service_name", telCfg.ServiceName),
+		)
 	}
 
 	// ============================================================================
@@ -266,6 +296,34 @@ func run() error {
 		}
 	}
 
+	// Initialize folding service (context-folding for branch/return)
+	var foldingSvc *folding.BranchManager
+	{
+		// Create folding dependencies
+		foldingEmitter := folding.NewSimpleEventEmitter()
+		foldingBudget := folding.NewBudgetTracker(foldingEmitter)
+		foldingRepo := folding.NewMemoryBranchRepository()
+		foldingScrubber := &foldingScrubberAdapter{scrubber: scrubber}
+		foldingConfig := folding.DefaultFoldingConfig()
+
+		// Create the branch manager with OTEL metrics
+		foldingMetrics, _ := folding.NewMetrics(nil) // uses global meter provider
+		foldingLogger := folding.NewLogger(logger.Underlying())
+		foldingSvc = folding.NewBranchManager(
+			foldingRepo,
+			foldingBudget,
+			foldingScrubber,
+			foldingEmitter,
+			foldingConfig,
+			folding.WithMetrics(foldingMetrics),
+			folding.WithLogger(foldingLogger),
+		)
+		logger.Info(ctx, "folding service initialized",
+			zap.Int("max_depth", foldingConfig.MaxDepth),
+			zap.Int("default_budget", foldingConfig.DefaultBudget),
+		)
+	}
+
 	// Initialize hooks manager
 	hooksCfg := &hooks.Config{
 		AutoCheckpointOnClear: true,
@@ -369,6 +427,7 @@ func run() error {
 			repositorySvc,
 			troubleshootSvc,
 			reasoningbankSvc,
+			foldingSvc,
 			scrubber,
 		)
 		if err != nil {
@@ -414,6 +473,11 @@ func run() error {
 		serviceStatus = append(serviceStatus, "reasoningbank:ok")
 	} else {
 		serviceStatus = append(serviceStatus, "reasoningbank:unavailable")
+	}
+	if foldingSvc != nil {
+		serviceStatus = append(serviceStatus, "folding:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "folding:unavailable")
 	}
 
 	if httpSrv != nil {

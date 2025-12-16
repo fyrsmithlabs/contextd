@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
+- **SEC-004: Session Authorization** for context-folding
+  - `SessionValidator` interface with `PermissiveSessionValidator` (default, single-user) and `StrictSessionValidator` (multi-tenant)
+  - `CallerID` field added to `BranchRequest` and `ReturnRequest`
+  - `ErrSessionUnauthorized` error code (FOLD022) and `IsAuthorizationError()` helper
+  - Authorization enforced in `BranchManager.Create()` and `BranchManager.Return()`
+  - Comprehensive test coverage for all validation scenarios
+  - Research document with 2025 state-of-the-art (AgentFold, ACON, Claude Agent SDK)
+  - Consensus design review with 4 specialized agents (Security, Correctness, Performance, Architecture)
+  - TDD implementation plan with 10 phases
+  - Updated SPEC.md with security requirements (SEC-001 through SEC-005)
+  - Updated ARCH.md with architectural decisions (isolation model, event pattern)
+  - FR-009/FR-010: Child branch cleanup and session end cleanup requirements
 - `repository-search` skill in claude-plugin
 - **`collection_name` parameter for `repository_search`** - allows passing collection name directly from `repository_index` output, avoiding tenant_id derivation issues
 - **CountFromCollections helper** - Extracted duplicated collection counting logic into `internal/http/counts.go`

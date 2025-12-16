@@ -74,7 +74,8 @@ func TestSuiteA_Policy_TDDEnforcement(t *testing.T) {
 		// Setup: Create developer and start contextd
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-tdd-test",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_tdd",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -181,7 +182,8 @@ func TestSuiteA_Policy_ConventionalCommits(t *testing.T) {
 		// Setup: Create developer and start contextd
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-commits-test",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_commits",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -301,7 +303,8 @@ func TestSuiteA_Policy_NoSecrets(t *testing.T) {
 		// Setup: Create developer and start contextd
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-test",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -420,7 +423,8 @@ func TestSuiteA_Policy_NoSecrets(t *testing.T) {
 
 		dev, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-secrets-comprehensive",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "test_project_secrets_comprehensive",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -477,7 +481,8 @@ func TestSuiteA_Policy_CrossDeveloperPolicySharing(t *testing.T) {
 		// Dev A records a policy
 		devA, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-a-policy",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "shared_test_project",
 		}, sharedStore)
 		require.NoError(t, err)
@@ -498,7 +503,8 @@ func TestSuiteA_Policy_CrossDeveloperPolicySharing(t *testing.T) {
 		// Dev B searches for the policy
 		devB, err := NewDeveloperWithStore(DeveloperConfig{
 			ID:        "dev-b-policy",
-			TenantID:  "test-tenant",
+			TenantID:  "test_tenant",
+			TeamID:    "test_team",
 			ProjectID: "shared_test_project",
 		}, sharedStore)
 		require.NoError(t, err)

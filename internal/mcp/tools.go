@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/folding"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
@@ -31,6 +32,9 @@ func (s *Server) registerTools() error {
 
 	// Memory tools (ReasoningBank)
 	s.registerMemoryTools()
+
+	// Folding tools (context-folding branch/return)
+	s.registerFoldingTools()
 
 	return nil
 }
@@ -858,6 +862,160 @@ func (s *Server) registerMemoryTools() {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Outcome recorded, confidence: %.2f", output.NewConfidence)},
+			},
+		}, output, nil
+	})
+}
+
+// ===== FOLDING TOOLS (Context-Folding) =====
+
+type branchCreateInput struct {
+	SessionID      string `json:"session_id" jsonschema:"required,Session identifier"`
+	Description    string `json:"description" jsonschema:"required,Brief description of what the branch will do"`
+	Prompt         string `json:"prompt,omitempty" jsonschema:"Detailed prompt/instructions for the branch"`
+	Budget         int    `json:"budget,omitempty" jsonschema:"Token budget for this branch (default: 8192)"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"Timeout in seconds (default: 300)"`
+}
+
+type branchCreateOutput struct {
+	BranchID        string `json:"branch_id" jsonschema:"Unique branch identifier"`
+	BudgetAllocated int    `json:"budget_allocated" jsonschema:"Actual budget allocated"`
+	Depth           int    `json:"depth" jsonschema:"Nesting depth of this branch"`
+}
+
+type branchReturnInput struct {
+	BranchID string `json:"branch_id" jsonschema:"required,Branch ID to return from"`
+	Message  string `json:"message" jsonschema:"Result message/summary from the branch"`
+}
+
+type branchReturnOutput struct {
+	Success    bool   `json:"success" jsonschema:"Whether return succeeded"`
+	TokensUsed int    `json:"tokens_used" jsonschema:"Tokens consumed by the branch"`
+	Message    string `json:"message" jsonschema:"Scrubbed result message"`
+}
+
+type branchStatusInput struct {
+	BranchID string `json:"branch_id,omitempty" jsonschema:"Specific branch ID to check"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to get active branch for"`
+}
+
+type branchStatusOutput struct {
+	BranchID       string `json:"branch_id,omitempty" jsonschema:"Branch ID"`
+	SessionID      string `json:"session_id,omitempty" jsonschema:"Session ID"`
+	Status         string `json:"status" jsonschema:"Branch status (active, completed, failed, timeout)"`
+	Depth          int    `json:"depth" jsonschema:"Branch depth"`
+	BudgetUsed     int    `json:"budget_used" jsonschema:"Tokens consumed"`
+	BudgetTotal    int    `json:"budget_total" jsonschema:"Total budget allocated"`
+	BudgetRemaining int   `json:"budget_remaining" jsonschema:"Remaining budget"`
+}
+
+func (s *Server) registerFoldingTools() {
+	// Only register if folding service is configured
+	if s.foldingSvc == nil {
+		s.logger.Info("folding service not configured, skipping folding tools registration")
+		return
+	}
+
+	// branch_create - Create a new context branch
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "branch_create",
+		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
+		branchReq := folding.BranchRequest{
+			SessionID:      args.SessionID,
+			Description:    args.Description,
+			Prompt:         args.Prompt,
+			Budget:         args.Budget,
+			TimeoutSeconds: args.TimeoutSeconds,
+		}
+
+		resp, err := s.foldingSvc.Create(ctx, branchReq)
+		if err != nil {
+			return nil, branchCreateOutput{}, fmt.Errorf("branch create failed: %w", err)
+		}
+
+		output := branchCreateOutput{
+			BranchID:        resp.BranchID,
+			BudgetAllocated: resp.BudgetAllocated,
+			Depth:           resp.Depth,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Branch created: %s (depth: %d, budget: %d tokens)", output.BranchID, output.Depth, output.BudgetAllocated)},
+			},
+		}, output, nil
+	})
+
+	// branch_return - Return from a branch with results
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "branch_return",
+		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
+		returnReq := folding.ReturnRequest{
+			BranchID: args.BranchID,
+			Message:  args.Message,
+		}
+
+		resp, err := s.foldingSvc.Return(ctx, returnReq)
+		if err != nil {
+			return nil, branchReturnOutput{}, fmt.Errorf("branch return failed: %w", err)
+		}
+
+		output := branchReturnOutput{
+			Success:    resp.Success,
+			TokensUsed: resp.TokensUsed,
+			Message:    resp.ScrubbedMsg,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Branch returned successfully (tokens used: %d)", output.TokensUsed)},
+			},
+		}, output, nil
+	})
+
+	// branch_status - Get branch status
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "branch_status",
+		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
+		var branch *folding.Branch
+		var err error
+
+		if args.BranchID != "" {
+			branch, err = s.foldingSvc.Get(ctx, args.BranchID)
+		} else if args.SessionID != "" {
+			branch, err = s.foldingSvc.GetActive(ctx, args.SessionID)
+		} else {
+			return nil, branchStatusOutput{}, fmt.Errorf("either branch_id or session_id is required")
+		}
+
+		if err != nil {
+			return nil, branchStatusOutput{}, fmt.Errorf("branch status failed: %w", err)
+		}
+
+		if branch == nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: "No active branch found"},
+				},
+			}, branchStatusOutput{Status: "none"}, nil
+		}
+
+		output := branchStatusOutput{
+			BranchID:        branch.ID,
+			SessionID:       branch.SessionID,
+			Status:          string(branch.Status),
+			Depth:           branch.Depth,
+			BudgetUsed:      branch.BudgetUsed,
+			BudgetTotal:     branch.BudgetTotal,
+			BudgetRemaining: branch.BudgetTotal - branch.BudgetUsed,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Branch %s: status=%s, depth=%d, budget=%d/%d", output.BranchID, output.Status, output.Depth, output.BudgetUsed, output.BudgetTotal)},
 			},
 		}, output, nil
 	})

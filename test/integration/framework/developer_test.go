@@ -14,16 +14,16 @@ func TestDeveloperSimulator_Create(t *testing.T) {
 	t.Run("creates developer with unique ID and tenant", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:       "dev-a",
-			TenantID: "test-tenant-a",
+			TenantID: "test_tenant-a",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "dev-a", dev.ID())
-		assert.Equal(t, "test-tenant-a", dev.TenantID())
+		assert.Equal(t, "test_tenant-a", dev.TenantID())
 	})
 
 	t.Run("requires ID", func(t *testing.T) {
 		_, err := NewDeveloper(DeveloperConfig{
-			TenantID: "test-tenant",
+			TenantID: "test_tenant",
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "ID is required")
@@ -42,7 +42,8 @@ func TestDeveloperSimulator_StartContextd(t *testing.T) {
 	t.Run("starts contextd MCP server for developer", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-a",
-			TenantID:  "test-tenant-a",
+			TenantID:  "test_tenant_a",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
@@ -60,7 +61,8 @@ func TestDeveloperSimulator_StartContextd(t *testing.T) {
 	t.Run("cannot start twice", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-b",
-			TenantID:  "test-tenant-b",
+			TenantID:  "test_tenant_b",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
@@ -80,7 +82,8 @@ func TestDeveloperSimulator_RecordMemory(t *testing.T) {
 	t.Run("records memory via contextd", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-a",
-			TenantID:  "test-tenant-a",
+			TenantID:  "test_tenant_a",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
@@ -105,7 +108,8 @@ func TestDeveloperSimulator_SearchMemory(t *testing.T) {
 	t.Run("searches memories via contextd", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-a",
-			TenantID:  "test-tenant-a",
+			TenantID:  "test_tenant_a",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
@@ -141,7 +145,8 @@ func TestDeveloperSimulator_GiveFeedback(t *testing.T) {
 	t.Run("gives feedback on retrieved memory", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-a",
-			TenantID:  "test-tenant-a",
+			TenantID:  "test_tenant_a",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
@@ -170,7 +175,8 @@ func TestDeveloperSimulator_SessionTracking(t *testing.T) {
 	t.Run("tracks tool calls made during session", func(t *testing.T) {
 		dev, err := NewDeveloper(DeveloperConfig{
 			ID:        "dev-a",
-			TenantID:  "test-tenant-a",
+			TenantID:  "test_tenant_a",
+			TeamID:    "test_team",
 			ProjectID: "test_project",
 		})
 		require.NoError(t, err)
