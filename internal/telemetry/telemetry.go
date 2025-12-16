@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
@@ -80,6 +81,9 @@ func New(ctx context.Context, cfg *Config) (*Telemetry, error) {
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
+
+	// Update health state based on provider status
+	t.updateHealthState()
 
 	return t, nil
 }
@@ -206,8 +210,17 @@ func (t *Telemetry) IsEnabled() bool {
 }
 
 // setDegraded marks telemetry as degraded due to an error.
+// Uses slog to avoid circular dependency with logging package.
 func (t *Telemetry) setDegraded(format string, args ...interface{}) {
 	t.degraded.Store(true)
-	// In production, this would log the error
-	_ = fmt.Errorf(format, args...)
+	slog.Warn("telemetry degraded", "error", fmt.Sprintf(format, args...))
+}
+
+// updateHealthState updates healthy based on provider status.
+// Called after initialization to ensure consistent state.
+func (t *Telemetry) updateHealthState() {
+	// If telemetry is enabled but no providers initialized, mark unhealthy
+	if t.config.Enabled && t.tracerProvider == nil && t.meterProvider == nil {
+		t.healthy.Store(false)
+	}
 }

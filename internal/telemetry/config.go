@@ -3,6 +3,7 @@ package telemetry
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
@@ -10,15 +11,16 @@ import (
 
 // Config holds telemetry configuration.
 type Config struct {
-	Enabled       bool           `koanf:"enabled"`
-	Endpoint      string         `koanf:"endpoint"`
-	Protocol      string         `koanf:"protocol"`        // "grpc" or "http/protobuf" (default: "grpc")
-	Insecure      bool           `koanf:"insecure"`        // Use insecure connection (default: true for localhost)
-	TLSSkipVerify bool           `koanf:"tls_skip_verify"` // Skip TLS certificate verification (for internal CAs)
-	ServiceName   string         `koanf:"service_name"`
-	Sampling      SamplingConfig `koanf:"sampling"`
-	Metrics       MetricsConfig  `koanf:"metrics"`
-	Shutdown      ShutdownConfig `koanf:"shutdown"`
+	Enabled        bool           `koanf:"enabled"`
+	Endpoint       string         `koanf:"endpoint"`
+	Protocol       string         `koanf:"protocol"`        // "grpc" or "http/protobuf" (default: "grpc")
+	Insecure       bool           `koanf:"insecure"`        // Use insecure connection (default: true for localhost)
+	TLSSkipVerify  bool           `koanf:"tls_skip_verify"` // Skip TLS certificate verification (for internal CAs)
+	ServiceName    string         `koanf:"service_name"`
+	ServiceVersion string         `koanf:"service_version"`
+	Sampling       SamplingConfig `koanf:"sampling"`
+	Metrics        MetricsConfig  `koanf:"metrics"`
+	Shutdown       ShutdownConfig `koanf:"shutdown"`
 }
 
 // SamplingConfig controls trace sampling behavior.
@@ -43,11 +45,12 @@ type ShutdownConfig struct {
 // Set OTEL_ENABLE=true or configure telemetry in config.yaml to enable.
 func NewDefaultConfig() *Config {
 	return &Config{
-		Enabled:     false,
-		Endpoint:    "localhost:4317",
-		Protocol:    "grpc",
-		Insecure:    true, // Safe default for localhost
-		ServiceName: "contextd",
+		Enabled:        false,
+		Endpoint:       "localhost:4317",
+		Protocol:       "grpc",
+		Insecure:       true, // Safe default for localhost
+		ServiceName:    "contextd",
+		ServiceVersion: "0.1.0",
 		Sampling: SamplingConfig{
 			Rate:           1.0, // 100% in dev
 			AlwaysOnErrors: true,
@@ -76,9 +79,18 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("service_name is required when telemetry is enabled")
 	}
 
+	if c.ServiceVersion == "" {
+		return fmt.Errorf("service_version is required when telemetry is enabled")
+	}
+
 	// Validate protocol
 	if c.Protocol != "" && c.Protocol != "grpc" && c.Protocol != "http/protobuf" {
 		return fmt.Errorf("protocol must be 'grpc' or 'http/protobuf', got %q", c.Protocol)
+	}
+
+	// Security: Prevent insecure connections to remote endpoints
+	if c.Insecure && !c.isLocalEndpoint() {
+		return fmt.Errorf("insecure connections to remote endpoints are not allowed; set insecure=false for TLS or use a local endpoint (localhost/127.0.0.1)")
 	}
 
 	if c.Sampling.Rate < 0 || c.Sampling.Rate > 1 {
@@ -94,4 +106,32 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// isLocalEndpoint checks if the endpoint is a local address.
+func (c *Config) isLocalEndpoint() bool {
+	host := c.Endpoint
+
+	// Handle IPv6 addresses (may be bracketed like [::1]:4317)
+	if strings.HasPrefix(host, "[") {
+		// Bracketed IPv6: [::1]:4317
+		if idx := strings.Index(host, "]:"); idx != -1 {
+			host = host[1:idx] // Extract between [ and ]
+		} else if strings.HasSuffix(host, "]") {
+			host = host[1 : len(host)-1] // [::1] without port
+		}
+	} else if strings.Count(host, ":") == 1 {
+		// IPv4 or hostname with port: localhost:4317
+		if idx := strings.LastIndex(host, ":"); idx != -1 {
+			host = host[:idx]
+		}
+	}
+	// For IPv6 without brackets (::1, ::1:4317), we check the full string
+
+	// Check for common local addresses
+	return host == "localhost" ||
+		host == "127.0.0.1" ||
+		host == "::1" ||
+		strings.HasPrefix(host, "127.") ||
+		strings.HasPrefix(c.Endpoint, "::1")
 }

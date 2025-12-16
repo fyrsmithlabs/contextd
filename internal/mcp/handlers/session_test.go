@@ -187,6 +187,8 @@ func (m *mockCheckpointSvc) Save(ctx context.Context, req *checkpoint.SaveReques
 		ID:          "checkpoint-123",
 		SessionID:   req.SessionID,
 		TenantID:    req.TenantID,
+		TeamID:      req.TeamID,
+		ProjectID:   req.ProjectID,
 		Summary:     req.Summary,
 		AutoCreated: req.AutoCreated,
 		CreatedAt:   time.Now(),
@@ -209,11 +211,11 @@ func (m *mockCheckpointSvc) Resume(ctx context.Context, req *checkpoint.ResumeRe
 	return nil, nil
 }
 
-func (m *mockCheckpointSvc) Get(ctx context.Context, tenantID, checkpointID string) (*checkpoint.Checkpoint, error) {
+func (m *mockCheckpointSvc) Get(ctx context.Context, tenantID, teamID, projectID, checkpointID string) (*checkpoint.Checkpoint, error) {
 	return nil, nil
 }
 
-func (m *mockCheckpointSvc) Delete(ctx context.Context, tenantID, checkpointID string) error {
+func (m *mockCheckpointSvc) Delete(ctx context.Context, tenantID, teamID, projectID, checkpointID string) error {
 	return nil
 }
 

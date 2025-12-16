@@ -1,10 +1,12 @@
 package repository
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -65,10 +67,11 @@ func NewService(store Store) *Service {
 
 // SearchOptions configures repository search behavior.
 type SearchOptions struct {
-	ProjectPath string // Required: project path to search within
-	TenantID    string // Required: tenant identifier
-	Branch      string // Optional: filter by branch (empty = all branches)
-	Limit       int    // Max results (default: 10)
+	CollectionName string // Preferred: direct collection name from repository_index
+	ProjectPath    string // Required if CollectionName not provided
+	TenantID       string // Required if CollectionName not provided
+	Branch         string // Optional: filter by branch (empty = all branches)
+	Limit          int    // Max results (default: 10)
 }
 
 // RepoSearchResult from repository search.
@@ -80,6 +83,139 @@ type RepoSearchResult struct {
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
+// GrepOptions configures repository grep behavior.
+type GrepOptions struct {
+	ProjectPath     string
+	IncludePatterns []string
+	ExcludePatterns []string
+	CaseSensitive   bool
+}
+
+// GrepResult from repository grep.
+type GrepResult struct {
+	FilePath   string `json:"file_path"`
+	Content    string `json:"content"`
+	LineNumber int    `json:"line_number"`
+}
+
+// Grep performs a regex search over repository files.
+func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([]GrepResult, error) {
+	// Validate and clean path
+	cleanPath, err := validatePath(opts.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	// Compile regex
+	var re *regexp.Regexp
+	if opts.CaseSensitive {
+		re, err = regexp.Compile(pattern)
+	} else {
+		re, err = regexp.Compile("(?i)" + pattern)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("invalid pattern: %w", err)
+	}
+
+	// Validate patterns
+	if err := validatePatterns(opts.IncludePatterns); err != nil {
+		return nil, fmt.Errorf("invalid include pattern: %w", err)
+	}
+	if err := validatePatterns(opts.ExcludePatterns); err != nil {
+		return nil, fmt.Errorf("invalid exclude pattern: %w", err)
+	}
+
+	var results []GrepResult
+
+	// Reuse logic from IndexRepository by creating equivalent IndexOptions
+	indexOpts := IndexOptions{
+		IncludePatterns: opts.IncludePatterns,
+		ExcludePatterns: opts.ExcludePatterns,
+		MaxFileSize:     1024 * 1024, // Default 1MB limit for grep too
+	}
+
+	// Walk file tree
+	err = filepath.Walk(cleanPath, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories that should not be indexed (and thus not grepped)
+		if info.IsDir() {
+			dirName := filepath.Base(filePath)
+			if defaultSkipDirs[dirName] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(cleanPath, filePath)
+		if err != nil {
+			return fmt.Errorf("computing relative path: %w", err)
+		}
+
+		// Apply filters
+		if !shouldIncludeFile(relPath, info, indexOpts) {
+			return nil
+		}
+
+		// Read file
+		file, openErr := os.Open(filePath)
+		if openErr != nil {
+			// Skip unreadable files
+			return nil
+		}
+
+		// Scan lines
+		scanner := bufio.NewScanner(file)
+		lineNum := 0
+		for scanner.Scan() {
+			lineNum++
+			line := scanner.Text()
+
+			// Skip binary checks for simplicity, but we should probably respect utf8
+			if !utf8.ValidString(line) {
+				continue
+			}
+
+			if re.MatchString(line) {
+				results = append(results, GrepResult{
+					FilePath:   relPath,
+					Content:    strings.TrimSpace(line),
+					LineNumber: lineNum,
+				})
+			}
+		}
+
+		// Check scanner error (e.g., line too long for buffer)
+		scanErr := scanner.Err()
+
+		// Close file explicitly to avoid holding handles during the rest of the walk
+		// (defer in a walk callback holds all handles until walk completes)
+		file.Close()
+
+		if scanErr != nil {
+			return scanErr
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("walking file tree: %w", err)
+	}
+
+	return results, nil
+}
+
 // Search performs semantic search over indexed repository files.
 func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) ([]RepoSearchResult, error) {
 	if s.store == nil {
@@ -88,21 +224,28 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	if opts.ProjectPath == "" {
-		return nil, fmt.Errorf("project_path is required")
-	}
-	if opts.TenantID == "" {
-		return nil, fmt.Errorf("tenant_id is required")
-	}
 
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 10
 	}
 
-	// Build collection name for codebase using shared sanitize package
-	// Format: {tenant}_{project}_codebase (matches spec)
-	collectionName := sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
+	// Use collection name directly if provided (preferred - avoids tenant_id derivation issues)
+	// Otherwise derive from tenant_id + project_path
+	var collectionName string
+	if opts.CollectionName != "" {
+		collectionName = opts.CollectionName
+	} else {
+		if opts.ProjectPath == "" {
+			return nil, fmt.Errorf("project_path is required when collection_name not provided")
+		}
+		if opts.TenantID == "" {
+			return nil, fmt.Errorf("tenant_id is required when collection_name not provided")
+		}
+		// Build collection name for codebase using shared sanitize package
+		// Format: {tenant}_{project}_codebase (matches spec)
+		collectionName = sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
+	}
 
 	// Build filters
 	filters := make(map[string]interface{})

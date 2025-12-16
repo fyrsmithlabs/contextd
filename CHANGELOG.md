@@ -22,6 +22,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated ARCH.md with architectural decisions (isolation model, event pattern)
   - FR-009/FR-010: Child branch cleanup and session end cleanup requirements
 - `repository-search` skill in claude-plugin
+- **`collection_name` parameter for `repository_search`** - allows passing collection name directly from `repository_index` output, avoiding tenant_id derivation issues
+
+### Fixed
+- **`repository_search` collection not found** - when `repository_index` used explicit `tenant_id` but `repository_search` derived tenant_id differently (e.g., from git config), search would fail with "collection not found"
+  - Added `collection_name` parameter to `repository_search` (preferred over tenant_id + project_path)
+  - `repository_index` output includes `collection_name` - use this value for subsequent searches
+  - Existing tenant_id + project_path derivation still works as fallback
+
+### Security
+- **SEC-005: Block insecure telemetry to remote endpoints** (#17)
+  - Added `isLocalEndpoint()` validation in telemetry config
+  - Insecure gRPC connections now only allowed for localhost/127.0.0.1/::1
+  - Remote endpoints require `insecure: false` for TLS
+
+### Fixed
+- **Embedding model cache path now uses `~/.config/contextd/models`** (fixes model not found when running from different directories)
+  - Default cache changed from relative `./local_cache` to absolute `~/.config/contextd/models`
+  - `--download-models` flag now defaults to user config directory instead of `/data/models`
+  - Models downloaded via `ctxd init` or `contextd --download-models` are now found regardless of working directory
+- **Telemetry health state consistency** - `healthy` now correctly set to `false` when enabled but no providers initialized
+- **Telemetry degradation logging** - `setDegraded()` now logs warnings via slog instead of silently discarding errors
+- **TestTelemetry atomic boolean initialization** - atomic booleans now properly initialized in test harness
+
+### Added (continued)
 - **PreCompact hook for auto-checkpoint** - saves checkpoint before context compaction
 - `/contextd:install` command for guided MCP server installation (homebrew, binary, docker)
 

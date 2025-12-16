@@ -6,6 +6,7 @@ package embeddings
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -21,7 +22,7 @@ type FastEmbedConfig struct {
 	Model string
 
 	// CacheDir is the directory to cache model files.
-	// Defaults to ~/.cache/contextd/models
+	// Defaults to ~/.config/contextd/models
 	CacheDir string
 
 	// MaxLength is the maximum input sequence length.
@@ -92,10 +93,18 @@ func NewFastEmbedProvider(cfg FastEmbedConfig) (*FastEmbedProvider, error) {
 	// Get dimension for this model
 	dimension := modelDimensions[model]
 
-	// Set defaults
+	// Set defaults - use ~/.config/contextd/models for model cache
 	cacheDir := cfg.CacheDir
 	if cacheDir == "" {
-		cacheDir = filepath.Join(".", "local_cache")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory for model cache: %w", err)
+		}
+		cacheDir = filepath.Join(home, ".config", "contextd", "models")
+	}
+	// Ensure cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create model cache directory %s: %w", cacheDir, err)
 	}
 
 	maxLength := cfg.MaxLength

@@ -25,7 +25,7 @@ func newResource(cfg *Config) (*resource.Resource, error) {
 	return resource.NewWithAttributes(
 		semconv.SchemaURL,
 		semconv.ServiceName(cfg.ServiceName),
-		semconv.ServiceVersion("0.1.0"), // TODO: Make configurable
+		semconv.ServiceVersion(cfg.ServiceVersion),
 	), nil
 }
 

@@ -356,6 +356,21 @@ func (s *Server) registerRemediationTools() {
 
 // ===== REPOSITORY TOOLS =====
 
+type semanticSearchInput struct {
+	Query       string `json:"query" jsonschema:"required,Search query (natural language or pattern)"`
+	ProjectPath string `json:"project_path" jsonschema:"required,Project path to search within"`
+	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch      string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+}
+
+type semanticSearchOutput struct {
+	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
+	Count   int                      `json:"count" jsonschema:"Number of results returned"`
+	Query   string                   `json:"query" jsonschema:"Original search query"`
+	Source  string                   `json:"source" jsonschema:"Source of results (semantic or grep)"`
+}
+
 type repositoryIndexInput struct {
 	Path            string   `json:"path" jsonschema:"required,Repository path to index"`
 	TenantID        string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
@@ -376,11 +391,12 @@ type repositoryIndexOutput struct {
 }
 
 type repositorySearchInput struct {
-	Query       string `json:"query" jsonschema:"required,Semantic search query"`
-	ProjectPath string `json:"project_path" jsonschema:"required,Project path to search within"`
-	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
-	Branch      string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	Query          string `json:"query" jsonschema:"required,Semantic search query"`
+	ProjectPath    string `json:"project_path,omitempty" jsonschema:"Project path to search within (optional if collection_name provided)"`
+	CollectionName string `json:"collection_name,omitempty" jsonschema:"Collection name from repository_index (preferred - avoids tenant_id derivation issues)"`
+	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
 }
 
 type repositorySearchOutput struct {
@@ -391,13 +407,12 @@ type repositorySearchOutput struct {
 }
 
 func (s *Server) registerRepositoryTools() {
-	// repository_search
+	// semantic_search
 	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name:        "repository_search",
-		Description: "Semantic search over indexed repository code in _codebase collection",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
+		Name:        "semantic_search",
+		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
 		// Default tenant ID from project path if not specified
-		// Must match repository_index behavior for collection name consistency
 		tenantID := args.TenantID
 		if tenantID == "" {
 			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
@@ -408,6 +423,120 @@ func (s *Server) registerRepositoryTools() {
 			TenantID:    tenantID,
 			Branch:      args.Branch,
 			Limit:       args.Limit,
+		}
+
+		// 1. Try Semantic Search
+		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
+
+		// Decide if fallback is needed
+		useFallback := false
+		if err != nil {
+			s.logger.Warn("semantic search failed, falling back to grep", zap.Error(err))
+			useFallback = true
+		} else if len(results) == 0 {
+			useFallback = true
+		}
+
+		outputResults := make([]map[string]interface{}, 0)
+		source := "semantic"
+
+		if !useFallback {
+			for _, r := range results {
+				scrubbed := s.scrubber.Scrub(r.Content).Scrubbed
+				outputResults = append(outputResults, map[string]interface{}{
+					"file_path": r.FilePath,
+					"content":   scrubbed,
+					"score":     r.Score,
+					"branch":    r.Branch,
+					"metadata":  r.Metadata,
+				})
+			}
+		} else {
+			// 2. Fallback to Grep
+			source = "grep"
+
+			// Parse project's ignore files for grep
+			excludePatterns := []string{}
+			parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath)
+			if parseErr != nil {
+				s.logger.Warn("failed to parse ignore files for grep, using fallback",
+					zap.String("path", args.ProjectPath),
+					zap.Error(parseErr))
+				excludePatterns = s.ignoreParser.FallbackPatterns
+			} else {
+				excludePatterns = parsed
+			}
+
+			grepOpts := repository.GrepOptions{
+				ProjectPath:     args.ProjectPath,
+				ExcludePatterns: excludePatterns,
+				CaseSensitive:   false, // Default to case-insensitive for better fallback experience
+			}
+
+			grepResults, err := s.repositorySvc.Grep(ctx, args.Query, grepOpts)
+			if err != nil {
+				// If semantic failed AND grep failed, return error
+				return nil, semanticSearchOutput{}, fmt.Errorf("search failed: %w", err)
+			}
+
+			// Apply limit manually for grep results
+			limit := args.Limit
+			if limit <= 0 {
+				limit = 10
+			}
+			if len(grepResults) > limit {
+				grepResults = grepResults[:limit]
+			}
+
+			for _, r := range grepResults {
+				scrubbed := s.scrubber.Scrub(r.Content).Scrubbed
+				outputResults = append(outputResults, map[string]interface{}{
+					"file_path":   r.FilePath,
+					"content":     scrubbed,
+					"line_number": r.LineNumber,
+					"score":       1.0,
+				})
+			}
+		}
+
+		output := semanticSearchOutput{
+			Results: outputResults,
+			Count:   len(outputResults),
+			Query:   args.Query,
+			Source:  source,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s (source: %s)", output.Count, args.Query, output.Source)},
+			},
+		}, output, nil
+	})
+
+	// repository_search
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "repository_search",
+		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
+		// Prefer collection_name if provided (avoids tenant_id derivation issues)
+		// Otherwise derive from tenant_id + project_path
+		opts := repository.SearchOptions{
+			CollectionName: args.CollectionName,
+			ProjectPath:    args.ProjectPath,
+			Branch:         args.Branch,
+			Limit:          args.Limit,
+		}
+
+		// Only derive tenant_id if collection_name not provided
+		if args.CollectionName == "" {
+			if args.ProjectPath == "" {
+				return nil, repositorySearchOutput{}, fmt.Errorf("either collection_name or project_path is required")
+			}
+			tenantID := args.TenantID
+			if tenantID == "" {
+				tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+			}
+			opts.TenantID = tenantID
 		}
 
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)

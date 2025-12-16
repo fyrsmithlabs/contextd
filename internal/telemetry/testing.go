@@ -35,12 +35,17 @@ func NewTestTelemetry() *TestTelemetry {
 		sdkmetric.WithReader(metricReader.reader),
 	)
 
+	tel := &Telemetry{
+		config:         cfg,
+		tracerProvider: tp,
+		meterProvider:  mp,
+	}
+	// Initialize atomic booleans - healthy when providers are initialized
+	tel.healthy.Store(true)
+	tel.degraded.Store(false)
+
 	return &TestTelemetry{
-		Telemetry: &Telemetry{
-			config:         cfg,
-			tracerProvider: tp,
-			meterProvider:  mp,
-		},
+		Telemetry:      tel,
 		SpanRecorder:   spanRecorder,
 		MetricReader:   metricReader,
 		tracerProvider: tp,

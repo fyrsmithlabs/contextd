@@ -24,6 +24,8 @@ func NewCheckpointHandler(service checkpoint.Service) *CheckpointHandler {
 type CheckpointSaveInput struct {
 	SessionID   string            `json:"session_id"`
 	TenantID    string            `json:"tenant_id"`
+	TeamID      string            `json:"team_id"`
+	ProjectID   string            `json:"project_id"`
 	ProjectPath string            `json:"project_path"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
@@ -40,6 +42,8 @@ type CheckpointSaveInput struct {
 type CheckpointListInput struct {
 	SessionID   string `json:"session_id,omitempty"`
 	TenantID    string `json:"tenant_id"`
+	TeamID      string `json:"team_id"`
+	ProjectID   string `json:"project_id"`
 	ProjectPath string `json:"project_path,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 	AutoOnly    bool   `json:"auto_only,omitempty"`
@@ -49,6 +53,8 @@ type CheckpointListInput struct {
 type CheckpointResumeInput struct {
 	CheckpointID string                 `json:"checkpoint_id"`
 	TenantID     string                 `json:"tenant_id"`
+	TeamID       string                 `json:"team_id"`
+	ProjectID    string                 `json:"project_id"`
 	Level        checkpoint.ResumeLevel `json:"level"`
 }
 
@@ -63,6 +69,8 @@ func (h *CheckpointHandler) Save(ctx context.Context, input json.RawMessage) (in
 	saveReq := &checkpoint.SaveRequest{
 		SessionID:   req.SessionID,
 		TenantID:    req.TenantID,
+		TeamID:      req.TeamID,
+		ProjectID:   req.ProjectID,
 		ProjectPath: req.ProjectPath,
 		Name:        req.Name,
 		Description: req.Description,
@@ -101,6 +109,8 @@ func (h *CheckpointHandler) List(ctx context.Context, input json.RawMessage) (in
 	listReq := &checkpoint.ListRequest{
 		SessionID:   req.SessionID,
 		TenantID:    req.TenantID,
+		TeamID:      req.TeamID,
+		ProjectID:   req.ProjectID,
 		ProjectPath: req.ProjectPath,
 		Limit:       req.Limit,
 		AutoOnly:    req.AutoOnly,
@@ -144,6 +154,8 @@ func (h *CheckpointHandler) Resume(ctx context.Context, input json.RawMessage) (
 	resumeReq := &checkpoint.ResumeRequest{
 		CheckpointID: req.CheckpointID,
 		TenantID:     req.TenantID,
+		TeamID:       req.TeamID,
+		ProjectID:    req.ProjectID,
 		Level:        req.Level,
 	}
 

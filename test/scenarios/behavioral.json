@@ -1,0 +1,460 @@
+{
+  "scenarios": [
+    {
+      "name": "high_volume_positive_feedback",
+      "description": "Verify confidence approaches upper bound with many positive signals",
+      "persona": {
+        "name": "PowerUser",
+        "description": "A power user who consistently finds memories helpful",
+        "goals": ["Stress test positive feedback accumulation"],
+        "constraints": [],
+        "feedback_style": "generous",
+        "success_rate": 1.0
+      },
+      "project_id": "test-high-volume-positive",
+      "max_turns": 50,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Kubernetes deployment pattern",
+            "content": "Use rolling deployments with readiness probes for zero-downtime updates",
+            "outcome": "success",
+            "tags": ["kubernetes", "devops", "deployment"]
+          }
+        },
+        { "type": "search", "args": { "query": "kubernetes deployment", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 1" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 2" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 3" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 4" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 5" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 6" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 7" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 8" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 9" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 10" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 11" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 12" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 13" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 14" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 15" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 16" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 17" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 18" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 19" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Helpful 20" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Deployed app 1" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Deployed app 2" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Deployed app 3" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Deployed app 4" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Deployed app 5" } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.85,
+          "message": "With 20 positive feedbacks + 5 outcomes, confidence should exceed 0.85"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 1.0,
+          "message": "Confidence should never reach exactly 1.0 (Bayesian uncertainty)"
+        },
+        {
+          "type": "feedback_count",
+          "value": 20,
+          "message": "Should have recorded 20 feedback events"
+        }
+      ]
+    },
+    {
+      "name": "high_volume_negative_feedback",
+      "description": "Verify confidence approaches lower bound with many negative signals",
+      "persona": {
+        "name": "Skeptic",
+        "description": "A skeptical user who rarely finds memories helpful",
+        "goals": ["Stress test negative feedback accumulation"],
+        "constraints": [],
+        "feedback_style": "critical",
+        "success_rate": 0.0
+      },
+      "project_id": "test-high-volume-negative",
+      "max_turns": 50,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Outdated security practice",
+            "content": "Store passwords in plain text for easier debugging",
+            "outcome": "failure",
+            "tags": ["security", "anti-pattern"]
+          }
+        },
+        { "type": "search", "args": { "query": "security practice", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 1" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 2" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 3" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 4" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 5" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 6" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 7" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 8" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 9" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 10" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 11" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 12" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 13" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 14" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Terrible 15" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false, "task_description": "Failed task 1" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false, "task_description": "Failed task 2" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false, "task_description": "Failed task 3" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false, "task_description": "Failed task 4" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false, "task_description": "Failed task 5" } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.15,
+          "message": "With 15 negative feedbacks + 5 failed outcomes, confidence should be below 0.15"
+        },
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.0,
+          "message": "Confidence should never reach exactly 0.0 (Bayesian uncertainty)"
+        }
+      ]
+    },
+    {
+      "name": "alternating_feedback_pattern",
+      "description": "Verify confidence stabilizes around 0.5 with strictly alternating feedback",
+      "persona": {
+        "name": "Bipolar",
+        "description": "A user who alternates between positive and negative feedback",
+        "goals": ["Test convergence with alternating signals"],
+        "constraints": [],
+        "feedback_style": "random",
+        "success_rate": 0.5
+      },
+      "project_id": "test-alternating",
+      "max_turns": 30,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Controversial pattern",
+            "content": "Use microservices for everything",
+            "outcome": "success",
+            "tags": ["architecture", "microservices"]
+          }
+        },
+        { "type": "search", "args": { "query": "microservices", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.45,
+          "message": "With 50/50 alternating, confidence should be near 0.5 (above 0.45)"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.55,
+          "message": "With 50/50 alternating, confidence should be near 0.5 (below 0.55)"
+        }
+      ]
+    },
+    {
+      "name": "recovery_from_negative_spiral",
+      "description": "Verify confidence can recover after initial negative feedback",
+      "persona": {
+        "name": "Redeemer",
+        "description": "Initially skeptical, then becomes positive",
+        "goals": ["Test recovery behavior"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.8
+      },
+      "project_id": "test-recovery",
+      "max_turns": 40,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Logging strategy",
+            "content": "Use structured logging with correlation IDs",
+            "outcome": "success",
+            "tags": ["logging", "observability"]
+          }
+        },
+        { "type": "search", "args": { "query": "logging strategy", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 1" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 2" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 3" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 4" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 5" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 6" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 7" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 8" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 9" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false, "reasoning": "Initial bad experience 10" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 1" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 2" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 3" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 4" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 5" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 6" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 7" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 8" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 9" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 10" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 11" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 12" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 13" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 14" } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true, "reasoning": "Starting to see value 15" } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.5,
+          "message": "After 10 negative then 15 positive, should recover above 0.5"
+        }
+      ]
+    },
+    {
+      "name": "signal_type_weighting_explicit_vs_outcome",
+      "description": "Verify explicit feedback (weight 0.5) has more impact than outcomes (weight 0.3)",
+      "persona": {
+        "name": "WeightTester",
+        "description": "Tests signal type weighting",
+        "goals": ["Validate weighting differences"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.5
+      },
+      "project_id": "test-weighting",
+      "max_turns": 20,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "API design pattern",
+            "content": "Use REST with proper HTTP verbs and status codes",
+            "outcome": "success",
+            "tags": ["api", "rest"]
+          }
+        },
+        { "type": "search", "args": { "query": "API design", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.75,
+          "message": "5 explicit positive feedbacks (weight 0.5 each = 2.5 alpha) should yield > 0.75"
+        }
+      ]
+    },
+    {
+      "name": "signal_type_weighting_outcomes_only",
+      "description": "Verify outcomes alone with lower weight still affect confidence",
+      "persona": {
+        "name": "OutcomeOnlyTester",
+        "description": "Only reports outcomes, no explicit feedback",
+        "goals": ["Validate outcome-only scenarios"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 1.0
+      },
+      "project_id": "test-outcomes-only",
+      "max_turns": 20,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Testing strategy",
+            "content": "Write unit tests for all business logic",
+            "outcome": "success",
+            "tags": ["testing", "quality"]
+          }
+        },
+        { "type": "search", "args": { "query": "testing strategy", "limit": 5 } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 1" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 2" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 3" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 4" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 5" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 6" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 7" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 8" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 9" } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true, "task_description": "Task 10" } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.7,
+          "message": "10 positive outcomes (weight 0.3 each = 3.0 alpha) should yield > 0.7"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.85,
+          "message": "Outcomes alone shouldn't push as high as explicit feedback would"
+        }
+      ]
+    },
+    {
+      "name": "mixed_signal_types_combined",
+      "description": "Verify combined signal types with different weights produce expected confidence",
+      "persona": {
+        "name": "FullStackTester",
+        "description": "Uses all signal types",
+        "goals": ["Validate combined signal behavior"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.8
+      },
+      "project_id": "test-combined-signals",
+      "max_turns": 30,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Error handling pattern",
+            "content": "Wrap errors with context and use sentinel errors for control flow",
+            "outcome": "success",
+            "tags": ["errors", "go"]
+          }
+        },
+        { "type": "search", "args": { "query": "error handling", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": false } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "outcome", "args": { "memory_id": "last", "succeeded": true } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.65,
+          "message": "Mixed positive signals should yield confidence above 0.65"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.85,
+          "message": "With some negative signals, confidence should stay below 0.85"
+        }
+      ]
+    },
+    {
+      "name": "confidence_stability_at_extremes",
+      "description": "Verify confidence remains stable after many signals (doesn't oscillate)",
+      "persona": {
+        "name": "StabilityTester",
+        "description": "Tests confidence stability",
+        "goals": ["Validate confidence stability"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.9
+      },
+      "project_id": "test-stability",
+      "max_turns": 50,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "Monitoring setup",
+            "content": "Use Prometheus for metrics and Grafana for dashboards",
+            "outcome": "success",
+            "tags": ["monitoring", "observability"]
+          }
+        },
+        { "type": "search", "args": { "query": "monitoring", "limit": 5 } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": false } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } },
+        { "type": "feedback", "args": { "memory_id": "last", "helpful": true } }
+      ],
+      "assertions": [
+        {
+          "type": "confidence_above",
+          "target": "last",
+          "value": 0.85,
+          "message": "With overwhelming positive evidence, confidence should exceed 0.85"
+        },
+        {
+          "type": "confidence_below",
+          "target": "last",
+          "value": 0.95,
+          "message": "Even with many positives, Bayesian uncertainty prevents reaching 0.95"
+        }
+      ]
+    }
+  ]
+}

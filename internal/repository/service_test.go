@@ -320,6 +320,69 @@ func TestSearch_ReturnsBranchInResults(t *testing.T) {
 	}
 }
 
+// TestSearch_WithCollectionName verifies that CollectionName bypasses tenant_id derivation.
+// This fixes the bug where repository_index with explicit tenant_id produces a different
+// collection name than repository_search with derived tenant_id.
+func TestSearch_WithCollectionName(t *testing.T) {
+	store := &mockStore{
+		searchResults: []vectorstore.SearchResult{
+			{ID: "1", Content: "test content", Score: 0.9, Metadata: map[string]interface{}{"file_path": "main.go"}},
+		},
+	}
+	svc := NewService(store)
+
+	// Use CollectionName directly - no tenant_id/project_path needed
+	opts := SearchOptions{
+		CollectionName: "dahendel_onprem_pw_codebase",
+		Limit:          10,
+	}
+
+	// Execute
+	_, err := svc.Search(context.Background(), "test query", opts)
+
+	// Verify
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Should use collection name directly
+	if store.lastCollection != "dahendel_onprem_pw_codebase" {
+		t.Errorf("Search collection = %q, want %q", store.lastCollection, "dahendel_onprem_pw_codebase")
+	}
+}
+
+// TestSearch_HyphenatedProjectName verifies that hyphenated project names are handled correctly.
+// Bug: "onprem-pw" should produce collection "tenant_onprem_pw_codebase" consistently.
+func TestSearch_HyphenatedProjectName(t *testing.T) {
+	store := &mockStore{
+		searchResults: []vectorstore.SearchResult{
+			{ID: "1", Content: "test", Score: 0.9, Metadata: map[string]interface{}{"file_path": "main.go"}},
+		},
+	}
+	svc := NewService(store)
+
+	// Using tenant_id + project_path with hyphen
+	opts := SearchOptions{
+		ProjectPath: "/Users/dahendel/projects/onprem-pw",
+		TenantID:    "dahendel",
+		Limit:       10,
+	}
+
+	// Execute
+	_, err := svc.Search(context.Background(), "query", opts)
+
+	// Verify
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Hyphen should be converted to underscore
+	expectedCollection := "dahendel_onprem_pw_codebase"
+	if store.lastCollection != expectedCollection {
+		t.Errorf("Search collection = %q, want %q", store.lastCollection, expectedCollection)
+	}
+}
+
 // ===== TESTS: COLLECTION NAMING =====
 
 func TestSanitizeIdentifier(t *testing.T) {
@@ -761,5 +824,219 @@ func TestIndexRepository_DocumentMetadata(t *testing.T) {
 	// Collection should be set
 	if !strings.HasSuffix(doc.Collection, "_codebase") {
 		t.Errorf("Collection = %q, should end with _codebase", doc.Collection)
+	}
+}
+
+// ===== GREP TESTS =====
+
+func TestGrep_ValidPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main\n\nfunc main() {\n  fmt.Println(\"hello world\")\n}")
+	createTestFile(t, tmpDir, "util.go", "package main\n\nfunc util() {\n  // helper\n}")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+		CaseSensitive: false,
+	}
+
+	results, err := svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Grep results = %d, want 1", len(results))
+	} else {
+		if results[0].FilePath != "main.go" {
+			t.Errorf("Result[0].FilePath = %q, want main.go", results[0].FilePath)
+		}
+		if !strings.Contains(results[0].Content, "hello world") {
+			t.Errorf("Result[0].Content = %q, want matching line", results[0].Content)
+		}
+	}
+}
+
+func TestGrep_RegexPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "func main() {}")
+	createTestFile(t, tmpDir, "test.go", "func test() {}")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	results, err := svc.Grep(context.Background(), "^func .*\\(\\)", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Errorf("Grep results = %d, want 2", len(results))
+	}
+}
+
+func TestGrep_SkipsBinaryFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Invalid UTF-8
+	path := filepath.Join(tmpDir, "binary.bin")
+	if err := os.WriteFile(path, []byte{0xff, 0xff}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, tmpDir, "valid.txt", "valid content")
+
+	svc := NewService(&mockStore{})
+	opts := GrepOptions{ProjectPath: tmpDir}
+
+	results, err := svc.Grep(context.Background(), ".*", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	// Should only match valid.txt (binary file line is skipped)
+	if len(results) != 1 {
+		t.Errorf("Results = %d, want 1", len(results))
+	}
+	if len(results) > 0 && results[0].FilePath != "valid.txt" {
+		t.Errorf("Matched file = %s, want valid.txt", results[0].FilePath)
+	}
+}
+
+func TestGrep_InvalidPath(t *testing.T) {
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: "/nonexistent/path",
+	}
+
+	_, err := svc.Grep(context.Background(), "pattern", opts)
+	if err == nil {
+		t.Error("Grep() should error on invalid path")
+	}
+}
+
+func TestGrep_InvalidPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "test.go", "content")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	_, err := svc.Grep(context.Background(), "[invalid", opts)
+	if err == nil {
+		t.Error("Grep() should error on invalid regex pattern")
+	}
+}
+
+func TestGrep_ContextCancellation(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create many files to increase chance of context check
+	for i := 0; i < 50; i++ {
+		createTestFile(t, tmpDir, fmt.Sprintf("file%d.go", i), "package main\n\nfunc main() {}")
+	}
+
+	svc := NewService(&mockStore{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	_, err := svc.Grep(ctx, "main", opts)
+	// Error may or may not occur depending on timing, but should not panic
+	_ = err
+}
+
+func TestGrep_CaseSensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "test.go", "Hello World\nhello world\nHELLO WORLD")
+
+	svc := NewService(&mockStore{})
+
+	// Case insensitive (default)
+	opts := GrepOptions{
+		ProjectPath:   tmpDir,
+		CaseSensitive: false,
+	}
+
+	results, err := svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Case insensitive: got %d results, want 3", len(results))
+	}
+
+	// Case sensitive
+	opts.CaseSensitive = true
+	results, err = svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Case sensitive: got %d results, want 1", len(results))
+	}
+}
+
+func TestGrep_ExcludePatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+	createTestFile(t, tmpDir, "main_test.go", "package main")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath:     tmpDir,
+		ExcludePatterns: []string{"*_test.go"},
+	}
+
+	results, err := svc.Grep(context.Background(), "package", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Got %d results, want 1 (main.go only)", len(results))
+	}
+}
+
+func TestGrep_SkipsDefaultDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+
+	// Create a file in .git directory that should be skipped
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, gitDir, "config", "package git")
+
+	// Create a file in node_modules that should be skipped
+	nmDir := filepath.Join(tmpDir, "node_modules")
+	if err := os.MkdirAll(nmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, nmDir, "pkg.js", "package node")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	results, err := svc.Grep(context.Background(), "package", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+	// Should only find main.go, not .git/config or node_modules/pkg.js
+	if len(results) != 1 {
+		t.Errorf("Got %d results, want 1 (should skip .git and node_modules)", len(results))
 	}
 }

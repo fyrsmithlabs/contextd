@@ -220,9 +220,8 @@ func (c *ExtractiveCompressor) selectSentences(sentences []string, scores []floa
 			if currentLength < targetLength {
 				currentLength++
 			}
-		} else {
-			break
 		}
+		// If it doesn't fit, continue to check next sentences
 	}
 
 	// Edge case: if no sentences were selected (targetLength too small),
