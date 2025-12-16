@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -471,7 +472,7 @@ func run() error {
 }
 
 // downloadEmbeddingModels downloads the FastEmbed models for airgap/container builds.
-// This is called with --download-models flag during Docker build.
+// This is called with --download-models flag during Docker build or for local setup.
 func downloadEmbeddingModels() error {
 	fmt.Println("Downloading embedding models...")
 
@@ -481,10 +482,14 @@ func downloadEmbeddingModels() error {
 		model = "BAAI/bge-small-en-v1.5"
 	}
 
-	// Get cache directory from environment or use default
+	// Get cache directory from environment or use default (~/.config/contextd/models)
 	cacheDir := os.Getenv("EMBEDDINGS_CACHE_DIR")
 	if cacheDir == "" {
-		cacheDir = "/data/models"
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("getting home directory: %w", err)
+		}
+		cacheDir = filepath.Join(home, ".config", "contextd", "models")
 	}
 
 	// Ensure cache directory exists

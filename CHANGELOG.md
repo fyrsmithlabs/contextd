@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remote endpoints require `insecure: false` for TLS
 
 ### Fixed
+- **Embedding model cache path now uses `~/.config/contextd/models`** (fixes model not found when running from different directories)
+  - Default cache changed from relative `./local_cache` to absolute `~/.config/contextd/models`
+  - `--download-models` flag now defaults to user config directory instead of `/data/models`
+  - Models downloaded via `ctxd init` or `contextd --download-models` are now found regardless of working directory
 - **Telemetry health state consistency** - `healthy` now correctly set to `false` when enabled but no providers initialized
 - **Telemetry degradation logging** - `setDegraded()` now logs warnings via slog instead of silently discarding errors
 - **TestTelemetry atomic boolean initialization** - atomic booleans now properly initialized in test harness
