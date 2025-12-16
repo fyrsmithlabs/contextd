@@ -31,6 +31,7 @@
     "./.claude-plugin/commands/resume.md",
     "./.claude-plugin/commands/search.md",
     "./.claude-plugin/commands/status.md",
+    "./.claude-plugin/commands/statusline.md",
     "./.claude-plugin/commands/test-skill.md"
   ],
   "agents": [

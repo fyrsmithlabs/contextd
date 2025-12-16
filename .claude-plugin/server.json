@@ -3,12 +3,12 @@
   "name": "io.github.fyrsmithlabs/contextd",
   "title": "ContextD",
   "description": "Cross-session memory, checkpoints, and error remediation for AI agents. Uses semantic search over past learnings to provide relevant context.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/fyrsmithlabs/contextd/releases/latest/download/contextd_darwin_arm64.tar.gz",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -18,7 +18,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/fyrsmithlabs/contextd/releases/latest/download/contextd_darwin_amd64.tar.gz",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -28,7 +28,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/fyrsmithlabs/contextd/releases/latest/download/contextd_linux_amd64.tar.gz",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
