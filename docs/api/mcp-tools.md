@@ -13,7 +13,7 @@ ContextD provides 10 MCP tools organized into four categories:
 | **Memory** | `memory_search`, `memory_record`, `memory_feedback` | Cross-session learning and strategies |
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context persistence and recovery |
 | **Remediation** | `remediation_search`, `remediation_record` | Error pattern tracking and fixes |
-| **Utility** | `repository_index`, `troubleshoot_diagnose` | Code indexing and diagnostics |
+| **Utility** | `repository_index`, `repository_search`, `semantic_search`, `troubleshoot_diagnose` | Code indexing and diagnostics |
 
 ---
 
@@ -393,6 +393,79 @@ Fallback exclusions if no ignore files found:
   "include_patterns": ["*"],
   "exclude_patterns": [".git/**", "node_modules/**"],
   "max_file_size": 1048576
+}
+```
+
+---
+
+### repository_search
+
+Semantic search over indexed repository code.
+
+**Use Case**: Find code by meaning rather than exact keyword match.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Semantic search query |
+| `project_path` | string | Yes | Project path to search within |
+| `tenant_id` | string | No | Tenant identifier |
+| `branch` | string | No | Filter by branch |
+| `limit` | integer | No | Maximum results (default: 10) |
+
+#### Response
+
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "content": "func main() { ... }",
+      "score": 0.89,
+      "branch": "main",
+      "metadata": {}
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "branch": "main"
+}
+```
+
+---
+
+### semantic_search
+
+Smart search that uses semantic understanding, falling back to grep if needed.
+
+**Use Case**: Primary search tool. Tries to understand intent first, falls back to text search if no semantic matches found.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Search query (natural language or pattern) |
+| `project_path` | string | Yes | Project path to search within |
+| `tenant_id` | string | No | Tenant identifier |
+| `branch` | string | No | Filter by branch |
+| `limit` | integer | No | Maximum results (default: 10) |
+
+#### Response
+
+```json
+{
+  "results": [
+    {
+      "file_path": "internal/service.go",
+      "content": "func Search() ...",
+      "score": 0.95,
+      "line_number": 0
+    }
+  ],
+  "count": 1,
+  "query": "search function",
+  "source": "semantic"
 }
 ```
 

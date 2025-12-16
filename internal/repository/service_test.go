@@ -763,3 +763,55 @@ func TestIndexRepository_DocumentMetadata(t *testing.T) {
 		t.Errorf("Collection = %q, should end with _codebase", doc.Collection)
 	}
 }
+
+// ===== GREP TESTS =====
+
+func TestGrep_ValidPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main\n\nfunc main() {\n  fmt.Println(\"hello world\")\n}")
+	createTestFile(t, tmpDir, "util.go", "package main\n\nfunc util() {\n  // helper\n}")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+		CaseSensitive: false,
+	}
+
+	results, err := svc.Grep(context.Background(), "hello", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("Grep results = %d, want 1", len(results))
+	} else {
+		if results[0].FilePath != "main.go" {
+			t.Errorf("Result[0].FilePath = %q, want main.go", results[0].FilePath)
+		}
+		if !strings.Contains(results[0].Content, "hello world") {
+			t.Errorf("Result[0].Content = %q, want matching line", results[0].Content)
+		}
+	}
+}
+
+func TestGrep_RegexPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "func main() {}")
+	createTestFile(t, tmpDir, "test.go", "func test() {}")
+
+	svc := NewService(&mockStore{})
+
+	opts := GrepOptions{
+		ProjectPath: tmpDir,
+	}
+
+	results, err := svc.Grep(context.Background(), "^func .*\\(\\)", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Errorf("Grep results = %d, want 2", len(results))
+	}
+}
