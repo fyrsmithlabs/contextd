@@ -33,10 +33,10 @@ type Service interface {
 	Resume(ctx context.Context, req *ResumeRequest) (*ResumeResponse, error)
 
 	// Get retrieves a checkpoint by ID.
-	Get(ctx context.Context, tenantID, checkpointID string) (*Checkpoint, error)
+	Get(ctx context.Context, tenantID, teamID, projectID, checkpointID string) (*Checkpoint, error)
 
 	// Delete removes a checkpoint.
-	Delete(ctx context.Context, tenantID, checkpointID string) error
+	Delete(ctx context.Context, tenantID, teamID, projectID, checkpointID string) error
 
 	// Close closes the service.
 	Close() error
@@ -131,11 +131,8 @@ func (s *service) initMetrics() {
 
 // collectionName returns the collection name for checkpoints (project-level).
 // Per spec, checkpoints are stored at project level: {team}_{project}_checkpoints
-// NOTE: For now using orgcheckpoints at org level until teamID is added to checkpoint schema
-func (s *service) collectionName(tenantID string) (string, error) {
-	// TODO: Add TeamID to Checkpoint struct, then use ScopeProject
-	// For now, use org-level collection for backwards compatibility
-	return s.router.GetCollectionName(tenant.ScopeOrg, tenant.CollectionCheckpoints, tenantID, "", "")
+func (s *service) collectionName(tenantID, teamID, projectID string) (string, error) {
+	return s.router.GetCollectionName(tenant.ScopeProject, tenant.CollectionCheckpoints, tenantID, teamID, projectID)
 }
 
 // Save creates a new checkpoint.
@@ -145,6 +142,8 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 
 	span.SetAttributes(
 		attribute.String("tenant_id", req.TenantID),
+		attribute.String("team_id", req.TeamID),
+		attribute.String("project_id", req.ProjectID),
 		attribute.String("session_id", req.SessionID),
 		attribute.Bool("auto_created", req.AutoCreated),
 	)
@@ -161,6 +160,8 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 		ID:          uuid.New().String(),
 		SessionID:   req.SessionID,
 		TenantID:    req.TenantID,
+		TeamID:      req.TeamID,
+		ProjectID:   req.ProjectID,
 		ProjectPath: req.ProjectPath,
 		Name:        req.Name,
 		Description: req.Description,
@@ -175,7 +176,7 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	}
 
 	// Get collection name
-	collection, err := s.collectionName(req.TenantID)
+	collection, err := s.collectionName(req.TenantID, req.TeamID, req.ProjectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -230,6 +231,8 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 
 	span.SetAttributes(
 		attribute.String("tenant_id", req.TenantID),
+		attribute.String("team_id", req.TeamID),
+		attribute.String("project_id", req.ProjectID),
 		attribute.String("session_id", req.SessionID),
 		attribute.String("project_path", req.ProjectPath),
 		attribute.Int("limit", req.Limit),
@@ -242,7 +245,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(req.TenantID)
+	collection, err := s.collectionName(req.TenantID, req.TeamID, req.ProjectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -263,6 +266,12 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	filters := make(map[string]interface{})
 	if req.SessionID != "" {
 		filters["session_id"] = req.SessionID
+	}
+	if req.TeamID != "" {
+		filters["team_id"] = req.TeamID
+	}
+	if req.ProjectID != "" {
+		filters["project_id"] = req.ProjectID
 	}
 	if req.ProjectPath != "" {
 		filters["project_path"] = req.ProjectPath
@@ -316,7 +325,7 @@ func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeRespon
 	s.mu.RUnlock()
 
 	// Get the checkpoint
-	cp, err := s.Get(ctx, req.TenantID, req.CheckpointID)
+	cp, err := s.Get(ctx, req.TenantID, req.TeamID, req.ProjectID, req.CheckpointID)
 	if err != nil {
 		span.RecordError(err)
 		return nil, err
@@ -362,12 +371,14 @@ func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeRespon
 }
 
 // Get retrieves a checkpoint by ID.
-func (s *service) Get(ctx context.Context, tenantID, checkpointID string) (*Checkpoint, error) {
+func (s *service) Get(ctx context.Context, tenantID, teamID, projectID, checkpointID string) (*Checkpoint, error) {
 	ctx, span := s.tracer.Start(ctx, "checkpoint.get")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("tenant_id", tenantID),
+		attribute.String("team_id", teamID),
+		attribute.String("project_id", projectID),
 		attribute.String("checkpoint_id", checkpointID),
 	)
 
@@ -378,7 +389,7 @@ func (s *service) Get(ctx context.Context, tenantID, checkpointID string) (*Chec
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(tenantID)
+	collection, err := s.collectionName(tenantID, teamID, projectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -416,12 +427,14 @@ func (s *service) Get(ctx context.Context, tenantID, checkpointID string) (*Chec
 }
 
 // Delete removes a checkpoint.
-func (s *service) Delete(ctx context.Context, tenantID, checkpointID string) error {
+func (s *service) Delete(ctx context.Context, tenantID, teamID, projectID, checkpointID string) error {
 	ctx, span := s.tracer.Start(ctx, "checkpoint.delete")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("tenant_id", tenantID),
+		attribute.String("team_id", teamID),
+		attribute.String("project_id", projectID),
 		attribute.String("checkpoint_id", checkpointID),
 	)
 
@@ -432,7 +445,7 @@ func (s *service) Delete(ctx context.Context, tenantID, checkpointID string) err
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(tenantID)
+	collection, err := s.collectionName(tenantID, teamID, projectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -471,6 +484,8 @@ func (s *service) checkpointToDocument(cp *Checkpoint, collectionName string) ve
 		"id":           cp.ID,
 		"session_id":   cp.SessionID,
 		"tenant_id":    cp.TenantID,
+		"team_id":      cp.TeamID,
+		"project_id":   cp.ProjectID,
 		"project_path": cp.ProjectPath,
 		"name":         cp.Name,
 		"description":  cp.Description,
@@ -518,6 +533,12 @@ func (s *service) resultToCheckpoint(result vectorstore.SearchResult) *Checkpoin
 	}
 	if v, ok := result.Metadata["tenant_id"].(string); ok {
 		cp.TenantID = v
+	}
+	if v, ok := result.Metadata["team_id"].(string); ok {
+		cp.TeamID = v
+	}
+	if v, ok := result.Metadata["project_id"].(string); ok {
+		cp.ProjectID = v
 	}
 	if v, ok := result.Metadata["project_path"].(string); ok {
 		cp.ProjectPath = v
@@ -573,6 +594,8 @@ func checkpointToPayload(cp *Checkpoint) map[string]interface{} {
 	payload := map[string]interface{}{
 		"session_id":   cp.SessionID,
 		"tenant_id":    cp.TenantID,
+		"team_id":      cp.TeamID,
+		"project_id":   cp.ProjectID,
 		"project_path": cp.ProjectPath,
 		"name":         cp.Name,
 		"description":  cp.Description,
@@ -608,6 +631,12 @@ func payloadToCheckpoint(payload map[string]interface{}) *Checkpoint {
 	}
 	if v, ok := payload["tenant_id"].(string); ok {
 		cp.TenantID = v
+	}
+	if v, ok := payload["team_id"].(string); ok {
+		cp.TeamID = v
+	}
+	if v, ok := payload["project_id"].(string); ok {
+		cp.ProjectID = v
 	}
 	if v, ok := payload["project_path"].(string); ok {
 		cp.ProjectPath = v

@@ -27,6 +27,12 @@ type Checkpoint struct {
 	// TenantID is the organization this checkpoint belongs to.
 	TenantID string `json:"tenant_id"`
 
+	// TeamID is the team this checkpoint belongs to.
+	TeamID string `json:"team_id"`
+
+	// ProjectID is the project identifier for this checkpoint.
+	ProjectID string `json:"project_id"`
+
 	// ProjectPath is the project context for this checkpoint.
 	ProjectPath string `json:"project_path"`
 
@@ -65,6 +71,8 @@ type Checkpoint struct {
 type SaveRequest struct {
 	SessionID   string
 	TenantID    string
+	TeamID      string
+	ProjectID   string
 	ProjectPath string
 	Name        string
 	Description string
@@ -81,6 +89,8 @@ type SaveRequest struct {
 type ListRequest struct {
 	SessionID   string
 	TenantID    string
+	TeamID      string
+	ProjectID   string
 	ProjectPath string
 	Limit       int
 	AutoOnly    bool // Only return auto-created checkpoints
@@ -90,6 +100,8 @@ type ListRequest struct {
 type ResumeRequest struct {
 	CheckpointID string
 	TenantID     string
+	TeamID       string
+	ProjectID    string
 	Level        ResumeLevel
 }
 

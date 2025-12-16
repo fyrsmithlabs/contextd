@@ -36,9 +36,11 @@ func TestNewService_RequiresLogger(t *testing.T) {
 func TestCheckpointToPayload(t *testing.T) {
 	now := time.Now()
 	cp := &Checkpoint{
-		ID:          "cp-123",
-		SessionID:   "sess-456",
-		TenantID:    "tenant-1",
+		ID:          "cp_123",
+		SessionID:   "sess_456",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_1",
 		ProjectPath: "/test/project",
 		Name:        "Test Checkpoint",
 		Description: "A test checkpoint",
@@ -54,8 +56,10 @@ func TestCheckpointToPayload(t *testing.T) {
 
 	payload := checkpointToPayload(cp)
 
-	assert.Equal(t, "sess-456", payload["session_id"])
-	assert.Equal(t, "tenant-1", payload["tenant_id"])
+	assert.Equal(t, "sess_456", payload["session_id"])
+	assert.Equal(t, "tenant_1", payload["tenant_id"])
+	assert.Equal(t, "team_1", payload["team_id"])
+	assert.Equal(t, "proj_1", payload["project_id"])
 	assert.Equal(t, "/test/project", payload["project_path"])
 	assert.Equal(t, "Test Checkpoint", payload["name"])
 	assert.Equal(t, "Summary of work", payload["summary"])
@@ -68,8 +72,10 @@ func TestCheckpointToPayload(t *testing.T) {
 func TestPayloadToCheckpoint(t *testing.T) {
 	now := time.Now()
 	payload := map[string]interface{}{
-		"session_id":   "sess-456",
-		"tenant_id":    "tenant-1",
+		"session_id":   "sess_456",
+		"tenant_id":    "tenant_1",
+		"team_id":      "team_1",
+		"project_id":   "proj_1",
 		"project_path": "/test/project",
 		"name":         "Test Checkpoint",
 		"description":  "A test checkpoint",
@@ -86,8 +92,10 @@ func TestPayloadToCheckpoint(t *testing.T) {
 	cp := payloadToCheckpoint(payload)
 
 	require.NotNil(t, cp)
-	assert.Equal(t, "sess-456", cp.SessionID)
-	assert.Equal(t, "tenant-1", cp.TenantID)
+	assert.Equal(t, "sess_456", cp.SessionID)
+	assert.Equal(t, "tenant_1", cp.TenantID)
+	assert.Equal(t, "team_1", cp.TeamID)
+	assert.Equal(t, "proj_1", cp.ProjectID)
 	assert.Equal(t, "/test/project", cp.ProjectPath)
 	assert.Equal(t, "Test Checkpoint", cp.Name)
 	assert.Equal(t, "Summary of work", cp.Summary)
@@ -118,9 +126,9 @@ func TestResumeLevel(t *testing.T) {
 func TestCheckpoint(t *testing.T) {
 	now := time.Now()
 	cp := &Checkpoint{
-		ID:          "cp-123",
-		SessionID:   "sess-456",
-		TenantID:    "tenant-1",
+		ID:          "cp_123",
+		SessionID:   "sess_456",
+		TenantID:    "tenant_1",
 		Name:        "Test",
 		Summary:     "Summary",
 		TokenCount:  500,
@@ -128,16 +136,18 @@ func TestCheckpoint(t *testing.T) {
 		CreatedAt:   now,
 	}
 
-	assert.Equal(t, "cp-123", cp.ID)
-	assert.Equal(t, "sess-456", cp.SessionID)
+	assert.Equal(t, "cp_123", cp.ID)
+	assert.Equal(t, "sess_456", cp.SessionID)
 	assert.Equal(t, int32(500), cp.TokenCount)
 	assert.False(t, cp.AutoCreated)
 }
 
 func TestSaveRequest(t *testing.T) {
 	req := &SaveRequest{
-		SessionID:   "sess-123",
-		TenantID:    "tenant-1",
+		SessionID:   "sess_123",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_1",
 		ProjectPath: "/test",
 		Name:        "Manual checkpoint",
 		Summary:     "Summary text",
@@ -145,42 +155,42 @@ func TestSaveRequest(t *testing.T) {
 		AutoCreated: false,
 	}
 
-	assert.Equal(t, "sess-123", req.SessionID)
+	assert.Equal(t, "sess_123", req.SessionID)
 	assert.Equal(t, "Manual checkpoint", req.Name)
 	assert.False(t, req.AutoCreated)
 }
 
 func TestListRequest(t *testing.T) {
 	req := &ListRequest{
-		SessionID: "sess-123",
-		TenantID:  "tenant-1",
+		SessionID: "sess_123",
+		TenantID:  "tenant_1",
 		Limit:     10,
 		AutoOnly:  true,
 	}
 
-	assert.Equal(t, "sess-123", req.SessionID)
+	assert.Equal(t, "sess_123", req.SessionID)
 	assert.True(t, req.AutoOnly)
 }
 
 func TestResumeRequest(t *testing.T) {
 	req := &ResumeRequest{
-		CheckpointID: "cp-123",
-		TenantID:     "tenant-1",
+		CheckpointID: "cp_123",
+		TenantID:     "tenant_1",
 		Level:        ResumeContext,
 	}
 
-	assert.Equal(t, "cp-123", req.CheckpointID)
+	assert.Equal(t, "cp_123", req.CheckpointID)
 	assert.Equal(t, ResumeContext, req.Level)
 }
 
 func TestResumeResponse(t *testing.T) {
 	resp := &ResumeResponse{
-		Checkpoint: &Checkpoint{ID: "cp-123"},
+		Checkpoint: &Checkpoint{ID: "cp_123"},
 		Content:    "Restored content",
 		TokenCount: 50,
 	}
 
-	assert.Equal(t, "cp-123", resp.Checkpoint.ID)
+	assert.Equal(t, "cp_123", resp.Checkpoint.ID)
 	assert.Equal(t, "Restored content", resp.Content)
 	assert.Equal(t, int32(50), resp.TokenCount)
 }
@@ -326,8 +336,10 @@ func TestService_SaveAndGet(t *testing.T) {
 
 	// Save a checkpoint
 	saveReq := &SaveRequest{
-		SessionID:   "sess-123",
-		TenantID:    "tenant-1",
+		SessionID:   "sess_123",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_1",
 		ProjectPath: "/test",
 		Name:        "Test Checkpoint",
 		Summary:     "Summary of work done",
@@ -340,7 +352,7 @@ func TestService_SaveAndGet(t *testing.T) {
 	cp, err := svc.Save(ctx, saveReq)
 	require.NoError(t, err)
 	assert.NotEmpty(t, cp.ID)
-	assert.Equal(t, "sess-123", cp.SessionID)
+	assert.Equal(t, "sess_123", cp.SessionID)
 	assert.Equal(t, "Test Checkpoint", cp.Name)
 }
 
@@ -355,8 +367,10 @@ func TestService_List(t *testing.T) {
 
 	// List should return empty initially
 	listReq := &ListRequest{
-		TenantID: "tenant-1",
-		Limit:    10,
+		TenantID:  "tenant_1",
+		TeamID:    "team_1",
+		ProjectID: "proj_1",
+		Limit:     10,
 	}
 
 	checkpoints, err := svc.List(ctx, listReq)
@@ -375,7 +389,7 @@ func TestService_Close(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Operations should fail after close
-	_, err = svc.Save(context.Background(), &SaveRequest{TenantID: "t1"})
+	_, err = svc.Save(context.Background(), &SaveRequest{TenantID: "t1", TeamID: "tm1", ProjectID: "p1"})
 	assert.Error(t, err)
 }
 
@@ -393,8 +407,10 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// Save checkpoints for project A
 	_, err = svc.Save(ctx, &SaveRequest{
-		SessionID:   "sess-1",
-		TenantID:    "tenant-1",
+		SessionID:   "sess_1",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_a",
 		ProjectPath: "/home/user/project-a",
 		Name:        "Project A Checkpoint 1",
 		Summary:     "Work on project A",
@@ -402,8 +418,10 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = svc.Save(ctx, &SaveRequest{
-		SessionID:   "sess-1",
-		TenantID:    "tenant-1",
+		SessionID:   "sess_1",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_a",
 		ProjectPath: "/home/user/project-a",
 		Name:        "Project A Checkpoint 2",
 		Summary:     "More work on project A",
@@ -412,8 +430,10 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// Save checkpoints for project B
 	_, err = svc.Save(ctx, &SaveRequest{
-		SessionID:   "sess-2",
-		TenantID:    "tenant-1",
+		SessionID:   "sess_2",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_b",
 		ProjectPath: "/home/user/project-b",
 		Name:        "Project B Checkpoint",
 		Summary:     "Work on project B",
@@ -422,7 +442,9 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// List checkpoints for project A only - should NOT include project B's checkpoint
 	listReqA := &ListRequest{
-		TenantID:    "tenant-1",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_a",
 		ProjectPath: "/home/user/project-a",
 		Limit:       10,
 	}
@@ -437,7 +459,9 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// List checkpoints for project B only - should NOT include project A's checkpoints
 	listReqB := &ListRequest{
-		TenantID:    "tenant-1",
+		TenantID:    "tenant_1",
+		TeamID:      "team_1",
+		ProjectID:   "proj_b",
 		ProjectPath: "/home/user/project-b",
 		Limit:       10,
 	}
@@ -446,14 +470,4 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, checkpointsB, 1, "Should only return 1 checkpoint for project B")
 	assert.Equal(t, "/home/user/project-b", checkpointsB[0].ProjectPath)
-
-	// List all checkpoints (no project filter) - should return all 3
-	listReqAll := &ListRequest{
-		TenantID: "tenant-1",
-		Limit:    10,
-	}
-
-	checkpointsAll, err := svc.List(ctx, listReqAll)
-	require.NoError(t, err)
-	assert.Len(t, checkpointsAll, 3, "Should return all 3 checkpoints when no project filter")
 }

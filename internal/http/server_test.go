@@ -466,16 +466,16 @@ func (m *mockCheckpointService) Resume(ctx context.Context, req *checkpoint.Resu
 	return args.Get(0).(*checkpoint.ResumeResponse), args.Error(1)
 }
 
-func (m *mockCheckpointService) Get(ctx context.Context, tenantID, checkpointID string) (*checkpoint.Checkpoint, error) {
-	args := m.Called(ctx, tenantID, checkpointID)
+func (m *mockCheckpointService) Get(ctx context.Context, tenantID, teamID, projectID, checkpointID string) (*checkpoint.Checkpoint, error) {
+	args := m.Called(ctx, tenantID, teamID, projectID, checkpointID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*checkpoint.Checkpoint), args.Error(1)
 }
 
-func (m *mockCheckpointService) Delete(ctx context.Context, tenantID, checkpointID string) error {
-	args := m.Called(ctx, tenantID, checkpointID)
+func (m *mockCheckpointService) Delete(ctx context.Context, tenantID, teamID, projectID, checkpointID string) error {
+	args := m.Called(ctx, tenantID, teamID, projectID, checkpointID)
 	return args.Error(0)
 }
 
