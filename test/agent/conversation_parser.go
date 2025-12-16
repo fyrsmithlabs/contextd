@@ -395,13 +395,18 @@ func AnalyzeConversations(stats []*ConversationStats) map[string]interface{} {
 		totalCheckpoints += s.CheckpointSaves + s.CheckpointResumes
 	}
 
+	avgCallsPerSession := float64(0)
+	if totalSessions > 0 {
+		avgCallsPerSession = float64(totalContextdCalls) / float64(totalSessions)
+	}
+
 	return map[string]interface{}{
-		"total_sessions":       totalSessions,
-		"total_contextd_calls": totalContextdCalls,
-		"total_searches":       totalSearches,
-		"total_records":        totalRecords,
-		"total_feedbacks":      totalFeedbacks,
-		"total_checkpoints":    totalCheckpoints,
-		"avg_calls_per_session": float64(totalContextdCalls) / float64(totalSessions),
+		"total_sessions":        totalSessions,
+		"total_contextd_calls":  totalContextdCalls,
+		"total_searches":        totalSearches,
+		"total_records":         totalRecords,
+		"total_feedbacks":       totalFeedbacks,
+		"total_checkpoints":     totalCheckpoints,
+		"avg_calls_per_session": avgCallsPerSession,
 	}
 }
