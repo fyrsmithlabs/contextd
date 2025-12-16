@@ -419,7 +419,7 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	_, err = svc.Save(ctx, &SaveRequest{
 		SessionID:   "sess_1",
-		TenantID:    "tenant-1",
+		TenantID:    "tenant_1",
 		TeamID:      "team_1",
 		ProjectID:   "proj_a",
 		ProjectPath: "/home/user/project-a",
@@ -442,7 +442,7 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// List checkpoints for project A only - should NOT include project B's checkpoint
 	listReqA := &ListRequest{
-		TenantID:    "tenant-1",
+		TenantID:    "tenant_1",
 		TeamID:      "team_1",
 		ProjectID:   "proj_a",
 		ProjectPath: "/home/user/project-a",
@@ -459,7 +459,7 @@ func TestService_ListFiltersProjectPath(t *testing.T) {
 
 	// List checkpoints for project B only - should NOT include project A's checkpoints
 	listReqB := &ListRequest{
-		TenantID:    "tenant-1",
+		TenantID:    "tenant_1",
 		TeamID:      "team_1",
 		ProjectID:   "proj_b",
 		ProjectPath: "/home/user/project-b",
