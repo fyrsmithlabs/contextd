@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -446,6 +448,14 @@ func (m *mockRegistry) Compression() *compression.Service {
 	return args.Get(0).(*compression.Service)
 }
 
+func (m *mockRegistry) VectorStore() vectorstore.Store {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(vectorstore.Store)
+}
+
 // mockCheckpointService is a mock implementation of checkpoint.Service
 type mockCheckpointService struct {
 	mock.Mock
@@ -747,6 +757,164 @@ func TestHandleThreshold(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 		mockCp.AssertExpectations(t)
+	})
+
+	t.Run("rejects path traversal in project_path", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		reqBody := ThresholdRequest{
+			ProjectID:   "tenant_456",
+			SessionID:   "sess_123",
+			Percent:     70,
+			ProjectPath: "../../etc/passwd",
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "path traversal")
+	})
+
+	t.Run("rejects percent below minimum", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   0, // Below MinThresholdPercent (1)
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("rejects percent above maximum", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   101, // Above MaxThresholdPercent (100)
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "percent must be between")
+	})
+
+	t.Run("rejects summary exceeding max length", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		// Create summary exceeding MaxSummaryLength (10000)
+		longSummary := strings.Repeat("a", MaxSummaryLength+1)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+			Summary:   longSummary,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "summary exceeds maximum length")
+	})
+
+	t.Run("rejects context exceeding max length", func(t *testing.T) {
+		server := setupTestServer(t)
+
+		// Create context exceeding MaxContextLength (50000)
+		longContext := strings.Repeat("a", MaxContextLength+1)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+			Context:   longContext,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "context exceeds maximum length")
+	})
+
+	t.Run("handles checkpoint service unavailable", func(t *testing.T) {
+		scrubber, err := secrets.New(nil)
+		require.NoError(t, err)
+
+		mockHooks := hooks.NewHookManager(&hooks.Config{
+			CheckpointThreshold: 70,
+		})
+
+		registry := &mockRegistry{}
+		registry.On("Scrubber").Return(scrubber)
+		registry.On("Checkpoint").Return(nil) // Checkpoint service unavailable
+		registry.On("Hooks").Return(mockHooks)
+
+		cfg := &Config{
+			Host: "localhost",
+			Port: 9090,
+		}
+
+		server, err := NewServer(registry, zap.NewNop(), cfg)
+		require.NoError(t, err)
+
+		reqBody := ThresholdRequest{
+			ProjectID: "tenant_456",
+			SessionID: "sess_123",
+			Percent:   70,
+		}
+
+		body, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/threshold", bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+
+		server.echo.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "checkpoint service unavailable")
 	})
 }
 

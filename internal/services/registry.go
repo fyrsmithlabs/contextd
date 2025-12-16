@@ -9,6 +9,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 // Registry provides access to all contextd services.
@@ -23,6 +24,7 @@ type Registry interface {
 	Distiller() *reasoningbank.Distiller
 	Scrubber() secrets.Scrubber
 	Compression() *compression.Service
+	VectorStore() vectorstore.Store
 }
 
 // Options configures the registry with service instances.
@@ -36,6 +38,7 @@ type Options struct {
 	Distiller    *reasoningbank.Distiller
 	Scrubber     secrets.Scrubber
 	Compression  *compression.Service
+	VectorStore  vectorstore.Store
 }
 
 // registry is the concrete implementation of Registry.
@@ -49,6 +52,7 @@ type registry struct {
 	distiller    *reasoningbank.Distiller
 	scrubber     secrets.Scrubber
 	compression  *compression.Service
+	vectorStore  vectorstore.Store
 }
 
 // NewRegistry creates a new service registry.
@@ -63,6 +67,7 @@ func NewRegistry(opts Options) Registry {
 		distiller:    opts.Distiller,
 		scrubber:     opts.Scrubber,
 		compression:  opts.Compression,
+		vectorStore:  opts.VectorStore,
 	}
 }
 
@@ -75,3 +80,4 @@ func (r *registry) Hooks() *hooks.HookManager            { return r.hooks }
 func (r *registry) Distiller() *reasoningbank.Distiller  { return r.distiller }
 func (r *registry) Scrubber() secrets.Scrubber           { return r.scrubber }
 func (r *registry) Compression() *compression.Service    { return r.compression }
+func (r *registry) VectorStore() vectorstore.Store       { return r.vectorStore }

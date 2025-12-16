@@ -10,18 +10,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `repository-search` skill in claude-plugin
 - **`collection_name` parameter for `repository_search`** - allows passing collection name directly from `repository_index` output, avoiding tenant_id derivation issues
+- **CountFromCollections helper** - Extracted duplicated collection counting logic into `internal/http/counts.go`
+- **OTEL gauge metrics for resource counts** (#17)
+  - `contextd.checkpoint.count` - Observable gauge for checkpoint count via collection enumeration
+  - `contextd.memory.count` - Observable gauge for memory count via collection enumeration
+- **Prometheus `/metrics` endpoint** - Exposes OTEL metrics in Prometheus format at HTTP server
+- **VectorStore added to services registry** - Enables HTTP server to count resources directly
 
 ### Fixed
 - **`repository_search` collection not found** - when `repository_index` used explicit `tenant_id` but `repository_search` derived tenant_id differently (e.g., from git config), search would fail with "collection not found"
   - Added `collection_name` parameter to `repository_search` (preferred over tenant_id + project_path)
   - `repository_index` output includes `collection_name` - use this value for subsequent searches
   - Existing tenant_id + project_path derivation still works as fallback
+- **Duplicate type declarations** - Extracted StatusResponse, StatusCounts, ContextStatus, CompressionStatus, MemoryStatus to `internal/http/types.go`; statusline.go now uses type aliases
+- **Duplicate collection counting** - Both server.go and statusline.go now use shared `CountFromCollections()` helper
+- **Nil service access** - Added nil checks before accessing Scrubber/Checkpoint/Hooks services in HTTP handlers
+- **Embedder resource leak** - Added `defer embedder.Close()` in statusline direct mode
+- **Error output to stderr** - Statusline errors now logged to stderr instead of stdout
+- **Magic numbers replaced with constants** - Added CheckpointNameMaxLength, MaxSummaryLength, etc.
+- **Statusline showing 0 counts** (#17)
+  - Root cause: chromem compression mismatch (config defaulted to `compress: true` but data was uncompressed)
+  - Changed chromem default to `compress: false` to match existing data
+  - Statusline now correctly shows checkpoint and memory counts
+- **Statusline direct mode collection counting** - Now uses VectorStore.ListCollections() instead of service queries
 
 ### Security
+- **Command injection prevention** - Shell-escape paths in statusline install to prevent injection attacks
+- **Shell metacharacter validation** - Added `containsShellMetacharacters()` and `isValidScriptPath()` to reject unsafe statusline concatenation
+- **Path traversal prevention** - Validate settings path stays within home directory
+- **Path traversal validation fix** - Check for `..` BEFORE `filepath.Clean()` (Clean removes `..` sequences, making post-clean check ineffective)
+- **Secure file permissions** - Changed from 0755/0644 to 0700/0600 for settings files
+- **Input validation on /threshold endpoint** - Added percent range (1-100), length limits, and path sanitization
+- **UserHomeDir error handling** - Fixed unchecked `os.UserHomeDir()` errors in statusline install/uninstall
 - **SEC-005: Block insecure telemetry to remote endpoints** (#17)
   - Added `isLocalEndpoint()` validation in telemetry config
   - Insecure gRPC connections now only allowed for localhost/127.0.0.1/::1
   - Remote endpoints require `insecure: false` for TLS
+
+### Added
+- **Comprehensive statusline tests** - Added `statusline_test.go` with 49 test cases covering:
+  - `formatStatusline()` formatting (8 tests)
+  - `getHealthIcon()` status icons (3 tests)
+  - `shellEscape()` escaping (5 tests)
+  - `containsShellMetacharacters()` detection (15 tests)
+  - `isValidScriptPath()` validation (5 tests)
+  - `fetchStatusHTTP()` HTTP fetching (4 tests)
+  - Path validation and settings path security (9 tests)
+- **/threshold endpoint validation tests** - Added tests for path traversal, percent range, length limits, and service unavailability
 
 ### Fixed
 - **Embedding model cache path now uses `~/.config/contextd/models`** (fixes model not found when running from different directories)

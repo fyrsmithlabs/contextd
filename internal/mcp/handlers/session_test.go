@@ -15,6 +15,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 func TestSessionStartInput(t *testing.T) {
@@ -179,6 +180,8 @@ func (m *mockRegistry) Distiller() *reasoningbank.Distiller {
 func (m *mockRegistry) Scrubber() secrets.Scrubber { return nil }
 
 func (m *mockRegistry) Compression() *compression.Service { return nil }
+
+func (m *mockRegistry) VectorStore() vectorstore.Store { return nil }
 
 // mockCheckpointSvc implements checkpoint.Service
 type mockCheckpointSvc struct {

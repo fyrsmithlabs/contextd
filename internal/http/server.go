@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
@@ -12,7 +14,23 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+)
+
+const (
+	// CheckpointNameMaxLength is the UI display limit for checkpoint names.
+	CheckpointNameMaxLength = 50
+	// CheckpointNameTruncationSuffix is added when names are truncated.
+	CheckpointNameTruncationSuffix = "..."
+	// MaxSummaryLength is the maximum length for summary fields.
+	MaxSummaryLength = 10000
+	// MaxContextLength is the maximum length for context fields.
+	MaxContextLength = 50000
+	// MinThresholdPercent is the minimum valid threshold percentage.
+	MinThresholdPercent = 1
+	// MaxThresholdPercent is the maximum valid threshold percentage.
+	MaxThresholdPercent = 100
 )
 
 // Server provides HTTP endpoints for contextd.
@@ -87,6 +105,9 @@ func (s *Server) registerRoutes() {
 	// Health check
 	s.echo.GET("/health", s.handleHealth)
 
+	// Prometheus metrics endpoint
+	s.echo.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+
 	// API v1 routes
 	v1 := s.echo.Group("/api/v1")
 	v1.POST("/scrub", s.handleScrub)
@@ -126,39 +147,8 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
-// StatusResponse is the response body for GET /api/v1/status.
-type StatusResponse struct {
-	Status      string              `json:"status"`
-	Services    map[string]string   `json:"services"`
-	Counts      StatusCounts        `json:"counts"`
-	Context     *ContextStatus      `json:"context,omitempty"`
-	Compression *CompressionStatus  `json:"compression,omitempty"`
-	Memory      *MemoryStatus       `json:"memory,omitempty"`
-}
-
-// StatusCounts contains count information for various resources.
-type StatusCounts struct {
-	Checkpoints int `json:"checkpoints"`
-	Memories    int `json:"memories"`
-}
-
-// ContextStatus contains context usage information.
-type ContextStatus struct {
-	UsagePercent     int  `json:"usage_percent"`
-	ThresholdWarning bool `json:"threshold_warning"`
-}
-
-// CompressionStatus contains compression metrics.
-type CompressionStatus struct {
-	LastRatio       float64 `json:"last_ratio"`
-	LastQuality     float64 `json:"last_quality"`
-	OperationsTotal int64   `json:"operations_total"`
-}
-
-// MemoryStatus contains memory/reasoning bank metrics.
-type MemoryStatus struct {
-	LastConfidence float64 `json:"last_confidence"`
-}
+// StatusResponse, StatusCounts, ContextStatus, CompressionStatus, and MemoryStatus
+// are defined in types.go to enable reuse across packages.
 
 // handleHealth returns a simple health check response.
 func (s *Server) handleHealth(c echo.Context) error {
@@ -221,22 +211,12 @@ func (s *Server) handleStatus(c echo.Context) error {
 		services["compression"] = "unavailable"
 	}
 
-	// Get counts (best effort - don't fail if services unavailable)
-	counts := StatusCounts{}
-
-	// Get checkpoint count
-	if s.registry.Checkpoint() != nil {
-		// List checkpoints for count (use empty tenant for global count)
-		checkpoints, err := s.registry.Checkpoint().List(ctx, &checkpoint.ListRequest{
-			Limit: 1000, // reasonable max for counting
-		})
-		if err == nil {
-			counts.Checkpoints = len(checkpoints)
-		}
+	// Get counts via VectorStore collections using shared helper
+	checkpoints, memories := CountFromCollections(ctx, s.registry.VectorStore())
+	counts := StatusCounts{
+		Checkpoints: checkpoints,
+		Memories:    memories,
 	}
-
-	// Memory count (requires project_id, leave as 0 for global status)
-	counts.Memories = 0
 
 	// Build response with optional status fields
 	resp := StatusResponse{
@@ -278,8 +258,14 @@ func (s *Server) handleScrub(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "content field is required")
 	}
 
+	// Check if scrubber service is available
+	scrubber := s.registry.Scrubber()
+	if scrubber == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "scrubber service unavailable")
+	}
+
 	// Scrub the content
-	result := s.registry.Scrubber().Scrub(req.Content)
+	result := scrubber.Scrub(req.Content)
 
 	s.logger.Debug("scrubbed content",
 		zap.Int("findings", result.TotalFindings),
@@ -300,8 +286,27 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
 	}
 
+	// Validate required fields
 	if req.ProjectID == "" || req.SessionID == "" || req.Percent == 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "project_id, session_id, and percent fields are required")
+	}
+
+	// Validate percent range
+	if req.Percent < MinThresholdPercent || req.Percent > MaxThresholdPercent {
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("percent must be between %d and %d", MinThresholdPercent, MaxThresholdPercent))
+	}
+
+	// Validate and sanitize summary length
+	if len(req.Summary) > MaxSummaryLength {
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("summary exceeds maximum length of %d characters", MaxSummaryLength))
+	}
+
+	// Validate and sanitize context length
+	if len(req.Context) > MaxContextLength {
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("context exceeds maximum length of %d characters", MaxContextLength))
 	}
 
 	// Use provided values or fall back to defaults
@@ -310,6 +315,14 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		projectPath = req.ProjectID
 	}
 
+	// Check for path traversal BEFORE cleaning (Clean removes .. sequences)
+	if strings.Contains(projectPath, "..") {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid project_path: path traversal not allowed")
+	}
+
+	// Sanitize project path
+	projectPath = filepath.Clean(projectPath)
+
 	summary := req.Summary
 	if summary == "" {
 		summary = fmt.Sprintf("Context at %d%% threshold", req.Percent)
@@ -317,16 +330,22 @@ func (s *Server) handleThreshold(c echo.Context) error {
 
 	name := fmt.Sprintf("Auto-checkpoint at %d%%", req.Percent)
 	if req.Summary != "" {
-		// Use first 50 chars of summary as name if provided
+		// Use first N chars of summary as name if provided
 		name = req.Summary
-		if len(name) > 50 {
-			name = name[:47] + "..."
+		if len(name) > CheckpointNameMaxLength {
+			name = name[:CheckpointNameMaxLength-len(CheckpointNameTruncationSuffix)] + CheckpointNameTruncationSuffix
 		}
+	}
+
+	// Check if checkpoint service is available
+	checkpointSvc := s.registry.Checkpoint()
+	if checkpointSvc == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "checkpoint service unavailable")
 	}
 
 	// Create auto-checkpoint via checkpoint service
 	ctx := c.Request().Context()
-	checkpoint, err := s.registry.Checkpoint().Save(ctx, &checkpoint.SaveRequest{
+	chkpt, err := checkpointSvc.Save(ctx, &checkpoint.SaveRequest{
 		SessionID:   req.SessionID,
 		TenantID:    req.ProjectID,
 		ProjectPath: projectPath,
@@ -351,27 +370,29 @@ func (s *Server) handleThreshold(c echo.Context) error {
 	}
 
 	s.logger.Info("created auto-checkpoint",
-		zap.String("checkpoint_id", checkpoint.ID),
+		zap.String("checkpoint_id", chkpt.ID),
 		zap.String("session_id", req.SessionID),
 		zap.Int("percent", req.Percent),
 	)
 
-	// Execute threshold hook
-	if err := s.registry.Hooks().Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
-		"session_id":    req.SessionID,
-		"project_id":    req.ProjectID,
-		"percent":       req.Percent,
-		"checkpoint_id": checkpoint.ID,
-	}); err != nil {
-		s.logger.Warn("threshold hook failed",
-			zap.Error(err),
-			zap.String("checkpoint_id", checkpoint.ID),
-		)
-		// Don't fail the request if hook fails
+	// Execute threshold hook if available
+	if hooksSvc := s.registry.Hooks(); hooksSvc != nil {
+		if err := hooksSvc.Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
+			"session_id":    req.SessionID,
+			"project_id":    req.ProjectID,
+			"percent":       req.Percent,
+			"checkpoint_id": chkpt.ID,
+		}); err != nil {
+			s.logger.Warn("threshold hook failed",
+				zap.Error(err),
+				zap.String("checkpoint_id", chkpt.ID),
+			)
+			// Don't fail the request if hook fails
+		}
 	}
 
 	return c.JSON(http.StatusOK, ThresholdResponse{
-		CheckpointID: checkpoint.ID,
+		CheckpointID: chkpt.ID,
 		Message:      fmt.Sprintf("Auto-checkpoint created at %d%% context threshold", req.Percent),
 	})
 }

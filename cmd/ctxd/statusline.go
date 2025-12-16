@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/embeddings"
+	ctxhttp "github.com/fyrsmithlabs/contextd/internal/http"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -125,39 +125,14 @@ Examples:
 	RunE: runStatuslineTest,
 }
 
-// StatusResponse matches internal/http/server.go StatusResponse
-type StatusResponse struct {
-	Status      string             `json:"status"`
-	Services    map[string]string  `json:"services"`
-	Counts      StatusCounts       `json:"counts"`
-	Context     *ContextStatus     `json:"context,omitempty"`
-	Compression *CompressionStatus `json:"compression,omitempty"`
-	Memory      *MemoryStatus      `json:"memory,omitempty"`
-}
-
-// StatusCounts contains count information
-type StatusCounts struct {
-	Checkpoints int `json:"checkpoints"`
-	Memories    int `json:"memories"`
-}
-
-// ContextStatus contains context usage information
-type ContextStatus struct {
-	UsagePercent     int  `json:"usage_percent"`
-	ThresholdWarning bool `json:"threshold_warning"`
-}
-
-// CompressionStatus contains compression metrics
-type CompressionStatus struct {
-	LastRatio       float64 `json:"last_ratio"`
-	LastQuality     float64 `json:"last_quality"`
-	OperationsTotal int64   `json:"operations_total"`
-}
-
-// MemoryStatus contains memory/reasoning bank metrics
-type MemoryStatus struct {
-	LastConfidence float64 `json:"last_confidence"`
-}
+// Type aliases for shared types from internal/http
+type (
+	StatusResponse    = ctxhttp.StatusResponse
+	StatusCounts      = ctxhttp.StatusCounts
+	ContextStatus     = ctxhttp.ContextStatus
+	CompressionStatus = ctxhttp.CompressionStatus
+	MemoryStatus      = ctxhttp.MemoryStatus
+)
 
 // runStatuslineRun handles the statusline run command
 func runStatuslineRun(cmd *cobra.Command, args []string) error {
@@ -170,7 +145,8 @@ func runStatuslineRun(cmd *cobra.Command, args []string) error {
 	for scanner.Scan() {
 		// Claude Code sends JSON commands, we respond with formatted statusline
 		if err := outputStatusline(); err != nil {
-			// Output error indicator but don't exit
+			// Log error to stderr, output error indicator to stdout
+			fmt.Fprintf(os.Stderr, "statusline error: %v\n", err)
 			fmt.Println("\033[31m\u26a0\ufe0f contextd error\033[0m")
 		}
 	}
@@ -245,6 +221,7 @@ func fetchStatusDirect() (*StatusResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
+	defer embedder.Close()
 
 	// Initialize vectorstore
 	store, err := vectorstore.NewStore(cfg, embedder, logger)
@@ -253,47 +230,23 @@ func fetchStatusDirect() (*StatusResponse, error) {
 	}
 	defer store.Close()
 
-	// Initialize checkpoint service
-	checkpointSvc, err := checkpoint.NewService(nil, store, logger) // nil config uses defaults
-	if err != nil {
-		return nil, fmt.Errorf("failed to create checkpoint service: %w", err)
-	}
-
-	// Get tenant_id - use $USER since that's what's commonly used
-	// TODO: Make this configurable or detect from existing data
-	tenantID := os.Getenv("USER")
-	if tenantID == "" {
-		tenantID = "default"
-	}
+	// Count via VectorStore collections using shared helper
+	checkpoints, memories := ctxhttp.CountFromCollections(ctx, store)
 
 	// Build status response
 	status := &StatusResponse{
 		Status:   "ok",
 		Services: make(map[string]string),
-		Counts:   StatusCounts{},
+		Counts: StatusCounts{
+			Checkpoints: checkpoints,
+			Memories:    memories,
+		},
 	}
 
 	// All services are "ok" in direct mode (we have access)
 	status.Services["checkpoint"] = "ok"
 	status.Services["memory"] = "ok"
 	status.Services["vectorstore"] = "ok"
-
-	// Get checkpoint count (filter by tenant)
-	checkpoints, err := checkpointSvc.List(ctx, &checkpoint.ListRequest{
-		TenantID: tenantID,
-		Limit:    1000,
-	})
-	if err == nil {
-		status.Counts.Checkpoints = len(checkpoints)
-	} else {
-		// Log error but don't fail - direct mode may have collection loading issues
-		// TODO: Fix chromem collection loading for direct queries
-		status.Counts.Checkpoints = -1 // -1 indicates unknown
-	}
-
-	// Memory count - would require reasoningbank service
-	// TODO: Add reasoningbank service query when available
-	status.Counts.Memories = -1 // -1 indicates unknown in direct mode
 
 	return status, nil
 }
@@ -358,6 +311,35 @@ func getHealthIcon(status *StatusResponse) string {
 	return "\033[32m\U0001f7e2\033[0m" // Green circle
 }
 
+// shellEscape escapes a string for safe use in shell commands
+func shellEscape(s string) string {
+	// Use single quotes and escape any existing single quotes
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// shellMetacharacters contains characters that have special meaning in shells
+var shellMetacharacters = []string{";", "|", "&", "`", "$", "(", ")", ">", "<", "\n", "\r", "\x00"}
+
+// containsShellMetacharacters checks if a string contains shell metacharacters
+func containsShellMetacharacters(s string) bool {
+	for _, char := range shellMetacharacters {
+		if strings.Contains(s, char) {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidScriptPath checks if a path is safe to use in shell commands
+func isValidScriptPath(path string) bool {
+	// Must be an absolute path
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	// No shell metacharacters allowed
+	return !containsShellMetacharacters(path)
+}
+
 // runStatuslineInstall handles the statusline install command
 func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 	// Find ctxd binary path
@@ -376,22 +358,46 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve ctxd path: %w", err)
 	}
 
+	// Validate path doesn't contain potentially dangerous characters
+	// (even after escaping, be defensive)
+	if strings.ContainsAny(ctxdPath, "\n\r\x00") {
+		return fmt.Errorf("invalid ctxd binary path: contains forbidden characters")
+	}
+
+	// Shell-escape the path
+	escapedPath := shellEscape(ctxdPath)
+
 	// Build the statusline command - use --direct by default (no HTTP server needed)
 	var statuslineScript string
 	if serverURL != "http://localhost:9090" {
 		// User specified a custom server, use HTTP mode
-		statuslineScript = fmt.Sprintf("%s statusline run --server %s", ctxdPath, serverURL)
+		// Escape serverURL as well to prevent injection
+		escapedServerURL := shellEscape(serverURL)
+		statuslineScript = fmt.Sprintf("%s statusline run --server %s", escapedPath, escapedServerURL)
 	} else {
 		// Default to direct mode (queries database directly)
-		statuslineScript = fmt.Sprintf("%s statusline run --direct", ctxdPath)
+		statuslineScript = fmt.Sprintf("%s statusline run --direct", escapedPath)
 	}
 
 	// Get Claude Code settings path
 	settingsPath := getClaudeSettingsPath()
 
+	// Validate settings path to prevent path traversal
+	cleanPath := filepath.Clean(settingsPath)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	if homeDir == "" {
+		return fmt.Errorf("home directory is empty")
+	}
+	if !strings.HasPrefix(cleanPath, homeDir) && !strings.HasPrefix(cleanPath, "/tmp") {
+		return fmt.Errorf("invalid settings path: must be within home directory")
+	}
+
 	// Read existing settings
 	var settings map[string]interface{}
-	if data, err := os.ReadFile(settingsPath); err == nil {
+	if data, err := os.ReadFile(cleanPath); err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
 			settings = make(map[string]interface{})
 		}
@@ -412,8 +418,8 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Auto-detect common statusline script locations if no statusLine configured
+	// Note: homeDir is already validated earlier in this function
 	if existingStatusLine == "" {
-		homeDir, _ := os.UserHomeDir()
 		commonPaths := []string{
 			filepath.Join(homeDir, ".claude", "statusline.sh"),
 			filepath.Join(homeDir, ".claude", "statusline"),
@@ -433,21 +439,29 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Current statusline: %s\n", existingStatusLine)
 	}
 
-	// If there's an existing statusline that doesn't contain ctxd, append our script
+	// Handle existing statusline scripts safely
 	if existingStatusLine != "" && !strings.Contains(existingStatusLine, "ctxd") {
-		// Create a combined script that runs both
-		statuslineScript = fmt.Sprintf("%s; echo -n ' │ '; %s", existingStatusLine, statuslineScript)
-	} else if existingStatusLine != "" && strings.Contains(existingStatusLine, "ctxd") {
-		// Replace existing ctxd command but preserve any prefix
-		// Find where ctxd starts and replace from there
-		if idx := strings.Index(existingStatusLine, "ctxd"); idx > 0 {
-			prefix := existingStatusLine[:idx]
-			// Check if there's a semicolon before ctxd (another command)
-			if lastSemi := strings.LastIndex(prefix, ";"); lastSemi >= 0 {
-				prefix = strings.TrimSpace(existingStatusLine[:lastSemi+1])
-				statuslineScript = fmt.Sprintf("%s %s", prefix, statuslineScript)
-			}
+		// Validate existing script before concatenation to prevent command injection
+		if containsShellMetacharacters(existingStatusLine) {
+			// Existing script contains shell metacharacters - unsafe to concatenate
+			fmt.Fprintf(os.Stderr, "WARNING: Existing statusline contains shell metacharacters and cannot be safely merged.\n")
+			fmt.Fprintf(os.Stderr, "         Existing: %s\n", existingStatusLine)
+			fmt.Fprintf(os.Stderr, "         Replacing with ctxd statusline only.\n")
+			fmt.Fprintf(os.Stderr, "         To preserve your existing statusline, manually edit: %s\n", settingsPath)
+			// Don't concatenate - use only our script
+		} else if isValidScriptPath(existingStatusLine) {
+			// Safe absolute path - can concatenate with escaping
+			statuslineScript = fmt.Sprintf("%s; echo -n ' │ '; %s", shellEscape(existingStatusLine), statuslineScript)
+		} else {
+			// Not a valid absolute path - warn and replace
+			fmt.Fprintf(os.Stderr, "WARNING: Existing statusline is not a valid absolute path.\n")
+			fmt.Fprintf(os.Stderr, "         Existing: %s\n", existingStatusLine)
+			fmt.Fprintf(os.Stderr, "         Replacing with ctxd statusline only.\n")
 		}
+	} else if existingStatusLine != "" && strings.Contains(existingStatusLine, "ctxd") {
+		// Already contains ctxd - just replace with our new script
+		// Don't try to preserve prefixes as they may be unsafe
+		fmt.Printf("Replacing existing ctxd statusline configuration.\n")
 	}
 
 	// Update statusline setting
@@ -459,12 +473,12 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0755); err != nil {
+	// Ensure directory exists with secure permissions
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0700); err != nil {
 		return fmt.Errorf("failed to create settings directory: %w", err)
 	}
 
-	if err := os.WriteFile(settingsPath, data, 0644); err != nil {
+	if err := os.WriteFile(cleanPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
 
@@ -479,8 +493,21 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 func runStatuslineUninstall(cmd *cobra.Command, args []string) error {
 	settingsPath := getClaudeSettingsPath()
 
+	// Validate settings path to prevent path traversal
+	cleanPath := filepath.Clean(settingsPath)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	if homeDir == "" {
+		return fmt.Errorf("home directory is empty")
+	}
+	if !strings.HasPrefix(cleanPath, homeDir) && !strings.HasPrefix(cleanPath, "/tmp") {
+		return fmt.Errorf("invalid settings path: must be within home directory")
+	}
+
 	// Read existing settings
-	data, err := os.ReadFile(settingsPath)
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("No Claude Code settings found, nothing to uninstall.")
@@ -508,7 +535,7 @@ func runStatuslineUninstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	if err := os.WriteFile(settingsPath, data, 0644); err != nil {
+	if err := os.WriteFile(cleanPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
 

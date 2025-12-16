@@ -9,8 +9,12 @@ import (
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
+
+const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 
 const (
 	// MinConfidence is the minimum confidence threshold for search results.
@@ -40,6 +44,10 @@ type Service struct {
 	signalStore SignalStore
 	confCalc    *ConfidenceCalculator
 	logger      *zap.Logger
+
+	// Telemetry
+	meter      metric.Meter
+	totalGauge metric.Int64ObservableGauge
 
 	// Stats tracking for statusline
 	statsMu        sync.RWMutex
@@ -74,6 +82,7 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	svc := &Service{
 		store:  store,
 		logger: logger,
+		meter:  otel.Meter(instrumentationName),
 	}
 
 	// Apply options
@@ -89,7 +98,50 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	// Create confidence calculator
 	svc.confCalc = NewConfidenceCalculator(svc.signalStore)
 
+	// Initialize metrics
+	svc.initMetrics()
+
 	return svc, nil
+}
+
+// initMetrics initializes OpenTelemetry metrics.
+func (s *Service) initMetrics() {
+	var err error
+
+	// Observable gauge for total memory count (queried on metrics scrape)
+	s.totalGauge, err = s.meter.Int64ObservableGauge(
+		"contextd.memory.count",
+		metric.WithDescription("Current number of memories stored"),
+		metric.WithUnit("{memory}"),
+		metric.WithInt64Callback(s.observeMemoryCount),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create memory count gauge", zap.Error(err))
+	}
+}
+
+// observeMemoryCount is called when metrics are collected to report current memory count.
+func (s *Service) observeMemoryCount(ctx context.Context, observer metric.Int64Observer) error {
+	// Get count from all memory collections
+	collections, err := s.store.ListCollections(ctx)
+	if err != nil {
+		s.logger.Debug("failed to list collections for memory count", zap.Error(err))
+		return nil // Don't fail metrics collection
+	}
+
+	var total int64
+	for _, coll := range collections {
+		// Only count memory/reasoning collections
+		if strings.Contains(coll, "memor") || strings.Contains(coll, "reasoning") {
+			info, err := s.store.GetCollectionInfo(ctx, coll)
+			if err == nil && info != nil {
+				total += int64(info.PointCount)
+			}
+		}
+	}
+
+	observer.Observe(total)
+	return nil
 }
 
 // Search retrieves memories by semantic similarity to the query.

@@ -288,7 +288,7 @@ func Load() *Config {
 		Provider: getEnvString("CONTEXTD_VECTORSTORE_PROVIDER", "chromem"),
 		Chromem: ChromemConfig{
 			Path:              getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_PATH", "~/.config/contextd/vectorstore"),
-			Compress:          getEnvBool("CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS", true),
+			Compress:          getEnvBool("CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS", false),
 			DefaultCollection: getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_COLLECTION", "contextd_default"),
 			VectorSize:        getEnvInt("CONTEXTD_VECTORSTORE_CHROMEM_VECTOR_SIZE", 384),
 		},

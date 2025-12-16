@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,7 @@ type service struct {
 	meter         metric.Meter
 	saveCounter   metric.Int64Counter
 	resumeCounter metric.Int64Counter
+	totalGauge    metric.Int64ObservableGauge
 
 	mu     sync.RWMutex
 	closed bool
@@ -127,6 +129,50 @@ func (s *service) initMetrics() {
 	if err != nil {
 		s.logger.Warn("failed to create resume counter", zap.Error(err))
 	}
+
+	// Observable gauge for total checkpoint count (queried on metrics scrape)
+	s.totalGauge, err = s.meter.Int64ObservableGauge(
+		"contextd.checkpoint.count",
+		metric.WithDescription("Current number of checkpoints stored"),
+		metric.WithUnit("{checkpoint}"),
+		metric.WithInt64Callback(s.observeCheckpointCount),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create checkpoint count gauge", zap.Error(err))
+	}
+}
+
+// observeCheckpointCount is called when metrics are collected to report current checkpoint count.
+func (s *service) observeCheckpointCount(ctx context.Context, observer metric.Int64Observer) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	// Get count from all tenant collections
+	// For now, we report a single total; per-tenant would need attribute labels
+	// This is a lightweight operation - just get collection info
+	collections, err := s.store.ListCollections(ctx)
+	if err != nil {
+		s.logger.Debug("failed to list collections for checkpoint count", zap.Error(err))
+		return nil // Don't fail metrics collection
+	}
+
+	var total int64
+	for _, coll := range collections {
+		// Only count checkpoint collections
+		if strings.Contains(coll, "checkpoint") {
+			info, err := s.store.GetCollectionInfo(ctx, coll)
+			if err == nil && info != nil {
+				total += int64(info.PointCount)
+			}
+		}
+	}
+
+	observer.Observe(total)
+	return nil
 }
 
 // collectionName returns the collection name for checkpoints (project-level).
