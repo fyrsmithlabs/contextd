@@ -100,6 +100,10 @@ func run() error {
 	if os.Getenv("OTEL_SDK_DISABLED") == "true" || os.Getenv("TELEMETRY_ENABLED") == "false" {
 		telCfg.Enabled = false
 	}
+	// Check for secure connection preference (default is insecure)
+	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "false" {
+		telCfg.Insecure = false
+	}
 	tel, err := telemetry.New(ctx, telCfg)
 	if err != nil {
 		logger.Warn(ctx, "telemetry initialization failed, continuing without telemetry",
