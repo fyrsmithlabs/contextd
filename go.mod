@@ -14,6 +14,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.1.0
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/qdrant/go-client v1.16.2
+	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/bridges/otelzap v0.10.0
@@ -73,7 +74,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/schollz/progressbar/v2 v2.15.0 // indirect
-	github.com/schollz/progressbar/v3 v3.18.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect

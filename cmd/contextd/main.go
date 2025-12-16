@@ -566,9 +566,10 @@ func downloadEmbeddingModels() error {
 
 	// Initialize the FastEmbed provider - this triggers model download
 	cfg := embeddings.ProviderConfig{
-		Provider: "fastembed",
-		Model:    model,
-		CacheDir: cacheDir,
+		Provider:     "fastembed",
+		Model:        model,
+		CacheDir:     cacheDir,
+		ShowProgress: true,
 	}
 
 	provider, err := embeddings.NewProvider(cfg)

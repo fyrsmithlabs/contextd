@@ -28,6 +28,9 @@ type FastEmbedConfig struct {
 	// MaxLength is the maximum input sequence length.
 	// Defaults to 512.
 	MaxLength int
+
+	// ShowProgress enables progress bars for downloads
+	ShowProgress bool
 }
 
 // FastEmbedProvider provides embedding generation using local ONNX models.
@@ -68,7 +71,7 @@ var modelDimensions = map[fastembed.EmbeddingModel]int{
 // NewFastEmbedProvider creates a new FastEmbed embedding provider.
 func NewFastEmbedProvider(cfg FastEmbedConfig) (*FastEmbedProvider, error) {
 	// Ensure ONNX runtime is available, downloading if needed
-	onnxPath, err := EnsureONNXRuntime(context.Background())
+	onnxPath, err := EnsureONNXRuntime(context.Background(), cfg.ShowProgress)
 	if err != nil {
 		return nil, fmt.Errorf("ONNX runtime setup failed: %w", err)
 	}
@@ -112,8 +115,8 @@ func NewFastEmbedProvider(cfg FastEmbedConfig) (*FastEmbedProvider, error) {
 		maxLength = 512
 	}
 
-	// Disable progress bar for server use
-	showProgress := false
+	// Disable progress bar for server use unless requested
+	showProgress := cfg.ShowProgress
 
 	opts := &fastembed.InitOptions{
 		Model:                model,

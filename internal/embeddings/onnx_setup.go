@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 // DefaultONNXRuntimeVersion is the ONNX runtime version matching onnxruntime_go.
@@ -105,17 +107,17 @@ func buildDownloadURL(version, platform string) string {
 
 // DownloadONNXRuntime downloads ONNX runtime for the current platform.
 // If version is empty, uses DefaultONNXRuntimeVersion.
-func DownloadONNXRuntime(ctx context.Context, version string) error {
+func DownloadONNXRuntime(ctx context.Context, version string, showProgress bool) error {
 	if version == "" {
 		version = DefaultONNXRuntimeVersion
 	}
 
 	destDir := getONNXInstallDir()
-	return downloadONNXRuntimeTo(ctx, version, destDir)
+	return downloadONNXRuntimeTo(ctx, version, destDir, showProgress)
 }
 
 // downloadONNXRuntimeTo downloads ONNX runtime to the specified directory.
-func downloadONNXRuntimeTo(ctx context.Context, version, destDir string) error {
+func downloadONNXRuntimeTo(ctx context.Context, version, destDir string, showProgress bool) error {
 	// Get platform archive name
 	platform, err := getPlatformArchive(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -147,8 +149,18 @@ func downloadONNXRuntimeTo(ctx context.Context, version, destDir string) error {
 		return fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
 
+	// Setup reader with optional progress bar
+	var reader io.Reader = resp.Body
+	if showProgress {
+		bar := progressbar.DefaultBytes(
+			resp.ContentLength,
+			"Downloading ONNX runtime",
+		)
+		reader = io.TeeReader(resp.Body, bar)
+	}
+
 	// Extract tarball directly from response
-	if err := extractTarGz(resp.Body, destDir, version, platform); err != nil {
+	if err := extractTarGz(reader, destDir, version, platform); err != nil {
 		return fmt.Errorf("extracting archive: %w", err)
 	}
 
@@ -250,7 +262,7 @@ var setONNXPathEnv = func(path string) error {
 
 // EnsureONNXRuntime ensures ONNX runtime is available, downloading if needed.
 // Returns the path to the library file.
-func EnsureONNXRuntime(ctx context.Context) (string, error) {
+func EnsureONNXRuntime(ctx context.Context, showProgress bool) (string, error) {
 	// Check if already available
 	if path := GetONNXLibraryPath(); path != "" {
 		return path, nil
@@ -260,7 +272,7 @@ func EnsureONNXRuntime(ctx context.Context) (string, error) {
 	fmt.Printf("ONNX runtime not found. Downloading v%s for %s/%s...\n",
 		DefaultONNXRuntimeVersion, runtime.GOOS, runtime.GOARCH)
 
-	if err := DownloadONNXRuntime(ctx, ""); err != nil {
+	if err := DownloadONNXRuntime(ctx, "", showProgress); err != nil {
 		return "", fmt.Errorf("failed to download ONNX runtime: %w\nRun 'ctxd init' to install manually, or set ONNX_PATH", err)
 	}
 
