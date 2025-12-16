@@ -23,6 +23,31 @@ type Config struct {
 	Qdrant        QdrantConfig
 	Embeddings    EmbeddingsConfig
 	Repository    RepositoryConfig
+	Statusline    StatuslineConfig
+}
+
+// StatuslineConfig holds statusline display configuration.
+type StatuslineConfig struct {
+	Enabled  bool                   `koanf:"enabled"`
+	Endpoint string                 `koanf:"endpoint"` // HTTP endpoint for status
+	Show     StatuslineShowConfig   `koanf:"show"`
+	Thresholds StatuslineThresholds `koanf:"thresholds"`
+}
+
+// StatuslineShowConfig controls which items to display.
+type StatuslineShowConfig struct {
+	Service     bool `koanf:"service"`     // 🟢/🟡/🔴
+	Memories    bool `koanf:"memories"`    // 🧠12
+	Checkpoints bool `koanf:"checkpoints"` // 💾3
+	Context     bool `koanf:"context"`     // 📊68%
+	Confidence  bool `koanf:"confidence"`  // C:.85
+	Compression bool `koanf:"compression"` // F:2.1x
+}
+
+// StatuslineThresholds controls warning thresholds.
+type StatuslineThresholds struct {
+	ContextWarning  int `koanf:"context_warning"`  // Yellow threshold (default: 70)
+	ContextCritical int `koanf:"context_critical"` // Red threshold (default: 85)
 }
 
 // RepositoryConfig holds repository indexing configuration.
@@ -263,9 +288,27 @@ func Load() *Config {
 		Provider: getEnvString("CONTEXTD_VECTORSTORE_PROVIDER", "chromem"),
 		Chromem: ChromemConfig{
 			Path:              getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_PATH", "~/.config/contextd/vectorstore"),
-			Compress:          getEnvBool("CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS", true),
+			Compress:          getEnvBool("CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS", false),
 			DefaultCollection: getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_COLLECTION", "contextd_default"),
 			VectorSize:        getEnvInt("CONTEXTD_VECTORSTORE_CHROMEM_VECTOR_SIZE", 384),
+		},
+	}
+
+	// Statusline configuration
+	cfg.Statusline = StatuslineConfig{
+		Enabled:  getEnvBool("CONTEXTD_STATUSLINE_ENABLED", true),
+		Endpoint: getEnvString("CONTEXTD_STATUSLINE_ENDPOINT", "http://localhost:9090"),
+		Show: StatuslineShowConfig{
+			Service:     getEnvBool("CONTEXTD_STATUSLINE_SHOW_SERVICE", true),
+			Memories:    getEnvBool("CONTEXTD_STATUSLINE_SHOW_MEMORIES", true),
+			Checkpoints: getEnvBool("CONTEXTD_STATUSLINE_SHOW_CHECKPOINTS", true),
+			Context:     getEnvBool("CONTEXTD_STATUSLINE_SHOW_CONTEXT", true),
+			Confidence:  getEnvBool("CONTEXTD_STATUSLINE_SHOW_CONFIDENCE", true),
+			Compression: getEnvBool("CONTEXTD_STATUSLINE_SHOW_COMPRESSION", true),
+		},
+		Thresholds: StatuslineThresholds{
+			ContextWarning:  getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_WARNING", 70),
+			ContextCritical: getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_CRITICAL", 85),
 		},
 	}
 

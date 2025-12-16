@@ -211,9 +211,9 @@ func TestLoad_VectorStoreConfig(t *testing.T) {
 				if cfg.VectorStore.Chromem.Path != "~/.config/contextd/vectorstore" {
 					t.Errorf("VectorStore.Chromem.Path = %q, want ~/.config/contextd/vectorstore", cfg.VectorStore.Chromem.Path)
 				}
-				// Default compress
-				if !cfg.VectorStore.Chromem.Compress {
-					t.Error("VectorStore.Chromem.Compress should be true by default")
+				// Default compress (false to match existing uncompressed data)
+				if cfg.VectorStore.Chromem.Compress {
+					t.Error("VectorStore.Chromem.Compress should be false by default")
 				}
 				// Default collection
 				if cfg.VectorStore.Chromem.DefaultCollection != "contextd_default" {

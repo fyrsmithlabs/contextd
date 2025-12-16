@@ -287,6 +287,7 @@ func run() error {
 		Hooks:        hooksMgr,
 		Distiller:    nil, // Distiller not yet implemented
 		Scrubber:     scrubber,
+		VectorStore:  store,
 	})
 	logger.Info(ctx, "services registry initialized")
 

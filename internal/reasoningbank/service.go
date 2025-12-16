@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
+
+const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 
 const (
 	// MinConfidence is the minimum confidence threshold for search results.
@@ -39,6 +44,19 @@ type Service struct {
 	signalStore SignalStore
 	confCalc    *ConfidenceCalculator
 	logger      *zap.Logger
+
+	// Telemetry
+	meter      metric.Meter
+	totalGauge metric.Int64ObservableGauge
+
+	// Stats tracking for statusline
+	statsMu        sync.RWMutex
+	lastConfidence float64
+}
+
+// Stats contains memory service statistics for statusline display.
+type Stats struct {
+	LastConfidence float64
 }
 
 // ServiceOption configures a Service.
@@ -64,6 +82,7 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	svc := &Service{
 		store:  store,
 		logger: logger,
+		meter:  otel.Meter(instrumentationName),
 	}
 
 	// Apply options
@@ -79,7 +98,50 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	// Create confidence calculator
 	svc.confCalc = NewConfidenceCalculator(svc.signalStore)
 
+	// Initialize metrics
+	svc.initMetrics()
+
 	return svc, nil
+}
+
+// initMetrics initializes OpenTelemetry metrics.
+func (s *Service) initMetrics() {
+	var err error
+
+	// Observable gauge for total memory count (queried on metrics scrape)
+	s.totalGauge, err = s.meter.Int64ObservableGauge(
+		"contextd.memory.count",
+		metric.WithDescription("Current number of memories stored"),
+		metric.WithUnit("{memory}"),
+		metric.WithInt64Callback(s.observeMemoryCount),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create memory count gauge", zap.Error(err))
+	}
+}
+
+// observeMemoryCount is called when metrics are collected to report current memory count.
+func (s *Service) observeMemoryCount(ctx context.Context, observer metric.Int64Observer) error {
+	// Get count from all memory collections
+	collections, err := s.store.ListCollections(ctx)
+	if err != nil {
+		s.logger.Debug("failed to list collections for memory count", zap.Error(err))
+		return nil // Don't fail metrics collection
+	}
+
+	var total int64
+	for _, coll := range collections {
+		// Only count memory/reasoning collections
+		if strings.Contains(coll, "memor") || strings.Contains(coll, "reasoning") {
+			info, err := s.store.GetCollectionInfo(ctx, coll)
+			if err == nil && info != nil {
+				total += int64(info.PointCount)
+			}
+		}
+	}
+
+	observer.Observe(total)
+	return nil
 }
 
 // Search retrieves memories by semantic similarity to the query.
@@ -172,6 +234,13 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		if len(memories) >= limit {
 			break
 		}
+	}
+
+	// Track last confidence for statusline (use first result's confidence)
+	if len(memories) > 0 {
+		s.statsMu.Lock()
+		s.lastConfidence = memories[0].Confidence
+		s.statsMu.Unlock()
 	}
 
 	s.logger.Debug("search completed",
@@ -514,6 +583,45 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 		Metadata:   metadata,
 		Collection: collectionName,
 	}
+}
+
+// Stats returns current memory statistics for statusline display.
+func (s *Service) Stats() Stats {
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+	return Stats{
+		LastConfidence: s.lastConfidence,
+	}
+}
+
+// Count returns the number of memories for a specific project.
+func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
+	if projectID == "" {
+		return 0, ErrEmptyProjectID
+	}
+
+	// Get collection name for this project's memories
+	collectionName, err := project.GetCollectionName(projectID, project.CollectionMemories)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection name: %w", err)
+	}
+
+	// Check if collection exists
+	exists, err := s.store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return 0, fmt.Errorf("checking collection existence: %w", err)
+	}
+	if !exists {
+		return 0, nil
+	}
+
+	// Use GetCollectionInfo to get the point count
+	info, err := s.store.GetCollectionInfo(ctx, collectionName)
+	if err != nil {
+		return 0, fmt.Errorf("getting collection info: %w", err)
+	}
+
+	return info.PointCount, nil
 }
 
 // resultToMemory converts a vectorstore SearchResult to a Memory.

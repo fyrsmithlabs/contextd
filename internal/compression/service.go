@@ -3,6 +3,8 @@ package compression
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -30,6 +32,19 @@ type Service struct {
 	compressionRatio   metric.Float64Histogram
 	compressionQuality metric.Float64Histogram
 	compressionErrors  metric.Int64Counter
+
+	// Stats tracking for statusline
+	statsMu         sync.RWMutex
+	lastRatio       float64
+	lastQuality     float64
+	operationsTotal atomic.Int64
+}
+
+// Stats contains compression statistics for statusline display.
+type Stats struct {
+	LastRatio       float64
+	LastQuality     float64
+	OperationsTotal int64
 }
 
 // NewService creates a new compression service
@@ -125,6 +140,13 @@ func (s *Service) Compress(ctx context.Context, content string, algorithm Algori
 	s.compressionQuality.Record(ctx, result.QualityScore,
 		metric.WithAttributes(attribute.String("algorithm", string(algorithm))))
 
+	// Update stats for statusline
+	s.statsMu.Lock()
+	s.lastRatio = compressionRatio
+	s.lastQuality = result.QualityScore
+	s.statsMu.Unlock()
+	s.operationsTotal.Add(1)
+
 	// Add span attributes
 	span.SetAttributes(
 		attribute.Float64("processing_time_s", processingTime),
@@ -199,4 +221,15 @@ func (s *Service) initMetrics() error {
 	}
 
 	return nil
+}
+
+// Stats returns current compression statistics for statusline display.
+func (s *Service) Stats() Stats {
+	s.statsMu.RLock()
+	defer s.statsMu.RUnlock()
+	return Stats{
+		LastRatio:       s.lastRatio,
+		LastQuality:     s.lastQuality,
+		OperationsTotal: s.operationsTotal.Load(),
+	}
 }
