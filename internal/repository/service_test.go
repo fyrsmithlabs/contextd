@@ -815,3 +815,29 @@ func TestGrep_RegexPattern(t *testing.T) {
 		t.Errorf("Grep results = %d, want 2", len(results))
 	}
 }
+
+func TestGrep_SkipsBinaryFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Invalid UTF-8
+	path := filepath.Join(tmpDir, "binary.bin")
+	if err := os.WriteFile(path, []byte{0xff, 0xff}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	createTestFile(t, tmpDir, "valid.txt", "valid content")
+
+	svc := NewService(&mockStore{})
+	opts := GrepOptions{ProjectPath: tmpDir}
+
+	results, err := svc.Grep(context.Background(), ".*", opts)
+	if err != nil {
+		t.Fatalf("Grep() error = %v", err)
+	}
+
+	// Should only match valid.txt (binary file line is skipped)
+	if len(results) != 1 {
+		t.Errorf("Results = %d, want 1", len(results))
+	}
+	if len(results) > 0 && results[0].FilePath != "valid.txt" {
+		t.Errorf("Matched file = %s, want valid.txt", results[0].FilePath)
+	}
+}

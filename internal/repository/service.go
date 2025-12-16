@@ -167,8 +167,8 @@ func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([
 		}
 
 		// Read file
-		file, err := os.Open(filePath)
-		if err != nil {
+		file, openErr := os.Open(filePath)
+		if openErr != nil {
 			// Skip unreadable files
 			return nil
 		}
@@ -193,6 +193,10 @@ func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([
 					LineNumber: lineNum,
 				})
 			}
+		}
+
+		if scanErr := scanner.Err(); scanErr != nil {
+			return scanErr
 		}
 
 		return nil
