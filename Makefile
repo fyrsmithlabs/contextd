@@ -27,6 +27,7 @@ help:
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test           Run Go tests"
+	@echo "  make test-tdd       Run Go tests with TDD Guard enforcement"
 	@echo "  make test-race      Run Go tests with race detection"
 	@echo "  make test-regression Run regression tests only"
 	@echo "  make test-integration Run integration tests (requires Docker)"
@@ -163,6 +164,11 @@ logs:
 # Testing targets
 test:
 	@go test -v ./...
+
+test-tdd:
+	@echo "🧪 Running TDD-guarded tests..."
+	@go test -json ./... 2>&1 | tdd-guard-go -project-root $(CURDIR)
+	@echo "✓ TDD tests complete"
 
 test-race:
 	@go test -race -v ./...

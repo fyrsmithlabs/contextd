@@ -235,3 +235,211 @@ func TestExtractTenantFromFilters(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// ApplyTenantFilters Tests - Security Critical
+// =============================================================================
+
+func TestApplyTenantFilters(t *testing.T) {
+	// Fast path tests
+	t.Run("both nil returns nil", func(t *testing.T) {
+		got, err := ApplyTenantFilters(nil, nil)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+		if got != nil {
+			t.Errorf("ApplyTenantFilters(nil, nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("nil user filters returns tenant filters directly", func(t *testing.T) {
+		tenantFilters := map[string]interface{}{"tenant_id": "org-123"}
+		got, err := ApplyTenantFilters(nil, tenantFilters)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+		// Should return the same map (no allocation)
+		if got["tenant_id"] != "org-123" {
+			t.Errorf("ApplyTenantFilters() tenant_id = %v, want org-123", got["tenant_id"])
+		}
+	})
+
+	t.Run("nil tenant filters returns copy of user filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{"status": "active"}
+		got, err := ApplyTenantFilters(userFilters, nil)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+		if got["status"] != "active" {
+			t.Errorf("ApplyTenantFilters() status = %v, want active", got["status"])
+		}
+	})
+
+	// Merge behavior tests
+	t.Run("merges user and tenant filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{"status": "active", "type": "memory"}
+		tenantFilters := map[string]interface{}{"tenant_id": "org-123", "team_id": "team-1"}
+
+		got, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+
+		// Check all fields present
+		if got["status"] != "active" {
+			t.Errorf("ApplyTenantFilters() status = %v, want active", got["status"])
+		}
+		if got["type"] != "memory" {
+			t.Errorf("ApplyTenantFilters() type = %v, want memory", got["type"])
+		}
+		if got["tenant_id"] != "org-123" {
+			t.Errorf("ApplyTenantFilters() tenant_id = %v, want org-123", got["tenant_id"])
+		}
+		if got["team_id"] != "team-1" {
+			t.Errorf("ApplyTenantFilters() team_id = %v, want team-1", got["team_id"])
+		}
+	})
+
+	// SECURITY: Tenant injection prevention tests
+	t.Run("SECURITY: rejects tenant_id in user filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{
+			"tenant_id": "attacker-org", // Attacker tries to inject tenant
+			"status":    "active",
+		}
+		tenantFilters := map[string]interface{}{"tenant_id": "legitimate-org"}
+
+		_, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: ApplyTenantFilters() should reject tenant_id in user filters, got error = %v", err)
+		}
+	})
+
+	t.Run("SECURITY: rejects team_id in user filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{
+			"team_id": "attacker-team", // Attacker tries to inject team
+			"status":  "active",
+		}
+		tenantFilters := map[string]interface{}{"tenant_id": "legitimate-org"}
+
+		_, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: ApplyTenantFilters() should reject team_id in user filters, got error = %v", err)
+		}
+	})
+
+	t.Run("SECURITY: rejects project_id in user filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{
+			"project_id": "attacker-project", // Attacker tries to inject project
+			"status":     "active",
+		}
+		tenantFilters := map[string]interface{}{"tenant_id": "legitimate-org"}
+
+		_, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: ApplyTenantFilters() should reject project_id in user filters, got error = %v", err)
+		}
+	})
+
+	t.Run("SECURITY: rejects all tenant fields even with nil tenant filters", func(t *testing.T) {
+		// Even if tenant filters are nil, user should not be able to inject tenant fields
+		userFilters := map[string]interface{}{
+			"tenant_id": "attacker-org",
+			"status":    "active",
+		}
+
+		_, err := ApplyTenantFilters(userFilters, nil)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: ApplyTenantFilters() should reject tenant_id even with nil tenant filters, got error = %v", err)
+		}
+	})
+
+	t.Run("SECURITY: rejects multiple tenant fields in user filters", func(t *testing.T) {
+		userFilters := map[string]interface{}{
+			"tenant_id":  "attacker-org",
+			"team_id":    "attacker-team",
+			"project_id": "attacker-project",
+		}
+		tenantFilters := map[string]interface{}{"tenant_id": "legitimate-org"}
+
+		_, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: ApplyTenantFilters() should reject multiple tenant fields, got error = %v", err)
+		}
+	})
+
+	// Edge cases
+	t.Run("allows empty string values for non-tenant fields", func(t *testing.T) {
+		userFilters := map[string]interface{}{"status": ""}
+		tenantFilters := map[string]interface{}{"tenant_id": "org-123"}
+
+		got, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+		if got["status"] != "" {
+			t.Errorf("ApplyTenantFilters() status = %v, want empty string", got["status"])
+		}
+	})
+
+	t.Run("preserves various value types", func(t *testing.T) {
+		userFilters := map[string]interface{}{
+			"string_val": "test",
+			"int_val":    42,
+			"float_val":  3.14,
+			"bool_val":   true,
+			"slice_val":  []string{"a", "b"},
+		}
+		tenantFilters := map[string]interface{}{"tenant_id": "org-123"}
+
+		got, err := ApplyTenantFilters(userFilters, tenantFilters)
+		if err != nil {
+			t.Fatalf("ApplyTenantFilters() error = %v", err)
+		}
+
+		if got["string_val"] != "test" {
+			t.Errorf("ApplyTenantFilters() string_val = %v, want test", got["string_val"])
+		}
+		if got["int_val"] != 42 {
+			t.Errorf("ApplyTenantFilters() int_val = %v, want 42", got["int_val"])
+		}
+		if got["float_val"] != 3.14 {
+			t.Errorf("ApplyTenantFilters() float_val = %v, want 3.14", got["float_val"])
+		}
+		if got["bool_val"] != true {
+			t.Errorf("ApplyTenantFilters() bool_val = %v, want true", got["bool_val"])
+		}
+	})
+}
+
+// TestApplyTenantFilters_DoesNotMutateInputs verifies that the function
+// does not modify the input maps (important for security and correctness).
+func TestApplyTenantFilters_DoesNotMutateInputs(t *testing.T) {
+	userFilters := map[string]interface{}{"status": "active"}
+	tenantFilters := map[string]interface{}{"tenant_id": "org-123"}
+
+	// Store original values
+	origUserLen := len(userFilters)
+	origTenantLen := len(tenantFilters)
+
+	got, err := ApplyTenantFilters(userFilters, tenantFilters)
+	if err != nil {
+		t.Fatalf("ApplyTenantFilters() error = %v", err)
+	}
+
+	// Verify inputs were not mutated
+	if len(userFilters) != origUserLen {
+		t.Errorf("userFilters was mutated: len changed from %d to %d", origUserLen, len(userFilters))
+	}
+	if len(tenantFilters) != origTenantLen {
+		t.Errorf("tenantFilters was mutated: len changed from %d to %d", origTenantLen, len(tenantFilters))
+	}
+
+	// Verify output is independent
+	got["new_key"] = "new_value"
+	if _, exists := userFilters["new_key"]; exists {
+		t.Error("Modifying output affected userFilters input")
+	}
+	if _, exists := tenantFilters["new_key"]; exists {
+		t.Error("Modifying output affected tenantFilters input")
+	}
+}
