@@ -4,6 +4,27 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// FILTER UTILITIES - Security Tests
+// =============================================================================
+//
+// These tests verify the filter manipulation utilities used in multi-tenant
+// isolation. The security-critical function is ApplyTenantFilters().
+//
+// KEY SECURITY FUNCTION: ApplyTenantFilters
+//   - Purpose: Safely merge user-provided filters with system-enforced tenant filters
+//   - Security: MUST reject any user filter containing tenant_id/team_id/project_id
+//   - Threat: Attacker provides {"tenant_id": "victim"} to access other tenant's data
+//   - Defense: Check for reserved keys BEFORE merging, return ErrTenantFilterInUserFilters
+//
+// DEPRECATED: MergeFilters
+//   - Has NO security validation - simply overwrites keys
+//   - MUST NOT be used for user-provided input
+//   - Only safe for internal/trusted filter composition
+//
+// See isolation_test.go for full threat model documentation.
+// =============================================================================
+
 func TestMergeFilters(t *testing.T) {
 	tests := []struct {
 		name     string

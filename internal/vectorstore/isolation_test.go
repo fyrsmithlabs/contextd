@@ -5,6 +5,45 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// THREAT MODEL: Multi-Tenant Data Isolation
+// =============================================================================
+//
+// These tests verify security controls for multi-tenant vectorstore isolation.
+// The threat model addresses the following attack vectors:
+//
+// THREAT 1: Cross-Tenant Data Access via Filter Injection
+//   - Attack: Malicious user injects tenant_id/team_id/project_id into query filters
+//   - Example: User A queries with {"tenant_id": "org-B"} to access Org B's data
+//   - Defense: ApplyTenantFilters() rejects user filters containing tenant fields
+//   - Tests: "SECURITY: rejects tenant_id injection in user filters" and related
+//
+// THREAT 2: Cross-Tenant Data Write via Metadata Poisoning
+//   - Attack: Malicious user sets tenant_id in document metadata to store in another tenant
+//   - Example: User A creates doc with metadata["tenant_id"]="org-B"
+//   - Defense: InjectMetadata() always overwrites tenant fields from context
+//   - Tests: "overwrites existing tenant_id for security"
+//
+// THREAT 3: Tenant Context Bypass
+//   - Attack: Code path executes without tenant context, accessing all data
+//   - Example: Bug allows query execution without ContextWithTenant()
+//   - Defense: Fail-closed behavior - missing context returns ErrMissingTenant
+//   - Tests: "fails without tenant context"
+//
+// THREAT 4: Race Condition on Isolation Mode
+//   - Attack: Concurrent SetIsolationMode() changes mode during operation
+//   - Example: Mode changed from PayloadIsolation to NoIsolation mid-query
+//   - Defense: Immutable isolation via config (ChromemConfig.Isolation)
+//   - Tests: TestChromemStore_IsolationViaConfig (chromem_test.go)
+//
+// SECURITY INVARIANTS:
+//   1. All queries MUST include tenant filters (PayloadIsolation mode)
+//   2. User-provided filters MUST NOT contain tenant_id/team_id/project_id
+//   3. Document metadata MUST have tenant fields set from authenticated context
+//   4. Missing tenant context MUST result in error, never default/empty
+//
+// =============================================================================
+
 func TestPayloadIsolation_InjectFilter(t *testing.T) {
 	iso := NewPayloadIsolation()
 
