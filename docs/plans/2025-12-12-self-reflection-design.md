@@ -1,8 +1,11 @@
 # Self-Reflection Feature Design
 
-**Status**: Draft
+**Status**: Updated
 **Created**: 2025-12-12
+**Updated**: 2025-12-18
 **Author**: Brainstorm session
+
+**Changes (2025-12-18)**: Replaced category-based taxonomy with behavioral taxonomy. Focus shifted from technical failures to agent behavioral patterns (rationalized-skip, overclaimed, ignored-instruction, assumed-context, undocumented-decision). Added correlation step, feedback loop closure, and consensus-review integration.
 
 ---
 
@@ -55,42 +58,57 @@ User maintains control over when docs get reviewed and updated.
 
 ---
 
-## Finding Categories & Priority
+## Behavioral Taxonomy
 
-### Categories
+Self-reflection focuses on **agent behaviors**, not technical failures. Technical bugs belong in remediations; reflection surfaces behavioral patterns.
 
-| Category | Description | Examples |
-|----------|-------------|----------|
-| **Security** | Secrets, permissions, destructive ops | Credentials in context, permission bypass |
-| **Process** | Workflow discipline violations | Skipping TDD, not reading specs, no verification |
-| **Style** | Formatting, naming, minor consistency | Inconsistent naming, formatting drift |
+### Behavior Types
 
-### Priority Formula
+| Behavior Type | Description | Example Patterns |
+|---------------|-------------|------------------|
+| **rationalized-skip** | Agent justified skipping required step | "User implied consent", "too simple to test", "already tested manually" |
+| **overclaimed** | Absolute/confident language inappropriately | "ensures", "guarantees", "production ready", "this will fix" |
+| **ignored-instruction** | Didn't follow CLAUDE.md or skill directive | Didn't search contextd first, skipped TDD, ignored spec |
+| **assumed-context** | Assumed without verification | Assumed permission, requirements, state |
+| **undocumented-decision** | Significant choice without rationale | Changed architecture, picked library without comparison |
+
+### Behavioral Search Queries
 
 ```
-priority = base_impact × frequency_multiplier(category)
+# Rationalized skips
+memory_search("skip OR skipped OR bypass OR ignored")
+memory_search("too simple OR trivial OR obvious")
 
-frequency_multiplier:
-  security: 1.0        # Always urgent, frequency irrelevant
-  process:  log(f + 1) # Compounds - 10 skips >> 1 skip
-  style:    0.1        # Low priority regardless of frequency
+# User feedback indicating ignored instructions
+memory_search("why did you OR should have OR forgot to")
+memory_search("didn't you read OR didn't follow")
+
+# Assumptions without verification
+memory_search("assumed OR without checking OR without verification")
+
+# Overclaiming
+memory_search("ensures OR guarantees OR production ready")
 ```
 
-### Common Agent Absolutes to Flag
+### Severity Overlay
 
-Poor language patterns that indicate overconfidence:
+Combine behavioral type with impact area:
 
-- "ensures", "prevents", "guarantees"
-- "X is production ready"
-- "this will fix the issue"
-- "fully tested", "complete solution"
+| Severity | Combination |
+|----------|-------------|
+| **CRITICAL** | `rationalized-skip` + destructive/security operation |
+| **HIGH** | `rationalized-skip` + validation/test skip, `ignored-instruction` |
+| **MEDIUM** | `overclaimed`, `assumed-context` |
+| **LOW** | `undocumented-decision`, style issues |
 
-Better alternatives:
+### Overclaiming Alternatives
 
-- "helps reduce likelihood"
-- "X passes current test suite"
-- "addresses the reported symptom"
-- "tested against known scenarios"
+| Instead of | Use |
+|------------|-----|
+| "ensures", "prevents", "guarantees" | "helps reduce likelihood" |
+| "X is production ready" | "X passes current test suite" |
+| "this will fix the issue" | "addresses the reported symptom" |
+| "fully tested", "complete solution" | "tested against known scenarios" |
 
 ---
 
@@ -102,15 +120,16 @@ Generated: 2025-12-12
 Scope: project (/home/user/myproject)
 Memories analyzed: 47 | Remediations analyzed: 12
 
-### Summary
-- Security findings: 1 (HIGH)
-- Process findings: 4 (3 HIGH, 1 MEDIUM)
-- Style findings: 2 (LOW)
+### Summary by Behavior Type
+- rationalized-skip: 3 findings (2 CRITICAL, 1 HIGH)
+- ignored-instruction: 2 findings (HIGH)
+- overclaimed: 1 finding (MEDIUM)
+- assumed-context: 1 finding (MEDIUM)
 
 ---
 
 ## Finding: Permission Bypass Pattern
-**Category**: Security | **Priority**: HIGH
+**Behavior Type**: rationalized-skip | **Severity**: CRITICAL
 **Source**: 3 memories, 1 remediation
 **Frequency**: 3x in past week
 
@@ -118,6 +137,9 @@ Memories analyzed: 47 | Remediations analyzed: 12
 - mem_abc: "Deleted files without confirmation because user said 'clean up'"
 - mem_def: "Ran destructive command assuming approval from context"
 - rem_xyz: "Fixed: Added explicit confirmation for destructive ops"
+
+### Violated Instruction
+CLAUDE.md line 45: "NEVER perform destructive operations without explicit confirmation"
 
 ### Pattern
 Agent rationalized skipping permission checks with "user implied consent"
@@ -176,17 +198,28 @@ ALWAYS confirm before:
 | Process | Quick proposal | Upgrade to brainstorm, downgrade to auto |
 | Style | Auto-fix | Upgrade to quick/brainstorm |
 
-### Auto-Complete Flow
+### Complete Remediation Flow
 
 ```
-1. User selects findings to remediate
-2. Agent generates doc improvements
-3. Agent generates pressure test scenarios (from real failures)
-4. Run ALL scenarios as batch against proposed changes
-5. Report: "8/10 scenarios pass, 2 still fail"
-6. Iterate on failures until all pass
-7. Present final changes for approval
-8. Apply only fully-tested changes
+1.  Ensure repository index is current
+2.  Search for behavioral patterns (not technical failures)
+3.  Correlate each behavior → source instruction that was violated
+4.  Apply severity overlay
+5.  Present findings to user
+6.  Ask: "Brainstorm improvements or see proposed corrections?"
+7.  User selects findings to remediate
+8.  Generate doc improvements
+9.  Generate pressure test scenarios (from real failures)
+10. Run ALL scenarios as batch against proposed changes
+11. Report: "8/10 scenarios pass, 2 still fail"
+12. Iterate on failures until all pass
+13. Use consensus-review for approval
+14. Create Issue/PR (auto mode or generate content for manual)
+15. Apply only fully-tested changes
+16. Close feedback loop:
+    - memory_feedback(memory_id, helpful=true)
+    - Tag original memories as remediated
+17. Store results in ReasoningBank
 ```
 
 ### Pressure Testing
@@ -204,12 +237,13 @@ Based on [Reflexion framework](https://www.promptingguide.ai/techniques/reflexio
 
 ```bash
 # Reports (dry-run)
-/contextd:reflect                    # Full report
-/contextd:reflect --health           # ReasoningBank health only
-/contextd:reflect --scope=project    # Only this project's docs
-/contextd:reflect --scope=global     # Only global docs
-/contextd:reflect --category=security  # Filter by category
-/contextd:reflect --since=7d         # Only recent memories
+/contextd:reflect                              # Full report
+/contextd:reflect --health                     # ReasoningBank health only
+/contextd:reflect --scope=project              # Only this project's docs
+/contextd:reflect --scope=global               # Only global docs
+/contextd:reflect --behavior=rationalized-skip # Filter by behavior type
+/contextd:reflect --severity=HIGH              # Filter by severity level
+/contextd:reflect --since=7d                   # Only recent memories
 
 # Remediation modes
 /contextd:reflect --apply            # Apply after review (tiered defaults)
@@ -230,7 +264,7 @@ Based on [Reflexion framework](https://www.promptingguide.ai/techniques/reflexio
   "title": "reflection:finding - Permission bypass pattern",
   "content": "Agent rationalized skipping permission checks...",
   "outcome": "failure",
-  "tags": ["reflection:finding", "category:security", "remediated:false"]
+  "tags": ["reflection:finding", "behavior:rationalized-skip", "severity:critical", "remediated:false"]
 }
 ```
 
@@ -243,16 +277,41 @@ After successful pressure-tested fix:
   "title": "reflection:remediation - Permission bypass",
   "problem": "Agent bypassed permissions with implied consent rationalization",
   "solution": "Added explicit confirmation requirement to CLAUDE.md",
-  "tags": ["reflection:remediation", "pressure-tested:true"]
+  "tags": ["reflection:remediation", "behavior:rationalized-skip", "pressure-tested:true"]
 }
+```
+
+### Closing the Feedback Loop
+
+After remediation is applied:
+
+```python
+# Mark source memories as helpful
+memory_feedback(memory_id, helpful=true)
+
+# Record remediation with behavioral tag
+memory_record(project_id,
+  title="Remediated: rationalized-skip permission bypass",
+  content="Added explicit confirmation requirement...",
+  outcome="success",
+  tags=["reflection:remediated", "behavior:rationalized-skip"])
 ```
 
 ### Health Queries
 
 ```
-memory_search("reflection:finding remediated:false")  # Open findings
-memory_search("tag:inconsistent")                     # Tag hygiene issues
-memory_search("confidence:<0.3 age:>90d")            # Stale candidates
+# Open findings by behavior type
+memory_search("reflection:finding behavior:rationalized-skip remediated:false")
+memory_search("reflection:finding behavior:ignored-instruction remediated:false")
+
+# All open findings
+memory_search("reflection:finding remediated:false")
+
+# Tag hygiene issues
+memory_search("tag:inconsistent")
+
+# Stale candidates
+memory_search("confidence:<0.3 age:>90d")
 ```
 
 ---
