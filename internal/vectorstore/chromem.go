@@ -41,6 +41,11 @@ type ChromemConfig struct {
 	// Must match the embedder's output dimension.
 	// Default: 384 (for FastEmbed bge-small-en-v1.5)
 	VectorSize int
+
+	// Isolation is the tenant isolation mode.
+	// Default: PayloadIsolation for fail-closed security.
+	// Set at construction time; immutable afterward to prevent race conditions.
+	Isolation IsolationMode
 }
 
 // ApplyDefaults sets default values for unset fields.
@@ -119,12 +124,18 @@ func NewChromemStore(config ChromemConfig, embedder Embedder, logger *zap.Logger
 		return nil, fmt.Errorf("creating chromem DB: %w", err)
 	}
 
+	// Use isolation from config, defaulting to PayloadIsolation for fail-closed security
+	isolation := config.Isolation
+	if isolation == nil {
+		isolation = NewPayloadIsolation()
+	}
+
 	store := &ChromemStore{
 		db:        db,
 		embedder:  embedder,
 		config:    config,
 		logger:    logger,
-		isolation: NewPayloadIsolation(), // Default to payload isolation for fail-closed security
+		isolation: isolation,
 	}
 
 	logger.Info("ChromemStore initialized",

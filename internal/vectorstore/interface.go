@@ -70,7 +70,8 @@ type Embedder interface {
 //
 // Tenant Isolation:
 //
-// Stores support two isolation modes configured via SetIsolationMode():
+// Stores support two isolation modes. The preferred pattern is to set isolation
+// via config at construction time (e.g., ChromemConfig.Isolation) for thread-safety:
 //
 //   - PayloadIsolation: Single collection per type with metadata-based filtering.
 //     All documents include tenant_id, team_id, project_id in metadata.
@@ -181,6 +182,12 @@ type Store interface {
 	ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]SearchResult, error)
 
 	// SetIsolationMode sets the tenant isolation mode for this store.
+	//
+	// DEPRECATED: Prefer setting isolation via config at construction time
+	// (e.g., ChromemConfig.Isolation) for thread-safety. This method exists
+	// for backward compatibility but should only be called once before any
+	// operations. Calling SetIsolationMode concurrently with operations may
+	// cause race conditions.
 	//
 	// Use NewPayloadIsolation() for multi-tenant payload filtering,
 	// NewFilesystemIsolation() for database-per-project isolation,
