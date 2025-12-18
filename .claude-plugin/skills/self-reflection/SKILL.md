@@ -25,31 +25,52 @@ Mine memories and remediations for behavior patterns, surface findings to user, 
 - For recording a single learning → use `/contextd:remember`
 - For checkpoint management → use `checkpoint-workflow` skill
 
-## Finding Categories
+## Behavioral Taxonomy
 
-| Category | Impact Model | Examples |
-|----------|--------------|----------|
-| **Security** | High always | Credentials in context, permission bypass |
-| **Process** | Compounds with frequency | Skipping TDD, not reading specs |
-| **Style** | Low regardless | Formatting, naming inconsistency |
+Focus on **agent behaviors**, not technical failures.
 
-**Priority formula**: `base_impact × frequency_multiplier(category)`
+| Behavior Type | Description | Example Patterns |
+|---------------|-------------|------------------|
+| **rationalized-skip** | Agent justified skipping required step | "User implied consent", "too simple to test", "already tested" |
+| **overclaimed** | Absolute/confident language inappropriately | "ensures", "guarantees", "production ready", "this will fix" |
+| **ignored-instruction** | Didn't follow CLAUDE.md or skill directive | Didn't search contextd, skipped TDD, ignored spec |
+| **assumed-context** | Assumed without verification | Assumed permission, requirements, state |
+| **undocumented-decision** | Significant choice without rationale | Changed architecture, picked library without comparison |
+
+## Severity Overlay
+
+Combine behavioral type with impact area:
+
+| Severity | Combination |
+|----------|-------------|
+| **CRITICAL** | `rationalized-skip` + destructive/security operation |
+| **HIGH** | `rationalized-skip` + validation/test skip, `ignored-instruction` |
+| **MEDIUM** | `overclaimed`, `assumed-context` |
+| **LOW** | `undocumented-decision`, style issues |
 
 ## The Report
 
 For each finding, surface:
 
-1. **Evidence** - Memory/remediation IDs with excerpts
-2. **Pattern** - What went wrong and why
-3. **Suggested fix** - Target doc and proposed change
-4. **Pressure scenario** - Test case from real failure
+1. **Behavior Type** - Which taxonomy category (rationalized-skip, overclaimed, etc.)
+2. **Severity** - CRITICAL/HIGH/MEDIUM/LOW
+3. **Evidence** - Memory/remediation IDs with excerpts
+4. **Violated Instruction** - The skill, command, or CLAUDE.md section that was ignored
+5. **Suggested Fix** - Target doc and proposed change
+6. **Pressure Scenario** - Test case from real failure
 
 ## Remediation Flow
 
 ```
-User selects findings
+Present findings
+        ↓
+Ask: "Brainstorm or Propose?"
+        ↓
+User selects findings to remediate
         ↓
 Generate doc improvements
+        ↓
+Correlate behavior → source instruction
         ↓
 Generate pressure scenarios (from real failures)
         ↓
@@ -57,11 +78,17 @@ Run batch tests via subagents
         ↓
     Pass? ──No──→ Iterate
         ↓ Yes
-Present for approval
+Use consensus-review for approval
+        ↓
+Create Issue/PR (auto or generate content)
         ↓
 Apply changes
         ↓
-Store in ReasoningBank (tags: reflection:remediation, pressure-tested:true)
+Close feedback loop:
+  - memory_feedback(memory_id, helpful=true)
+  - Tag original memories as remediated
+        ↓
+Store in ReasoningBank (tags: behavior:<type>, remediated:true, pressure-tested:true)
 ```
 
 ## Tiered Defaults
@@ -82,13 +109,27 @@ User always has final control.
 
 **Placement**: General patterns → global includes. Project-specific → project includes.
 
-## Common Patterns to Catch
+## Behavioral Search Queries
 
-- Permission bypass ("user implied consent")
-- Absolute language ("ensures", "guarantees", "production ready")
-- Skipping verification ("already tested manually")
-- Not searching contextd first
-- TDD shortcuts ("too simple to test")
+Search for behavioral patterns, not technical errors:
+
+```
+# Rationalized skips
+memory_search("skip OR skipped OR bypass OR ignored")
+memory_search("too simple OR trivial OR obvious")
+
+# User feedback indicating ignored instructions
+memory_search("why did you OR should have OR forgot to")
+memory_search("didn't you read OR didn't follow")
+
+# Assumptions without verification
+memory_search("assumed OR without checking OR without verification")
+
+# Overclaiming
+memory_search("ensures OR guarantees OR production ready")
+```
+
+**Filter out technical bugs**: Exclude memories tagged with `error:*` or containing stack traces.
 
 ## ReasoningBank Health
 
@@ -118,6 +159,8 @@ Based on [Reflexion](https://www.promptingguide.ai/techniques/reflexion) researc
 | Project scope | `/contextd:reflect --scope=project` |
 | Recent only | `/contextd:reflect --since=7d` |
 | Full brainstorm | `/contextd:reflect --all-brainstorm` |
+| Filter by behavior | `/contextd:reflect --behavior=rationalized-skip` |
+| Filter by severity | `/contextd:reflect --severity=HIGH` |
 
 ## Anti-Patterns
 

@@ -7,7 +7,8 @@ Analyze memories and remediations for behavior patterns, generate improvement re
 | `--health` | ReasoningBank health report only |
 | `--apply` | Apply changes after review (uses tiered defaults) |
 | `--scope=project\|global` | Limit to project or global docs |
-| `--category=security\|process\|style` | Filter findings by category |
+| `--behavior=<type>` | Filter by behavior type (rationalized-skip, overclaimed, ignored-instruction, assumed-context, undocumented-decision) |
+| `--severity=CRITICAL\|HIGH\|MEDIUM\|LOW` | Filter by severity level |
 | `--since=<duration>` | Only analyze memories from timeframe (e.g., `7d`, `30d`) |
 | `--all-brainstorm` | Full brainstorm treatment for all findings |
 | `--all-auto` | Auto-fix all (trust mode) |
@@ -15,57 +16,130 @@ Analyze memories and remediations for behavior patterns, generate improvement re
 
 ## Flow
 
-### 1. Generate Report (Default: Dry-Run)
+### 1. Ensure Repository Index is Current
 
-Search memories and remediations for patterns:
+Before searching, verify the repo index is up to date:
 
 ```
-memory_search(project_id, "outcome:failure")
-memory_search(project_id, "reflection:finding")
-remediation_search(query, tenant_id)
+repository_index(project_path)
 ```
 
-Categorize findings:
-- **Security**: secrets, permissions, destructive ops → always HIGH
-- **Process**: TDD, specs, verification → priority compounds with frequency
-- **Style**: formatting, naming → LOW regardless of frequency
+### 2. Generate Report (Default: Dry-Run)
 
-### 2. Present Findings
+Search for **behavioral patterns**, not technical failures:
+
+```
+# Behavioral pattern searches (primary)
+memory_search(project_id, "skip OR skipped OR bypass OR ignored")
+memory_search(project_id, "why did you OR should have OR forgot to")
+memory_search(project_id, "rationalized OR justified OR implied consent")
+memory_search(project_id, "assumed OR without verification OR without checking")
+
+# Semantic search for instruction violations
+repository_search(project_path, "skills commands instructions requirements")
+semantic_search(project_path, "agent behavior patterns violations")
+```
+
+**Behavioral Taxonomy:**
+
+| Behavior Type | Description | Example Patterns |
+|---------------|-------------|------------------|
+| **rationalized-skip** | Agent justified skipping required step | "User implied consent", "too simple to test" |
+| **overclaimed** | Absolute/confident language inappropriately | "ensures", "guarantees", "production ready" |
+| **ignored-instruction** | Didn't follow CLAUDE.md or skill directive | Didn't search contextd, skipped TDD |
+| **assumed-context** | Assumed without verification | Assumed permission, requirements, state |
+| **undocumented-decision** | Significant choice without rationale | Changed architecture, picked library |
+
+### 3. Correlate Behavior → Source
+
+For each finding, identify which instruction was violated:
+
+```
+repository_search(project_path, "<behavior description>")
+→ Returns: skill file, command, or CLAUDE.md section that was ignored
+```
+
+### 4. Apply Severity Overlay
+
+Combine behavioral type with impact area for priority:
+
+- **CRITICAL**: `rationalized-skip` + destructive/security operation
+- **HIGH**: `rationalized-skip` + validation/test skip, `ignored-instruction`
+- **MEDIUM**: `overclaimed`, `assumed-context`
+- **LOW**: `undocumented-decision`, style issues
+
+### 5. Present Findings
 
 For each finding, show:
-- Category and priority
-- Evidence (memory/remediation IDs with excerpts)
-- Pattern description
-- Suggested fix with target doc
-- Pressure test scenario
+- **Behavior Type**: Which taxonomy category
+- **Severity**: CRITICAL/HIGH/MEDIUM/LOW
+- **Evidence**: Memory/remediation IDs with excerpts
+- **Violated Instruction**: The skill, command, or CLAUDE.md section that was ignored
+- **Suggested Fix**: Proposed doc improvement
 
-### 3. User Prioritizes
+### 6. User Interaction
+
+Ask user: **"Would you like to brainstorm improvements or see proposed corrections?"**
+
+- **Brainstorm**: Full exploration of root causes and solutions
+- **Propose**: Quick proposals for approval
 
 User selects which findings to remediate. Respect user's choices.
 
-### 4. Remediation (with `--apply`)
+### 7. Pressure Test Proposed Changes
 
-**Tiered defaults** (user can override):
-- Security → Full brainstorm
-- Process → Quick proposal + approval
-- Style → Auto-fix with summary
+For each proposed fix:
 
-**Auto-complete flow**:
-1. Generate doc improvements
-2. Generate pressure test scenarios from real failures
-3. Run batch tests via subagents
-4. Report pass/fail results
-5. Iterate until scenarios pass
-6. Present final changes for approval
-7. Apply only fully-tested changes
+1. Generate test scenarios from the original failure
+2. Simulate agent behavior with proposed instruction
+3. Verify the instruction would have prevented the original behavior
+4. Report pass/fail for each scenario
 
-### 5. Store Results
+```
+# Example pressure test
+Scenario: "Agent skipped TDD because 'function is trivial'"
+Proposed fix: Add to CLAUDE.md: "No function is too trivial for tests. Write test first."
+Test: Would this instruction have prevented the skip? → PASS/FAIL
+```
+
+### 8. Review Summary
+
+Present consolidated findings with:
+- Total findings by behavior type
+- Proposed changes with pressure test results
+- Files to be modified
+
+Use `consensus-review` for approval of changes.
+
+### 9. Issue/PR Creation
+
+After approval:
+- **Auto mode**: Create issue/PR with generated content
+- **Manual mode**: Generate content for user to copy
+
+Include in PR/issue:
+- Behavioral pattern addressed
+- Evidence from memories/remediations
+- Pressure test results
+
+### 10. Close Feedback Loop
+
+After remediation:
+
+```
+memory_feedback(memory_id, helpful=true)  # For memories that led to improvements
+memory_record(project_id, title, content, outcome="success", tags=["reflection:remediated", "behavior:<type>"])
+```
+
+Tag original memories as addressed to prevent re-surfacing.
+
+### 11. Store Results
 
 Record findings and remediations in ReasoningBank:
 
 ```json
 {
-  "tags": ["reflection:finding", "category:security", "remediated:true", "pressure-tested:true"]
+  "tags": ["reflection:finding", "behavior:rationalized-skip", "remediated:true", "pressure-tested:true"]
 }
 ```
 
@@ -91,13 +165,23 @@ Suggest actions: consolidate tags, prune stale, add feedback, complete partials.
 | Plugin usage includes | Yes | `.claude/includes/using-<plugin>.md` |
 | Plugin source | **No** | Use includes instead |
 
-## Common Patterns to Surface
+## Behavioral Patterns to Surface
 
-- Permission bypass rationalizations
-- Skipping TDD or verification steps
-- Absolute language ("ensures", "guarantees", "production ready")
-- Not reading specs before implementation
-- Assuming without searching contextd first
+| Behavior Type | Indicators in Memories |
+|---------------|------------------------|
+| **rationalized-skip** | "too simple", "user implied", "already tested", "obvious", "trivial" |
+| **overclaimed** | "ensures", "guarantees", "production ready", "this will fix", "definitely" |
+| **ignored-instruction** | User asked "why did you", "should have", "forgot to", "didn't you read" |
+| **assumed-context** | "assumed", "figured", "seemed like", "probably", "I thought" |
+| **undocumented-decision** | Architectural changes without rationale, library choices without comparison |
+
+**Search queries that surface behavioral issues:**
+```
+"why did you" OR "should have" OR "forgot to"
+"skip" OR "skipped" OR "bypass" OR "ignored"
+"assumed" OR "without checking" OR "without verification"
+"too simple" OR "trivial" OR "obvious"
+```
 
 ## Error Handling
 
