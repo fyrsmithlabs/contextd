@@ -9,10 +9,10 @@
 //
 //	~/.config/contextd/vectorstore/
 //	├── {tenant}/                      ← org level
-//	│   ├── {project}/                 ← project level (free tier)
+//	│   ├── {project}/                 ← direct project
 //	│   │   └── {collections}
-//	│   ├── {team}/                    ← team level (paid tier)
-//	│   │   └── {project}/
+//	│   ├── {team}/                    ← team level
+//	│   │   └── {project}/             ← team-scoped project
 //	│   │       └── {collections}
 //	│   ├── memories/                  ← org-shared
 //	│   └── remediations/              ← org-shared
@@ -171,7 +171,7 @@ func (r *Registry) RegisterTenant(name string) (*Entry, error) {
 	return entry, nil
 }
 
-// RegisterTeam registers a new team under a tenant (paid tier).
+// RegisterTeam registers a new team under a tenant.
 func (r *Registry) RegisterTeam(tenant, team string) (*Entry, error) {
 	if err := ValidateName(tenant); err != nil {
 		return nil, fmt.Errorf("tenant: %w", err)
@@ -218,8 +218,8 @@ func (r *Registry) RegisterTeam(tenant, team string) (*Entry, error) {
 }
 
 // RegisterProject registers a new project.
-// If team is empty, registers under tenant directly (free tier).
-// If team is set, registers under tenant/team (paid tier).
+// If team is empty, registers under tenant directly.
+// If team is set, registers under tenant/team.
 func (r *Registry) RegisterProject(tenant, team, project string) (*Entry, error) {
 	if err := ValidateName(tenant); err != nil {
 		return nil, fmt.Errorf("tenant: %w", err)

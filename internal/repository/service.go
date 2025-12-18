@@ -95,7 +95,7 @@ func (s *Service) getStore(ctx context.Context, projectPath, tenantID string) (S
 	// Prefer StoreProvider for database-per-project isolation
 	if s.stores != nil {
 		// Get project-scoped store (tenant, team="", project)
-		// Team is empty for free tier / simple project-level isolation
+		// Team is empty for direct project path
 		store, err := s.stores.GetProjectStore(ctx, tenantID, "", projectName)
 		if err != nil {
 			return nil, "", "", fmt.Errorf("getting project store: %w", err)

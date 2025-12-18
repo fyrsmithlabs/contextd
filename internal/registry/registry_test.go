@@ -94,7 +94,7 @@ func TestRegistry_RegisterProject(t *testing.T) {
 		t.Fatalf("RegisterTenant failed: %v", err)
 	}
 
-	// Register project (free tier - no team)
+	// Register project directly under tenant (no team)
 	entry, err := r.RegisterProject("acme", "", "contextd")
 	if err != nil {
 		t.Fatalf("RegisterProject failed: %v", err)
@@ -139,7 +139,7 @@ func TestRegistry_RegisterTeamAndProject(t *testing.T) {
 		t.Errorf("team.Name = %q, want %q", team.Name, "platform")
 	}
 
-	// Register project under team (paid tier)
+	// Register project under team
 	proj, err := r.RegisterProject("acme", "platform", "contextd")
 	if err != nil {
 		t.Fatalf("RegisterProject with team failed: %v", err)
@@ -169,7 +169,7 @@ func TestRegistry_GetPaths(t *testing.T) {
 		t.Fatalf("NewRegistry failed: %v", err)
 	}
 
-	// Test GetProjectPath (free tier)
+	// Test GetProjectPath (direct project)
 	path, err := r.GetProjectPath("acme", "", "contextd")
 	if err != nil {
 		t.Fatalf("GetProjectPath failed: %v", err)
@@ -179,7 +179,7 @@ func TestRegistry_GetPaths(t *testing.T) {
 		t.Errorf("GetProjectPath = %q, want %q", path, expected)
 	}
 
-	// Test GetProjectPath (paid tier)
+	// Test GetProjectPath (team-scoped project)
 	path, err = r.GetProjectPath("acme", "platform", "contextd")
 	if err != nil {
 		t.Fatalf("GetProjectPath with team failed: %v", err)

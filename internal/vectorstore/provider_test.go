@@ -47,7 +47,7 @@ func TestChromemStoreProvider_GetProjectStore(t *testing.T) {
 	}
 	defer provider.Close()
 
-	// Get project store (free tier - no team)
+	// Get project store (direct - no team)
 	store1, err := provider.GetProjectStore(ctx, "acme", "", "contextd")
 	if err != nil {
 		t.Fatalf("GetProjectStore failed: %v", err)
@@ -96,7 +96,7 @@ func TestChromemStoreProvider_GetProjectStore_WithTeam(t *testing.T) {
 	}
 	defer provider.Close()
 
-	// Get project store (paid tier - with team)
+	// Get project store (team-scoped)
 	store, err := provider.GetProjectStore(ctx, "acme", "platform", "contextd")
 	if err != nil {
 		t.Fatalf("GetProjectStore with team failed: %v", err)

@@ -18,8 +18,8 @@ import (
 //   - Physical filesystem isolation prevents data leakage
 //
 // Path hierarchy:
-//   - Project (free): {basePath}/{tenant}/{project}/
-//   - Project (paid): {basePath}/{tenant}/{team}/{project}/
+//   - Project (direct): {basePath}/{tenant}/{project}/
+//   - Project (team-scoped): {basePath}/{tenant}/{team}/{project}/
 //   - Team shared: {basePath}/{tenant}/{team}/
 //   - Org shared: {basePath}/{tenant}/
 //
@@ -40,8 +40,8 @@ import (
 // TODO: Implement AuthorizedStoreProvider wrapper for production use.
 type StoreProvider interface {
 	// GetProjectStore returns a store for project-level collections.
-	// Path: {basePath}/{tenant}/{project}/ (free tier)
-	// Path: {basePath}/{tenant}/{team}/{project}/ (paid tier)
+	// Path: {basePath}/{tenant}/{project}/ (direct)
+	// Path: {basePath}/{tenant}/{team}/{project}/ (team-scoped)
 	GetProjectStore(ctx context.Context, tenant, team, project string) (Store, error)
 
 	// GetTeamStore returns a store for team-level shared collections.

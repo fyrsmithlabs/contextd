@@ -162,7 +162,7 @@ func NewServiceWithStoreProvider(stores vectorstore.StoreProvider, defaultTenant
 func (s *Service) getStore(ctx context.Context, projectID string) (vectorstore.Store, string, error) {
 	if s.stores != nil {
 		// Use StoreProvider for database-per-project isolation
-		// Team is empty for free tier (direct tenant/project path)
+		// Team is empty for direct project path (tenant/project)
 		store, err := s.stores.GetProjectStore(ctx, s.defaultTenant, "", projectID)
 		if err != nil {
 			return nil, "", fmt.Errorf("getting project store: %w", err)

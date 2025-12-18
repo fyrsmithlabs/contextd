@@ -33,7 +33,7 @@ This causes:
 │   ├── memories/               ← org-level shared (optional)
 │   └── remediations/           ← org-level shared
 │
-│   # Paid tier adds team level:
+│   # Team level (optional):
 │   ├── {team}/
 │   │   ├── {project}/          ← chromem.DB instance
 │   │   │   └── ...
@@ -45,8 +45,8 @@ This causes:
 
 | Scope | Path | Collections |
 |-------|------|-------------|
-| Project (free) | `{tenant}/{project}/` | checkpoints, memories, remediations, codebase |
-| Project (paid) | `{tenant}/{team}/{project}/` | checkpoints, memories, remediations, codebase |
+| Project (direct) | `{tenant}/{project}/` | checkpoints, memories, remediations, codebase |
+| Project (team-scoped) | `{tenant}/{team}/{project}/` | checkpoints, memories, remediations, codebase |
 | Team shared | `{tenant}/{team}/` | memories, remediations |
 | Org shared | `{tenant}/` | memories, remediations |
 
@@ -62,8 +62,8 @@ Each path level is its own `chromem.DB` instance. No routing logic needed - **pa
 // StoreProvider manages chromem.DB instances per scope path.
 type StoreProvider interface {
     // GetProjectStore returns a store for project-level collections.
-    // Path: {basePath}/{tenant}/{project}/ (free)
-    // Path: {basePath}/{tenant}/{team}/{project}/ (paid)
+    // Path: {basePath}/{tenant}/{project}/ (direct)
+    // Path: {basePath}/{tenant}/{team}/{project}/ (team-scoped)
     GetProjectStore(ctx context.Context, tenant, team, project string) (Store, error)
 
     // GetTeamStore returns a store for team-level shared collections.
@@ -172,7 +172,7 @@ type checkpointListInput struct {
 // After (clear)
 type checkpointListInput struct {
     TenantID  string `json:"tenant_id" jsonschema:"required,Org identifier"`
-    TeamID    string `json:"team_id,omitempty" jsonschema:"Team identifier (paid tier)"`
+    TeamID    string `json:"team_id,omitempty" jsonschema:"Team identifier (optional)"`
     ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
     SessionID string `json:"session_id,omitempty" jsonschema:"Filter by session"`
 }
