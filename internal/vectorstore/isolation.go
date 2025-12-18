@@ -60,8 +60,12 @@ func (p *PayloadIsolation) InjectFilter(ctx context.Context, filters map[string]
 		return nil, err
 	}
 
-	// Merge tenant filters with existing filters
-	result := MergeFilters(filters, tenant.TenantFilter())
+	// Apply tenant filters with security validation
+	// ApplyTenantFilters rejects user filters containing tenant fields
+	result, err := ApplyTenantFilters(filters, tenant.TenantFilter())
+	if err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

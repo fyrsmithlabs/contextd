@@ -46,18 +46,37 @@ func TestPayloadIsolation_InjectFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("tenant filter overrides existing tenant_id", func(t *testing.T) {
+	t.Run("SECURITY: rejects tenant_id injection in user filters", func(t *testing.T) {
+		// Attack scenario: Malicious user tries to access another tenant's data
+		// by injecting tenant_id into their query filters. InjectFilter MUST
+		// reject this with an error, not silently override.
 		ctx := ContextWithTenant(context.Background(), &TenantInfo{TenantID: "org-123"})
-		// Attacker tries to inject different tenant
 		malicious := map[string]interface{}{"tenant_id": "victim-org"}
 
-		got, err := iso.InjectFilter(ctx, malicious)
-		if err != nil {
-			t.Fatalf("InjectFilter() error = %v", err)
+		_, err := iso.InjectFilter(ctx, malicious)
+		// Security: MUST return error when user tries to inject tenant fields
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: InjectFilter() should reject tenant_id injection, got error = %v, want ErrTenantFilterInUserFilters", err)
 		}
-		// Security: context tenant wins over filter tenant
-		if got["tenant_id"] != "org-123" {
-			t.Errorf("SECURITY VIOLATION: tenant_id = %v, want org-123 (context tenant should win)", got["tenant_id"])
+	})
+
+	t.Run("SECURITY: rejects team_id injection in user filters", func(t *testing.T) {
+		ctx := ContextWithTenant(context.Background(), &TenantInfo{TenantID: "org-123", TeamID: "team-1"})
+		malicious := map[string]interface{}{"team_id": "attacker-team"}
+
+		_, err := iso.InjectFilter(ctx, malicious)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: InjectFilter() should reject team_id injection, got error = %v, want ErrTenantFilterInUserFilters", err)
+		}
+	})
+
+	t.Run("SECURITY: rejects project_id injection in user filters", func(t *testing.T) {
+		ctx := ContextWithTenant(context.Background(), &TenantInfo{TenantID: "org-123", ProjectID: "proj-1"})
+		malicious := map[string]interface{}{"project_id": "attacker-proj"}
+
+		_, err := iso.InjectFilter(ctx, malicious)
+		if err != ErrTenantFilterInUserFilters {
+			t.Errorf("SECURITY VIOLATION: InjectFilter() should reject project_id injection, got error = %v, want ErrTenantFilterInUserFilters", err)
 		}
 	})
 
