@@ -477,8 +477,9 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 	}
 	d.reasoningBank = svc
 
-	// Create checkpoint service
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), store, d.logger)
+	// Create checkpoint service (using legacy adapter for backward compatibility)
+	// TODO: Migrate to StoreProvider for database-per-project isolation
+	checkpointSvc, err := checkpoint.NewServiceWithStore(checkpoint.DefaultServiceConfig(), store, d.logger)
 	if err != nil {
 		return fmt.Errorf("creating checkpoint service: %w", err)
 	}

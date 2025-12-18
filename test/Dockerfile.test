@@ -1,0 +1,53 @@
+# Test runner Dockerfile for contextd e2e tests
+FROM golang:1.25-bookworm
+
+ARG TARGETARCH
+
+# Allow toolchain upgrade
+ENV GOTOOLCHAIN=auto
+
+WORKDIR /contextd
+
+# Install ONNX runtime for CGO build (architecture-aware)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download ONNX runtime (v1.23.2 matches onnxruntime_go v1.23.0)
+RUN set -ex; \
+    case "${TARGETARCH}" in \
+        amd64) ONNX_ARCH="x64" ;; \
+        arm64) ONNX_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    wget -q "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    tar xzf "onnxruntime-linux-${ONNX_ARCH}-1.23.2.tgz" && \
+    cp onnxruntime-linux-${ONNX_ARCH}-1.23.2/lib/*.so* /usr/local/lib/ && \
+    ldconfig && \
+    rm -rf onnxruntime-linux-${ONNX_ARCH}-1.23.2*
+
+# Set ONNX runtime path
+ENV ONNX_PATH=/usr/local/lib/libonnxruntime.so
+ENV CGO_ENABLED=1
+
+# Copy go modules first for caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build test binary
+RUN go test -c -o /test-runner ./test/integration/framework/...
+
+# Create test scripts directory
+RUN mkdir -p /test/scripts /results
+
+# Copy test scripts
+COPY test/scripts/*.sh /test/scripts/
+RUN chmod +x /test/scripts/*.sh
+
+# Default command runs all integration tests
+CMD ["/test/scripts/run-e2e-tests.sh"]

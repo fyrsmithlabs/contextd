@@ -13,11 +13,12 @@ contextd provides cross-session memory and context management via MCP. Your lear
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| **Memory** | `memory_search`, `memory_record`, `memory_feedback` | Cross-session learning |
+| **Memory** | `memory_search`, `memory_record`, `memory_feedback`, `memory_outcome` | Cross-session learning |
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context preservation |
 | **Remediation** | `remediation_search`, `remediation_record` | Error pattern tracking |
 | **Troubleshoot** | `troubleshoot_diagnose` | AI-powered error diagnosis |
-| **Repository** | `repository_index`, `repository_search` | Semantic code indexing and search |
+| **Repository** | `repository_index`, `repository_search`, `semantic_search` | Semantic code search |
+| **Context Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-tasks with token budgets |
 
 ## When to Use Other Skills
 
@@ -48,12 +49,18 @@ Changing project_id creates a new, separate memory space.
 
 | Priority | Tool | When |
 |----------|------|------|
-| **1st** | `repository_search` | Semantic code search - finds by meaning |
-| **2nd** | `memory_search` | Check past learnings |
-| **3rd** | Read/Grep/Glob | Fallback for specific files or exact matches |
+| **1st** | `semantic_search` | Smart search - auto-fallback to grep if not indexed |
+| **2nd** | `repository_search` | Direct semantic code search (requires prior indexing) |
+| **3rd** | `memory_search` | Check past learnings |
+| **4th** | Read/Grep/Glob | Fallback for specific files or exact matches |
 
 ```
-# CORRECT workflow
+# BEST workflow (auto-handles indexing)
+semantic_search(query: "authentication handler", project_path: ".")
+→ Uses indexed semantic search if available
+→ Falls back to grep automatically if not indexed
+
+# ALTERNATIVE workflow (manual indexing)
 repository_search(query: "authentication handler", project_path: ".")
 → Found relevant code? Use it
 → Not indexed? repository_index(path: ".") then search
@@ -62,12 +69,12 @@ repository_search(query: "authentication handler", project_path: ".")
 grep "auth" **/*.go  ← Skipped contextd, wasted context
 ```
 
-**Why:** Repository search is semantic (finds by meaning), preserves context (returns only relevant snippets), and improves over time. Raw file reads bloat context.
+**Why:** `semantic_search` is the preferred tool - it automatically chooses between semantic search (if indexed) and grep fallback. Repository search is semantic (finds by meaning), preserves context (returns only relevant snippets), and improves over time. Raw file reads bloat context.
 
 ## Quick Start
 
 ```
-1. repository_search - "Where is this in the code?"
+1. semantic_search - "Where is this in the code?" (auto-fallback to grep)
 2. memory_search - "Have I solved this before?"
 3. Do the work
 4. memory_record - "What did I learn?"
@@ -108,8 +115,9 @@ Higher confidence memories appear first. Use `memory_feedback` to improve rankin
 
 | Mistake | Fix |
 |---------|-----|
-| Using Read/Grep before contextd | `repository_search` FIRST, fallback to Read/Grep |
+| Using Read/Grep before contextd | `semantic_search` FIRST (auto-fallback to grep) |
 | Not searching at task start | Always `memory_search` first |
 | Forgetting to record learnings | `memory_record` at task completion |
-| Letting context overflow | `checkpoint_save` at 70% |
+| Letting context overflow | `checkpoint_save` at 70%, or use `branch_create` for sub-tasks |
 | Re-solving fixed errors | `remediation_search` when errors occur |
+| Long sub-tasks bloating context | Use context folding: `branch_create` → work → `branch_return` |

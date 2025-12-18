@@ -248,9 +248,10 @@ func run() error {
 	var reasoningbankSvc *reasoningbank.Service
 
 	// Initialize checkpoint service
+	// TODO: Migrate to StoreProvider for database-per-project isolation
 	if store != nil {
 		checkpointCfg := checkpoint.DefaultServiceConfig()
-		checkpointSvc, err = checkpoint.NewService(checkpointCfg, store, logger.Underlying())
+		checkpointSvc, err = checkpoint.NewServiceWithStore(checkpointCfg, store, logger.Underlying())
 		if err != nil {
 			logger.Warn(ctx, "checkpoint service initialization failed", zap.Error(err))
 		} else {

@@ -14,6 +14,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// collectionMemories is the simple collection name used within each project store.
+// With StoreProvider, each project gets its own chromem.DB instance, so we don't
+// need prefixed collection names like "{projectID}_memories".
+const collectionMemories = "memories"
+
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 
 const (
@@ -40,10 +45,12 @@ const (
 // The service uses a Bayesian confidence system that learns which signals
 // (explicit feedback, usage, outcomes) best predict memory usefulness.
 type Service struct {
-	store       vectorstore.Store
-	signalStore SignalStore
-	confCalc    *ConfidenceCalculator
-	logger      *zap.Logger
+	store         vectorstore.Store
+	stores        vectorstore.StoreProvider // For database-per-project isolation
+	defaultTenant string                    // Default tenant for StoreProvider (usually git username)
+	signalStore   SignalStore
+	confCalc      *ConfidenceCalculator
+	logger        *zap.Logger
 
 	// Telemetry
 	meter      metric.Meter
@@ -104,6 +111,77 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	return svc, nil
 }
 
+// NewServiceWithStoreProvider creates a ReasoningBank service using StoreProvider
+// for database-per-project isolation.
+//
+// The defaultTenant is used when deriving the store path from projectID.
+// Typically this is the git username or "default" for local-first usage.
+//
+// This constructor enables the new architecture where each project gets its own
+// chromem.DB instance at a unique filesystem path, providing physical isolation.
+func NewServiceWithStoreProvider(stores vectorstore.StoreProvider, defaultTenant string, logger *zap.Logger, opts ...ServiceOption) (*Service, error) {
+	if stores == nil {
+		return nil, fmt.Errorf("store provider cannot be nil")
+	}
+	if defaultTenant == "" {
+		return nil, fmt.Errorf("default tenant cannot be empty")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("logger is required for ReasoningBank service")
+	}
+
+	svc := &Service{
+		stores:        stores,
+		defaultTenant: defaultTenant,
+		logger:        logger,
+		meter:         otel.Meter(instrumentationName),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(svc)
+	}
+
+	// Default to in-memory signal store if not provided
+	if svc.signalStore == nil {
+		svc.signalStore = NewInMemorySignalStore()
+	}
+
+	// Create confidence calculator
+	svc.confCalc = NewConfidenceCalculator(svc.signalStore)
+
+	// Initialize metrics
+	svc.initMetrics()
+
+	return svc, nil
+}
+
+// getStore returns the appropriate store for the given project.
+// If StoreProvider is configured, it uses database-per-project isolation.
+// Otherwise, it falls back to the legacy single-store approach.
+func (s *Service) getStore(ctx context.Context, projectID string) (vectorstore.Store, string, error) {
+	if s.stores != nil {
+		// Use StoreProvider for database-per-project isolation
+		// Team is empty for free tier (direct tenant/project path)
+		store, err := s.stores.GetProjectStore(ctx, s.defaultTenant, "", projectID)
+		if err != nil {
+			return nil, "", fmt.Errorf("getting project store: %w", err)
+		}
+		// With StoreProvider, we use simple collection names (no prefix)
+		return store, collectionMemories, nil
+	}
+
+	// Legacy: single store with prefixed collection names
+	if s.store == nil {
+		return nil, "", fmt.Errorf("no store configured")
+	}
+	collectionName, err := project.GetCollectionName(projectID, project.CollectionMemories)
+	if err != nil {
+		return nil, "", fmt.Errorf("getting collection name: %w", err)
+	}
+	return s.store, collectionName, nil
+}
+
 // initMetrics initializes OpenTelemetry metrics.
 func (s *Service) initMetrics() {
 	var err error
@@ -122,6 +200,14 @@ func (s *Service) initMetrics() {
 
 // observeMemoryCount is called when metrics are collected to report current memory count.
 func (s *Service) observeMemoryCount(ctx context.Context, observer metric.Int64Observer) error {
+	// With StoreProvider only, we can't enumerate all project stores for metrics
+	// This would require a registry of known projects (future enhancement)
+	if s.store == nil {
+		s.logger.Debug("memory count metrics unavailable with StoreProvider-only mode")
+		observer.Observe(0)
+		return nil
+	}
+
 	// Get count from all memory collections
 	collections, err := s.store.ListCollections(ctx)
 	if err != nil {
@@ -162,14 +248,14 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		limit = DefaultSearchLimit
 	}
 
-	// Get collection name for this project's memories
-	collectionName, err := project.GetCollectionName(projectID, project.CollectionMemories)
+	// Get store and collection name for this project
+	store, collectionName, err := s.getStore(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("getting collection name: %w", err)
+		return nil, err
 	}
 
 	// Check if collection exists
-	exists, err := s.store.CollectionExists(ctx, collectionName)
+	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
 		return nil, fmt.Errorf("checking collection existence: %w", err)
 	}
@@ -193,7 +279,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		searchLimit = 200 // Cap to prevent excessive fetching
 	}
 
-	results, err := s.store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
+	results, err := store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
 	if err != nil {
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
@@ -289,20 +375,20 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		return fmt.Errorf("validating memory: %w", err)
 	}
 
-	// Get collection name
-	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
-		return fmt.Errorf("getting collection name: %w", err)
+		return err
 	}
 
 	// Ensure collection exists
-	exists, err := s.store.CollectionExists(ctx, collectionName)
+	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
 		return fmt.Errorf("checking collection existence: %w", err)
 	}
 	if !exists {
 		// Create collection with store's configured vector size (0 = use default)
-		if err := s.store.CreateCollection(ctx, collectionName, 0); err != nil {
+		if err := store.CreateCollection(ctx, collectionName, 0); err != nil {
 			return fmt.Errorf("creating collection: %w", err)
 		}
 		s.logger.Info("created memories collection",
@@ -314,7 +400,7 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 	doc := s.memoryToDocument(memory, collectionName)
 
 	// Store in vector store
-	_, err = s.store.AddDocuments(ctx, []vectorstore.Document{doc})
+	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
 		return fmt.Errorf("storing memory: %w", err)
 	}
@@ -378,20 +464,20 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	}
 	memory.UpdatedAt = time.Now()
 
-	// Update in vector store (delete and re-add with new confidence)
-	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
-		return fmt.Errorf("getting collection name: %w", err)
+		return err
 	}
 
 	// Delete old version from the correct collection
-	if err := s.store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		return fmt.Errorf("deleting old memory: %w", err)
 	}
 
 	// Re-add with updated confidence
 	doc := s.memoryToDocument(memory, collectionName)
-	_, err = s.store.AddDocuments(ctx, []vectorstore.Document{doc})
+	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
 		return fmt.Errorf("updating memory: %w", err)
 	}
@@ -409,9 +495,17 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 // This searches across all project collections to find the memory.
 // In practice, you'd typically know the project ID, but this provides
 // a fallback for when you only have the memory ID.
+//
+// Note: This method requires the legacy single-store configuration.
+// When using StoreProvider (database-per-project), use GetByProjectID instead.
 func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 	if id == "" {
 		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// With StoreProvider only, we can't enumerate all project stores
+	if s.store == nil {
+		return nil, fmt.Errorf("Get requires legacy store; use GetByProjectID with StoreProvider")
 	}
 
 	// List all collections and search each one
@@ -453,7 +547,54 @@ func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 	return nil, ErrMemoryNotFound
 }
 
+// GetByProjectID retrieves a memory by ID within a specific project.
+//
+// This is the preferred method when using StoreProvider (database-per-project isolation)
+// as it directly accesses the project's store without enumeration.
+func (s *Service) GetByProjectID(ctx context.Context, projectID, memoryID string) (*Memory, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if memoryID == "" {
+		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if collection exists
+	exists, err := store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return nil, fmt.Errorf("checking collection existence: %w", err)
+	}
+	if !exists {
+		return nil, ErrMemoryNotFound
+	}
+
+	// Try to find memory with this ID
+	filters := map[string]interface{}{
+		"id": memoryID,
+	}
+
+	results, err := store.SearchInCollection(ctx, collectionName, "dummy", 1, filters)
+	if err != nil {
+		return nil, fmt.Errorf("searching for memory: %w", err)
+	}
+
+	if len(results) == 0 {
+		return nil, ErrMemoryNotFound
+	}
+
+	return s.resultToMemory(results[0])
+}
+
 // Delete removes a memory by ID.
+//
+// Note: This method requires the legacy single-store configuration.
+// When using StoreProvider (database-per-project), use DeleteByProjectID instead.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("memory ID cannot be empty")
@@ -465,7 +606,10 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("getting memory: %w", err)
 	}
 
-	// Delete from vector store
+	// Delete from vector store (requires legacy store)
+	if s.store == nil {
+		return fmt.Errorf("Delete requires legacy store; use DeleteByProjectID with StoreProvider")
+	}
 	if err := s.store.DeleteDocuments(ctx, []string{id}); err != nil {
 		return fmt.Errorf("deleting memory: %w", err)
 	}
@@ -473,6 +617,36 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	s.logger.Info("memory deleted",
 		zap.String("id", id),
 		zap.String("project_id", memory.ProjectID))
+
+	return nil
+}
+
+// DeleteByProjectID removes a memory by ID within a specific project.
+//
+// This is the preferred method when using StoreProvider (database-per-project isolation)
+// as it directly accesses the project's store without enumeration.
+func (s *Service) DeleteByProjectID(ctx context.Context, projectID, memoryID string) error {
+	if projectID == "" {
+		return ErrEmptyProjectID
+	}
+	if memoryID == "" {
+		return fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	// Delete from the project's store
+	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+		return fmt.Errorf("deleting memory: %w", err)
+	}
+
+	s.logger.Info("memory deleted",
+		zap.String("id", memoryID),
+		zap.String("project_id", projectID))
 
 	return nil
 }
@@ -533,19 +707,19 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 	}
 	memory.UpdatedAt = time.Now()
 
-	// Update in vector store
-	collectionName, err := project.GetCollectionName(memory.ProjectID, project.CollectionMemories)
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
-		return 0, fmt.Errorf("getting collection name: %w", err)
+		return 0, err
 	}
 
 	// Delete old version and re-add with updated confidence
-	if err := s.store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		return 0, fmt.Errorf("deleting old memory: %w", err)
 	}
 
 	doc := s.memoryToDocument(memory, collectionName)
-	_, err = s.store.AddDocuments(ctx, []vectorstore.Document{doc})
+	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
 		return 0, fmt.Errorf("updating memory: %w", err)
 	}
@@ -600,14 +774,14 @@ func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
 		return 0, ErrEmptyProjectID
 	}
 
-	// Get collection name for this project's memories
-	collectionName, err := project.GetCollectionName(projectID, project.CollectionMemories)
+	// Get store and collection name
+	store, collectionName, err := s.getStore(ctx, projectID)
 	if err != nil {
-		return 0, fmt.Errorf("getting collection name: %w", err)
+		return 0, err
 	}
 
 	// Check if collection exists
-	exists, err := s.store.CollectionExists(ctx, collectionName)
+	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
 		return 0, fmt.Errorf("checking collection existence: %w", err)
 	}
@@ -616,7 +790,7 @@ func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
 	}
 
 	// Use GetCollectionInfo to get the point count
-	info, err := s.store.GetCollectionInfo(ctx, collectionName)
+	info, err := store.GetCollectionInfo(ctx, collectionName)
 	if err != nil {
 		return 0, fmt.Errorf("getting collection info: %w", err)
 	}

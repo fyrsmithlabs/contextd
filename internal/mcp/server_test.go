@@ -93,7 +93,7 @@ func TestNewServer(t *testing.T) {
 	troubleshootStore := &mockTroubleshootStore{}
 	vectorStore := &mockVectorStore{}
 
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), vectorStore, logger)
+	checkpointSvc, err := checkpoint.NewServiceWithStore(checkpoint.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
 	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), vectorStore, logger)
@@ -192,7 +192,7 @@ func TestServerClose(t *testing.T) {
 	troubleshootStore := &mockTroubleshootStore{}
 	vectorStore := &mockVectorStore{}
 
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), vectorStore, logger)
+	checkpointSvc, err := checkpoint.NewServiceWithStore(checkpoint.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
 	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), vectorStore, logger)

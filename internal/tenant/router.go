@@ -8,6 +8,10 @@ import (
 )
 
 // Scope defines the hierarchy level for multi-tenant collections.
+//
+// Deprecated: With the StoreProvider architecture (database-per-project isolation),
+// scope is now handled at the store level, not collection level.
+// Use vectorstore.StoreProvider.GetProjectStore/GetTeamStore/GetOrgStore instead.
 type Scope string
 
 const (
@@ -48,7 +52,16 @@ var (
 )
 
 // CollectionRouter routes requests to the appropriate collection based on tenant scope.
-// This is a stub interface for contextd-v2 port - full implementation pending.
+//
+// Deprecated: With StoreProvider architecture, collection routing is no longer needed.
+// StoreProvider handles database-per-project isolation, so services use simple collection
+// names ("memories", "remediations", "codebase") within their scoped store.
+//
+// Migration guide:
+//   - Instead of: router.GetCollectionName(ScopeProject, CollectionMemories, tenant, team, project)
+//   - Use: stores.GetProjectStore(ctx, tenant, team, project) then simple "memories" collection
+//
+// This interface is retained for backward compatibility but will be removed in a future version.
 type CollectionRouter interface {
 	// GetCollectionName returns the collection name for the given scope and identifiers.
 	GetCollectionName(scope Scope, collectionType CollectionType, tenantID, teamID, projectID string) (string, error)
@@ -66,6 +79,9 @@ type router struct {
 }
 
 // NewRouter creates a new collection router.
+//
+// Deprecated: Use vectorstore.StoreProvider instead. StoreProvider provides
+// database-per-project isolation which eliminates the need for collection routing.
 func NewRouter(strictMode bool) CollectionRouter {
 	return &router{
 		strictMode: strictMode,

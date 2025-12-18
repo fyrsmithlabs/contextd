@@ -16,18 +16,28 @@ func TestTestOrchestratorWorkflow(t *testing.T) {
 		testSuite := &testsuite.WorkflowTestSuite{}
 		env := testSuite.NewTestWorkflowEnvironment()
 
-		// Register workflows
+		// Register workflows - including DeveloperSessionWorkflow which is called by suite workflows
 		env.RegisterWorkflow(TestOrchestratorWorkflow)
 		env.RegisterWorkflow(PolicyComplianceWorkflow)
 		env.RegisterWorkflow(BugfixLearningWorkflow)
 		env.RegisterWorkflow(MultiSessionWorkflow)
+		env.RegisterWorkflow(DeveloperSessionWorkflow)
+
+		// Mock activities for DeveloperSessionWorkflow
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(RecordMemoryActivity, mock.Anything, mock.Anything).Return("mem-1", nil)
+		env.OnActivity(SearchMemoryActivity, mock.Anything, mock.Anything).Return([]MemoryResult{{ID: "mem-1", Confidence: 0.9}}, nil)
+		env.OnActivity(CheckpointSaveActivity, mock.Anything, mock.Anything).Return("ckpt-1", nil)
+		env.OnActivity(CheckpointResumeActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(ClearContextActivity, mock.Anything, mock.Anything).Return(nil)
 
 		// Execute with all suites enabled
 		config := TestConfig{
-			RunPolicy:      true,
-			RunBugfix:      true,
+			RunPolicy:       true,
+			RunBugfix:       true,
 			RunMultiSession: true,
-			ProjectID:      "test_project",
+			ProjectID:       "test_project",
 		}
 		env.ExecuteWorkflow(TestOrchestratorWorkflow, config)
 
@@ -45,6 +55,13 @@ func TestTestOrchestratorWorkflow(t *testing.T) {
 
 		env.RegisterWorkflow(TestOrchestratorWorkflow)
 		env.RegisterWorkflow(PolicyComplianceWorkflow)
+		env.RegisterWorkflow(DeveloperSessionWorkflow)
+
+		// Mock activities for DeveloperSessionWorkflow
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(RecordMemoryActivity, mock.Anything, mock.Anything).Return("mem-1", nil)
+		env.OnActivity(SearchMemoryActivity, mock.Anything, mock.Anything).Return([]MemoryResult{{ID: "mem-1", Content: "TDD test [REDACTED]", Confidence: 0.9}}, nil)
 
 		config := TestConfig{
 			RunPolicy:       true,
@@ -130,6 +147,102 @@ func TestDeveloperSessionWorkflow(t *testing.T) {
 		require.True(t, env.IsWorkflowCompleted())
 		require.NoError(t, env.GetWorkflowError())
 	})
+
+	t.Run("rejects record_memory with nil Memory", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(DeveloperSessionWorkflow)
+
+		// Mock activities
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+
+		session := SessionConfig{
+			Developer: DeveloperConfig{
+				ID:        "dev-a",
+				TenantID:  "tenant-a",
+				TeamID:    "test_team",
+				ProjectID: "test_project",
+			},
+			Steps: []SessionStep{
+				{Type: "record_memory", Memory: nil}, // Invalid: nil Memory
+			},
+		}
+		env.ExecuteWorkflow(DeveloperSessionWorkflow, session)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result SessionResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		require.Len(t, result.Errors, 1)
+		assert.Contains(t, result.Errors[0], "requires a non-nil Memory field")
+	})
+
+	t.Run("rejects search_memory with empty Query", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(DeveloperSessionWorkflow)
+
+		// Mock activities
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+
+		session := SessionConfig{
+			Developer: DeveloperConfig{
+				ID:        "dev-a",
+				TenantID:  "tenant-a",
+				TeamID:    "test_team",
+				ProjectID: "test_project",
+			},
+			Steps: []SessionStep{
+				{Type: "search_memory", Query: "", Limit: 5}, // Invalid: empty Query
+			},
+		}
+		env.ExecuteWorkflow(DeveloperSessionWorkflow, session)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result SessionResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		require.Len(t, result.Errors, 1)
+		assert.Contains(t, result.Errors[0], "requires a non-empty Query field")
+	})
+
+	t.Run("rejects checkpoint_resume with empty CheckpointID", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(DeveloperSessionWorkflow)
+
+		// Mock activities
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+
+		session := SessionConfig{
+			Developer: DeveloperConfig{
+				ID:        "dev-a",
+				TenantID:  "tenant-a",
+				TeamID:    "test_team",
+				ProjectID: "test_project",
+			},
+			Steps: []SessionStep{
+				{Type: "checkpoint_resume", CheckpointID: ""}, // Invalid: empty CheckpointID
+			},
+		}
+		env.ExecuteWorkflow(DeveloperSessionWorkflow, session)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result SessionResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		require.Len(t, result.Errors, 1)
+		assert.Contains(t, result.Errors[0], "requires a non-empty CheckpointID field")
+	})
 }
 
 // TestPolicyComplianceWorkflow validates policy compliance test orchestration.
@@ -141,10 +254,17 @@ func TestPolicyComplianceWorkflow(t *testing.T) {
 		env.RegisterWorkflow(PolicyComplianceWorkflow)
 		env.RegisterWorkflow(DeveloperSessionWorkflow)
 
-		// Mock child workflow
-		env.OnWorkflow(DeveloperSessionWorkflow, mock.Anything).Return(&SessionResult{
-			Developer: DeveloperConfig{ID: "dev-a"},
-		}, nil)
+		// Mock activities for DeveloperSessionWorkflow
+		// Content includes keywords that satisfy all policy test validations
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(RecordMemoryActivity, mock.Anything, mock.Anything).Return("mem-1", nil)
+		env.OnActivity(SearchMemoryActivity, mock.Anything, mock.Anything).Return([]MemoryResult{{
+			ID:         "mem-1",
+			Title:      "TDD Conventional Commits Policy",
+			Content:    "TDD test-driven development feat: conventional commit [REDACTED]",
+			Confidence: 0.9,
+		}}, nil)
 
 		config := TestConfig{
 			ProjectID: "test_project",
@@ -157,6 +277,8 @@ func TestPolicyComplianceWorkflow(t *testing.T) {
 		var result SuiteResult
 		require.NoError(t, env.GetWorkflowResult(&result))
 		assert.Equal(t, "policy_compliance", result.SuiteName)
+		// All three tests should run (may pass or fail based on mock data)
+		assert.Equal(t, 3, result.Passed+result.Failed, "all three policy tests should be executed")
 	})
 }
 
@@ -169,10 +291,20 @@ func TestBugfixLearningWorkflow(t *testing.T) {
 		env.RegisterWorkflow(BugfixLearningWorkflow)
 		env.RegisterWorkflow(DeveloperSessionWorkflow)
 
-		// Dev A records fix, Dev B retrieves it
-		env.OnWorkflow(DeveloperSessionWorkflow, mock.Anything).Return(&SessionResult{
-			Developer: DeveloperConfig{ID: "dev-a"},
-		}, nil)
+		// Mock activities for DeveloperSessionWorkflow
+		// Content includes keywords that satisfy bugfix test validations:
+		// - "nil" and "user" for same_bug_retrieval
+		// - "Include", "eager", or "relationship" for similar_bug_adaptation
+		// - Generic content for false_positive_prevention
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(RecordMemoryActivity, mock.Anything, mock.Anything).Return("mem-1", nil)
+		env.OnActivity(SearchMemoryActivity, mock.Anything, mock.Anything).Return([]MemoryResult{{
+			ID:         "mem-1",
+			Title:      "nil pointer fix",
+			Content:    "nil check with Include for eager relationship loading",
+			Confidence: 0.9,
+		}}, nil)
 
 		config := TestConfig{
 			ProjectID: "test_project",
@@ -185,6 +317,8 @@ func TestBugfixLearningWorkflow(t *testing.T) {
 		var result SuiteResult
 		require.NoError(t, env.GetWorkflowResult(&result))
 		assert.Equal(t, "bugfix_learning", result.SuiteName)
+		// All three tests should run (may pass or fail based on mock data)
+		assert.Equal(t, 3, result.Passed+result.Failed, "all three bugfix learning tests should be executed")
 	})
 }
 
@@ -197,9 +331,13 @@ func TestMultiSessionWorkflow(t *testing.T) {
 		env.RegisterWorkflow(MultiSessionWorkflow)
 		env.RegisterWorkflow(DeveloperSessionWorkflow)
 
-		env.OnWorkflow(DeveloperSessionWorkflow, mock.Anything).Return(&SessionResult{
-			Developer: DeveloperConfig{ID: "dev-a"},
-		}, nil)
+		// Mock activities for DeveloperSessionWorkflow
+		env.OnActivity(StartContextdActivity, mock.Anything, mock.Anything).Return(ContextdHandle{ID: "ctx-1"}, nil)
+		env.OnActivity(StopContextdActivity, mock.Anything, mock.Anything).Return(nil)
+		env.OnActivity(RecordMemoryActivity, mock.Anything, mock.Anything).Return("mem-1", nil)
+		env.OnActivity(SearchMemoryActivity, mock.Anything, mock.Anything).Return([]MemoryResult{{ID: "mem-1", Confidence: 0.9}}, nil)
+		env.OnActivity(CheckpointSaveActivity, mock.Anything, mock.Anything).Return("ckpt-1", nil)
+		env.OnActivity(CheckpointResumeActivity, mock.Anything, mock.Anything).Return(nil)
 
 		config := TestConfig{
 			ProjectID: "test_project",

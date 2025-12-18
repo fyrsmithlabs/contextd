@@ -7,7 +7,9 @@ Cross-session memory and context management for AI agents.
 - **Semantic Memory** - Search past learnings and strategies across sessions
 - **Checkpoints** - Save and resume session context before hitting limits
 - **Error Remediation** - Track and reuse solutions to errors
-- **Repository Search** - Semantic code search over indexed repositories
+- **Semantic Search** - Smart code search with auto-fallback to grep
+- **Context Folding** - Isolated sub-tasks with token budgets that auto-cleanup
+- **Repository Indexing** - Semantic code search over indexed repositories
 - **Self-Reflection** - Analyze behavior patterns and improve documentation
 - **Secret Scrubbing** - Automatic detection via gitleaks
 
@@ -80,6 +82,7 @@ Restart Claude Code after configuration.
 | `session-lifecycle` | Session start/end protocols |
 | `cross-session-memory` | Learning loop (search → do → record → feedback) |
 | `checkpoint-workflow` | Context approaching 70% capacity |
+| `context-folding` | Complex sub-tasks needing isolation |
 | `error-remediation` | Resolving errors systematically |
 | `repository-search` | Semantic code search |
 | `self-reflection` | Reviewing behavior patterns, improving docs |
@@ -102,8 +105,12 @@ Restart Claude Code after configuration.
 | `remediation_search` | Find fixes for similar errors |
 | `remediation_record` | Record a new error fix |
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
+| `semantic_search` | Smart code search (auto-fallback to grep) |
 | `repository_index` | Index a codebase for semantic search |
 | `repository_search` | Semantic search over indexed code |
+| `branch_create` | Create isolated sub-task with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Check branch state and budget usage |
 
 ## Quick Start
 
@@ -114,6 +121,49 @@ After installation:
 3. **During work**: Memories are automatically searched and recorded
 4. **At 70% context**: `/contextd:checkpoint` then `/clear`
 5. **Next session**: `/contextd:resume` to continue where you left off
+
+## Context Folding
+
+Context folding creates isolated branches for complex sub-tasks. Each branch has its own token budget and auto-cleans up on return, preventing context bloat.
+
+**When to use:**
+- Complex multi-step investigations
+- Reading many files for analysis
+- Exploratory work that shouldn't pollute main context
+
+**Workflow:**
+```
+1. branch_create(session_id, description, budget: 4096)
+   → Creates isolated branch with token budget
+
+2. Do work in the branch
+   → Read files, search, analyze
+
+3. branch_return(branch_id, "Summary of findings")
+   → Results scrubbed for secrets
+   → Branch cleaned up automatically
+```
+
+**Example:**
+```json
+// Create branch
+branch_create({
+  "session_id": "main",
+  "description": "Analyze auth module",
+  "budget": 4096
+})
+// → branch_id: "br_abc123"
+
+// Do analysis work...
+
+// Return with summary
+branch_return({
+  "branch_id": "br_abc123",
+  "message": "Auth uses JWT with 15min expiry. 3 handlers: login, logout, refresh."
+})
+```
+
+See the `context-folding` skill for full documentation.
 
 ## Hooks
 

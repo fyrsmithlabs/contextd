@@ -51,6 +51,210 @@ func (m *mockStore) SearchInCollection(ctx context.Context, collectionName strin
 	return m.searchResults, nil
 }
 
+func (m *mockStore) Close() error {
+	return nil
+}
+
+// Stub methods to satisfy vectorstore.Store interface for StoreProvider tests
+func (m *mockStore) Search(ctx context.Context, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.searchResults, nil
+}
+
+func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	return m.searchResults, nil
+}
+
+func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
+	return nil
+}
+
+func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	return nil
+}
+
+func (m *mockStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	return nil
+}
+
+func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string) error {
+	return nil
+}
+
+func (m *mockStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+
+func (m *mockStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	return &vectorstore.CollectionInfo{}, nil
+}
+
+func (m *mockStore) ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]vectorstore.SearchResult, error) {
+	return m.searchResults, nil
+}
+
+// ===== MOCK STORE PROVIDER =====
+
+// mockStoreProvider implements vectorstore.StoreProvider for testing
+type mockStoreProvider struct {
+	stores map[string]*mockStore
+}
+
+func newMockStoreProvider() *mockStoreProvider {
+	return &mockStoreProvider{
+		stores: make(map[string]*mockStore),
+	}
+}
+
+func (p *mockStoreProvider) GetProjectStore(ctx context.Context, tenant, team, project string) (vectorstore.Store, error) {
+	key := tenant + "/" + team + "/" + project
+	if store, ok := p.stores[key]; ok {
+		return store, nil
+	}
+	store := &mockStore{}
+	p.stores[key] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) GetTeamStore(ctx context.Context, tenant, team string) (vectorstore.Store, error) {
+	key := tenant + "/" + team + "/_team"
+	if store, ok := p.stores[key]; ok {
+		return store, nil
+	}
+	store := &mockStore{}
+	p.stores[key] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) GetOrgStore(ctx context.Context, tenant string) (vectorstore.Store, error) {
+	key := tenant + "/_org"
+	if store, ok := p.stores[key]; ok {
+		return store, nil
+	}
+	store := &mockStore{}
+	p.stores[key] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) Close() error {
+	return nil
+}
+
+// ===== STORE PROVIDER TESTS =====
+
+func TestNewServiceWithStoreProvider(t *testing.T) {
+	provider := newMockStoreProvider()
+	svc := NewServiceWithStoreProvider(provider)
+
+	if svc == nil {
+		t.Fatal("NewServiceWithStoreProvider returned nil")
+	}
+	if svc.stores == nil {
+		t.Error("Expected stores to be set")
+	}
+	if svc.store != nil {
+		t.Error("Expected store to be nil when using StoreProvider")
+	}
+}
+
+func TestService_WithStoreProvider_Index(t *testing.T) {
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+
+	provider := newMockStoreProvider()
+	svc := NewServiceWithStoreProvider(provider)
+
+	result, err := svc.IndexRepository(context.Background(), tmpDir, IndexOptions{
+		TenantID: "testuser",
+	})
+
+	if err != nil {
+		t.Fatalf("IndexRepository() error = %v", err)
+	}
+
+	// With StoreProvider, collection should be simple "codebase"
+	if result.CollectionName != "codebase" {
+		t.Errorf("CollectionName = %q, want %q", result.CollectionName, "codebase")
+	}
+
+	// Verify store was retrieved with correct scope
+	projectName := filepath.Base(tmpDir)
+	key := "testuser//" + projectName
+	if _, ok := provider.stores[key]; !ok {
+		t.Errorf("Expected store for key %q, got keys: %v", key, provider.stores)
+	}
+}
+
+func TestService_WithStoreProvider_Search(t *testing.T) {
+	provider := newMockStoreProvider()
+	svc := NewServiceWithStoreProvider(provider)
+
+	// Pre-populate a store with search results
+	projectPath := "/path/to/myproject"
+	projectName := filepath.Base(projectPath)
+
+	// Create store first to set up search results
+	ctx := context.Background()
+	store, _ := provider.GetProjectStore(ctx, "testuser", "", projectName)
+	mockS := store.(*mockStore)
+	mockS.searchResults = []vectorstore.SearchResult{
+		{
+			Content: "test content",
+			Score:   0.9,
+			Metadata: map[string]interface{}{
+				"file_path": "main.go",
+				"branch":    "main",
+			},
+		},
+	}
+
+	results, err := svc.Search(ctx, "test query", SearchOptions{
+		ProjectPath: projectPath,
+		TenantID:    "testuser",
+	})
+
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+
+	// Verify search was called on correct store with simple collection name
+	if mockS.lastCollection != "codebase" {
+		t.Errorf("lastCollection = %q, want %q", mockS.lastCollection, "codebase")
+	}
+}
+
+func TestService_WithStoreProvider_AutoDeriveTenant(t *testing.T) {
+	provider := newMockStoreProvider()
+	svc := NewServiceWithStoreProvider(provider)
+
+	tmpDir := t.TempDir()
+	createTestFile(t, tmpDir, "main.go", "package main")
+
+	// Index without explicit tenant_id
+	result, err := svc.IndexRepository(context.Background(), tmpDir, IndexOptions{})
+
+	if err != nil {
+		t.Fatalf("IndexRepository() error = %v", err)
+	}
+
+	// Should succeed with auto-derived tenant
+	if result.CollectionName != "codebase" {
+		t.Errorf("CollectionName = %q, want %q", result.CollectionName, "codebase")
+	}
+
+	// Verify a store was created (tenant was auto-derived)
+	if len(provider.stores) == 0 {
+		t.Error("Expected at least one store to be created")
+	}
+}
+
 // ===== NEW TESTS: _codebase COLLECTION =====
 
 func TestIndexRepository_UsesCodebaseCollection(t *testing.T) {
@@ -467,16 +671,24 @@ func TestSearch_RequiresProjectPath(t *testing.T) {
 	}
 }
 
-func TestSearch_RequiresTenantID(t *testing.T) {
+func TestSearch_AutoDerivesTenantID(t *testing.T) {
 	store := &mockStore{}
 	svc := NewService(store)
 
+	// Search should succeed even without tenant_id because it's auto-derived from project_path
 	_, err := svc.Search(context.Background(), "query", SearchOptions{
-		ProjectPath: "/path",
+		ProjectPath: "/path/to/project",
 	})
 
-	if err == nil {
-		t.Error("Search() should error when tenant_id is empty")
+	// Should not error - tenant_id is auto-derived
+	if err != nil {
+		t.Errorf("Search() should auto-derive tenant_id, got error: %v", err)
+	}
+
+	// Verify the collection name was built with auto-derived tenant
+	// tenant.GetTenantIDForPath will derive from git config or username
+	if store.lastCollection == "" {
+		t.Error("Expected search to use a collection name")
 	}
 }
 

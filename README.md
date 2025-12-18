@@ -10,6 +10,27 @@ ContextD helps AI coding assistants remember what works, learn from mistakes, an
 
 ---
 
+## Prerequisites
+
+**You need [Claude Code](https://claude.ai/claude-code) installed first.**
+
+Claude Code is Anthropic's AI coding assistant. ContextD extends Claude Code with persistent memory via the MCP (Model Context Protocol) server integration.
+
+Install Claude Code:
+```bash
+# macOS/Linux
+curl -fsSL https://claude.ai/install.sh | bash
+
+# Or visit: https://claude.ai/download
+```
+
+Verify installation:
+```bash
+claude --version
+```
+
+---
+
 ## What It Does
 
 | Feature | Description |
@@ -23,28 +44,77 @@ ContextD helps AI coding assistants remember what works, learn from mistakes, an
 
 ---
 
+## Data Privacy & Security
+
+**All data stays local on your machine.**
+
+- No data is sent to external servers
+- Memories and checkpoints stored in `~/.config/contextd/`
+- Embeddings generated locally using ONNX (no API calls)
+- Secrets automatically scrubbed from all tool responses using gitleaks
+- Git integration uses local repository info only (remote URL for project identification)
+
+---
+
 ## Quick Start
 
-### Option 1: Claude Code Plugin (Recommended)
+Choose **one** of the following installation methods:
+
+### Option 1: Claude Code Plugin (Easiest)
+
+If you already have Claude Code installed:
 
 ```bash
-# Install the plugin (skills, commands, agents)
+# Install the plugin (adds skills, commands, agents)
 claude plugins add fyrsmithlabs/contextd
 
-# Run the install command for MCP server setup
+# Run the install command (downloads binary, configures MCP)
 /contextd:install
 ```
 
-The install command will:
-- Download the appropriate binary for your OS/architecture
-- Configure MCP settings
-- Set up the contextd server
+**Verify it works:**
+```bash
+# In Claude Code, type:
+/mcp
+# Should show "contextd" as connected
+```
 
-### Option 2: Homebrew
+### Option 2: Homebrew (macOS/Linux)
 
 ```bash
 brew install fyrsmithlabs/tap/contextd
 ```
+
+Then add the MCP configuration (see [Configuration](#configuration) below).
+
+### Option 3: Download Binary
+
+Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
+
+| Platform | Architecture | File |
+|----------|--------------|------|
+| macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
+| macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
+| Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
+
+Extract and install:
+```bash
+# Extract
+tar xzf contextd_*.tar.gz
+
+# Move to PATH (choose one)
+mv contextd ~/.local/bin/       # User install
+# OR
+sudo mv contextd /usr/local/bin/  # System install
+```
+
+Then add the MCP configuration (see [Configuration](#configuration) below).
+
+---
+
+## Configuration
+
+### Claude Code CLI (Recommended)
 
 Add to `~/.claude/settings.json`:
 
@@ -60,15 +130,68 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### Option 3: Download Binary
+**Note:** If the file doesn't exist, create it with just this content.
 
-Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
+### Claude Desktop App (Alternative)
 
-| Platform | Architecture | File |
-|----------|--------------|------|
-| macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
-| macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
-| Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
+If using the Claude Desktop app instead of Claude Code CLI:
+
+**macOS/Linux:** `~/.claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "contextd",
+      "args": ["--mcp", "--no-http"]
+    }
+  }
+}
+```
+
+### Verify Setup
+
+After adding configuration, restart Claude Code and verify:
+
+```bash
+# Check MCP connection (in Claude Code)
+/mcp
+# Should show: contextd - connected
+
+# Or test a tool
+# In conversation: "Use memory_search to check for existing memories"
+```
+
+---
+
+## First Run Behavior
+
+On first run, contextd automatically downloads required dependencies:
+
+```
+ONNX runtime not found. Downloading v1.23.0...
+Downloaded to ~/.config/contextd/lib/libonnxruntime.so
+Downloading fast-bge-small-en-v1.5...
+```
+
+This one-time download (~100MB) happens automatically. Subsequent runs start instantly.
+
+---
+
+## Project Identification
+
+ContextD automatically identifies your project using git:
+
+1. **Tenant ID** - Derived from git remote URL (e.g., `github.com/username`)
+2. **Project ID** - Derived from repository name
+
+This means:
+- Different repositories have isolated memories
+- Forked repos share tenant but have separate project memories
+- Non-git directories use a fallback identifier
+
+No configuration needed - it works automatically based on your current directory.
 
 ---
 
@@ -210,7 +333,7 @@ ContextD exposes these tools to Claude Code:
 
 ---
 
-## Configuration
+## Advanced Configuration
 
 ### Environment Variables
 
@@ -224,6 +347,8 @@ ContextD exposes these tools to Claude Code:
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 
 ### Using External Qdrant
+
+For larger deployments or team use:
 
 ```bash
 docker run -d --name qdrant \
@@ -255,7 +380,14 @@ Configure in `~/.claude/settings.json`:
 
 ## Data & Backup
 
-Data is stored in `~/.config/contextd/vectorstore/` by default.
+Data is stored in `~/.config/contextd/` by default:
+
+```
+~/.config/contextd/
+├── vectorstore/          # Memories, checkpoints, remediations
+├── lib/                  # ONNX runtime (auto-downloaded)
+└── config.yaml           # Optional config file
+```
 
 **Backup:**
 ```bash
@@ -266,6 +398,47 @@ tar czf contextd-backup.tar.gz ~/.config/contextd/
 ```bash
 tar xzf contextd-backup.tar.gz -C ~/
 ```
+
+---
+
+## Troubleshooting
+
+### "contextd not found" after installation
+
+Ensure the binary is in your PATH:
+```bash
+# Check if contextd is found
+which contextd
+
+# If not, add to PATH (add to ~/.bashrc or ~/.zshrc)
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### MCP server not connecting
+
+1. Check settings.json syntax (valid JSON?)
+2. Verify the path to contextd is correct
+3. Restart Claude Code after config changes
+
+```bash
+# Test manually
+contextd --version
+contextd --mcp --no-http  # Should start without errors
+```
+
+### First run is slow
+
+Expected behavior - contextd downloads ONNX runtime (~50MB) and embedding model (~50MB) on first run. This only happens once.
+
+### "permission denied" errors
+
+```bash
+chmod +x ~/.local/bin/contextd
+```
+
+### Still stuck?
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) or [open an issue](https://github.com/fyrsmithlabs/contextd/issues).
 
 ---
 
@@ -310,6 +483,9 @@ make test
 ## Documentation
 
 - [Docker Setup](docs/DOCKER.md) - Running contextd in Docker
+- [Configuration](docs/configuration.md) - Full configuration reference
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+- [Architecture](docs/architecture.md) - Technical architecture
 - [Design Plans](docs/plans/) - Feature design documents
 - [Specifications](docs/spec/) - Technical specifications
 

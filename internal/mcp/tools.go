@@ -43,7 +43,7 @@ func (s *Server) registerTools() error {
 
 type checkpointSaveInput struct {
 	SessionID   string            `json:"session_id" jsonschema:"required,Session identifier"`
-	TenantID    string            `json:"tenant_id" jsonschema:"required,Tenant identifier"`
+	TenantID    string            `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
 	ProjectPath string            `json:"project_path" jsonschema:"required,Project path"`
 	Name        string            `json:"name" jsonschema:"Checkpoint name"`
 	Description string            `json:"description" jsonschema:"Human-readable description"`
@@ -66,8 +66,8 @@ type checkpointSaveOutput struct {
 
 type checkpointListInput struct {
 	SessionID   string `json:"session_id,omitempty" jsonschema:"Filter by session ID"`
-	TenantID    string `json:"tenant_id" jsonschema:"required,Tenant identifier"`
-	ProjectPath string `json:"project_path,omitempty" jsonschema:"Filter by project path"`
+	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
+	ProjectPath string `json:"project_path,omitempty" jsonschema:"Filter by project path (used to derive tenant_id via git remote)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results to return (default: 20)"`
 	AutoOnly    bool   `json:"auto_only,omitempty" jsonschema:"Only return auto-created checkpoints"`
 }
@@ -97,9 +97,20 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
+		// Auto-derive tenant_id from project_path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.ProjectPath != "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, checkpointSaveOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
 		saveReq := &checkpoint.SaveRequest{
 			SessionID:   args.SessionID,
-			TenantID:    args.TenantID,
+			TenantID:    tenantID,
 			ProjectPath: args.ProjectPath,
 			Name:        args.Name,
 			Description: args.Description,
@@ -141,9 +152,20 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
+		// Auto-derive tenant_id from project_path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.ProjectPath != "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, checkpointListOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
 		listReq := &checkpoint.ListRequest{
 			SessionID:   args.SessionID,
-			TenantID:    args.TenantID,
+			TenantID:    tenantID,
 			ProjectPath: args.ProjectPath,
 			Limit:       args.Limit,
 			AutoOnly:    args.AutoOnly,
@@ -220,15 +242,15 @@ func (s *Server) registerCheckpointTools() {
 // ===== REMEDIATION TOOLS =====
 
 type remediationSearchInput struct {
-	Query          string                  `json:"query" jsonschema:"required,Error message or pattern to search for"`
-	TenantID       string                  `json:"tenant_id" jsonschema:"required,Tenant identifier"`
-	Scope          remediation.Scope       `json:"scope,omitempty" jsonschema:"Search scope (project team or org)"`
-	Category       remediation.ErrorCategory `json:"category,omitempty" jsonschema:"Error category filter"`
-	MinConfidence  float64                 `json:"min_confidence,omitempty" jsonschema:"Minimum confidence threshold (0-1)"`
-	Limit          int                     `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
-	TeamID         string                  `json:"team_id,omitempty" jsonschema:"Team ID for team/project scope"`
-	ProjectPath    string                  `json:"project_path,omitempty" jsonschema:"Project path for project scope"`
-	IncludeHierarchy bool                  `json:"include_hierarchy,omitempty" jsonschema:"Search parent scopes (project→team→org)"`
+	Query            string                    `json:"query" jsonschema:"required,Error message or pattern to search for"`
+	TenantID         string                    `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
+	Scope            remediation.Scope         `json:"scope,omitempty" jsonschema:"Search scope (project team or org)"`
+	Category         remediation.ErrorCategory `json:"category,omitempty" jsonschema:"Error category filter"`
+	MinConfidence    float64                   `json:"min_confidence,omitempty" jsonschema:"Minimum confidence threshold (0-1)"`
+	Limit            int                       `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	TeamID           string                    `json:"team_id,omitempty" jsonschema:"Team ID for team/project scope"`
+	ProjectPath      string                    `json:"project_path,omitempty" jsonschema:"Project path for project scope (used to auto-derive tenant_id if empty)"`
+	IncludeHierarchy bool                      `json:"include_hierarchy,omitempty" jsonschema:"Search parent scopes (project→team→org)"`
 }
 
 type remediationSearchOutput struct {
@@ -247,10 +269,10 @@ type remediationRecordInput struct {
 	Category      remediation.ErrorCategory `json:"category" jsonschema:"required,Error category"`
 	Confidence    float64                   `json:"confidence,omitempty" jsonschema:"Confidence score (0-1 default 0.5)"`
 	Tags          []string                  `json:"tags,omitempty" jsonschema:"Tags for categorization"`
-	TenantID      string                    `json:"tenant_id" jsonschema:"required,Tenant identifier"`
+	TenantID      string                    `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
 	Scope         remediation.Scope         `json:"scope" jsonschema:"required,Scope level (project team or org)"`
 	TeamID        string                    `json:"team_id,omitempty" jsonschema:"Team ID (for team/project scope)"`
-	ProjectPath   string                    `json:"project_path,omitempty" jsonschema:"Project path (for project scope)"`
+	ProjectPath   string                    `json:"project_path,omitempty" jsonschema:"Project path (used to derive tenant_id via git remote)"`
 	SessionID     string                    `json:"session_id,omitempty" jsonschema:"Session that created this remediation"`
 }
 
@@ -267,9 +289,20 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
+		// Auto-derive tenant_id from project_path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.ProjectPath != "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, remediationSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
 		searchReq := &remediation.SearchRequest{
 			Query:            args.Query,
-			TenantID:         args.TenantID,
+			TenantID:         tenantID,
 			Scope:            args.Scope,
 			Category:         args.Category,
 			MinConfidence:    args.MinConfidence,
@@ -316,6 +349,17 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
+		// Auto-derive tenant_id from project_path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.ProjectPath != "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, remediationRecordOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
 		recordReq := &remediation.RecordRequest{
 			Title:         args.Title,
 			Problem:       args.Problem,
@@ -327,7 +371,7 @@ func (s *Server) registerRemediationTools() {
 			Category:      args.Category,
 			Confidence:    args.Confidence,
 			Tags:          args.Tags,
-			TenantID:      args.TenantID,
+			TenantID:      tenantID,
 			Scope:         args.Scope,
 			TeamID:        args.TeamID,
 			ProjectPath:   args.ProjectPath,
@@ -414,8 +458,13 @@ func (s *Server) registerRepositoryTools() {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
 		// Default tenant ID from project path if not specified
 		tenantID := args.TenantID
-		if tenantID == "" {
+		if tenantID == "" && args.ProjectPath != "" {
 			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, semanticSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
 		}
 
 		opts := repository.SearchOptions{
@@ -533,8 +582,12 @@ func (s *Server) registerRepositoryTools() {
 				return nil, repositorySearchOutput{}, fmt.Errorf("either collection_name or project_path is required")
 			}
 			tenantID := args.TenantID
-			if tenantID == "" {
+			if tenantID == "" && args.ProjectPath != "" {
 				tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+			}
+			// Validate tenant_id was derived successfully
+			if tenantID == "" {
+				return nil, repositorySearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
 			}
 			opts.TenantID = tenantID
 		}

@@ -55,7 +55,8 @@ type Store interface {
 // It walks file trees, filters files based on patterns and size limits,
 // and stores them in a dedicated _codebase collection with branch awareness.
 type Service struct {
-	store Store
+	store  Store                     // Legacy single-store mode
+	stores vectorstore.StoreProvider // Database-per-project isolation mode
 }
 
 // NewService creates a new repository indexing service.
@@ -63,6 +64,55 @@ func NewService(store Store) *Service {
 	return &Service{
 		store: store,
 	}
+}
+
+// NewServiceWithStoreProvider creates a repository service using StoreProvider
+// for database-per-project isolation.
+//
+// With StoreProvider, each project gets its own chromem.DB instance,
+// and the collection name is simplified to just "codebase".
+func NewServiceWithStoreProvider(stores vectorstore.StoreProvider) *Service {
+	return &Service{
+		stores: stores,
+	}
+}
+
+// getStore returns the appropriate store and collection name for a project path.
+//
+// With StoreProvider: returns project-scoped store with simple "codebase" collection.
+// With legacy Store: returns shared store with "{tenant}_{project}_codebase" collection.
+//
+// Returns (store, collectionName, tenantID, error).
+func (s *Service) getStore(ctx context.Context, projectPath, tenantID string) (Store, string, string, error) {
+	// Determine tenant ID if not provided
+	if tenantID == "" {
+		tenantID = tenant.GetTenantIDForPath(projectPath)
+	}
+
+	// Extract project name from path
+	projectName := filepath.Base(projectPath)
+
+	// Prefer StoreProvider for database-per-project isolation
+	if s.stores != nil {
+		// Get project-scoped store (tenant, team="", project)
+		// Team is empty for free tier / simple project-level isolation
+		store, err := s.stores.GetProjectStore(ctx, tenantID, "", projectName)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("getting project store: %w", err)
+		}
+		// With StoreProvider, use simple collection name (database is already project-scoped)
+		return store, "codebase", tenantID, nil
+	}
+
+	// Fallback to legacy store
+	if s.store == nil {
+		return nil, "", "", fmt.Errorf("store not configured")
+	}
+
+	// Build full collection name for shared store
+	collectionName := sanitize.CollectionName(tenantID, projectName, "codebase")
+
+	return s.store, collectionName, tenantID, nil
 }
 
 // SearchOptions configures repository search behavior.
@@ -218,9 +268,6 @@ func (s *Service) Grep(ctx context.Context, pattern string, opts GrepOptions) ([
 
 // Search performs semantic search over indexed repository files.
 func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) ([]RepoSearchResult, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("store not configured")
-	}
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
@@ -230,21 +277,27 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 		limit = 10
 	}
 
-	// Use collection name directly if provided (preferred - avoids tenant_id derivation issues)
-	// Otherwise derive from tenant_id + project_path
+	// Determine store and collection name
+	var store Store
 	var collectionName string
+	var err error
+
 	if opts.CollectionName != "" {
+		// Use provided collection name directly (legacy behavior)
 		collectionName = opts.CollectionName
+		if s.store == nil {
+			return nil, fmt.Errorf("store not configured")
+		}
+		store = s.store
 	} else {
+		// Use getStore() to determine appropriate store and collection
 		if opts.ProjectPath == "" {
 			return nil, fmt.Errorf("project_path is required when collection_name not provided")
 		}
-		if opts.TenantID == "" {
-			return nil, fmt.Errorf("tenant_id is required when collection_name not provided")
+		store, collectionName, _, err = s.getStore(ctx, opts.ProjectPath, opts.TenantID)
+		if err != nil {
+			return nil, fmt.Errorf("getting store: %w", err)
 		}
-		// Build collection name for codebase using shared sanitize package
-		// Format: {tenant}_{project}_codebase (matches spec)
-		collectionName = sanitize.CollectionName(opts.TenantID, filepath.Base(opts.ProjectPath), "codebase")
 	}
 
 	// Build filters
@@ -253,7 +306,7 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 		filters["branch"] = opts.Branch
 	}
 
-	results, err := s.store.SearchInCollection(ctx, collectionName, query, limit, filters)
+	results, err := store.SearchInCollection(ctx, collectionName, query, limit, filters)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
@@ -292,10 +345,6 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 //
 // Returns IndexResult with statistics, or an error if indexing fails.
 func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOptions) (*IndexResult, error) {
-	if s.store == nil {
-		return nil, fmt.Errorf("store not configured")
-	}
-
 	// Validate and clean path
 	cleanPath, err := validatePath(path)
 	if err != nil {
@@ -318,22 +367,17 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 		return nil, fmt.Errorf("invalid exclude pattern: %w", err)
 	}
 
-	// Determine tenant ID
-	tenantID := opts.TenantID
-	if tenantID == "" {
-		tenantID = tenant.GetTenantIDForPath(cleanPath)
-	}
-
 	// Detect branch (auto-detect if not specified)
 	branch := opts.Branch
 	if branch == "" {
 		branch = detectGitBranch(cleanPath)
 	}
 
-	// Build collection name using shared sanitize package
-	// Format: {tenant}_{project}_codebase
-	projectName := filepath.Base(cleanPath)
-	collectionName := sanitize.CollectionName(tenantID, projectName, "codebase")
+	// Get store and collection name using getStore()
+	store, collectionName, tenantID, err := s.getStore(ctx, cleanPath, opts.TenantID)
+	if err != nil {
+		return nil, err
+	}
 
 	// Sanitize tenant ID for metadata consistency (store what we use for lookups)
 	sanitizedTenant := sanitize.Identifier(tenantID)
@@ -416,7 +460,7 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 
 	// Add all documents to vector store
 	if len(docs) > 0 {
-		if _, err := s.store.AddDocuments(ctx, docs); err != nil {
+		if _, err := store.AddDocuments(ctx, docs); err != nil {
 			return nil, fmt.Errorf("storing documents: %w", err)
 		}
 	}

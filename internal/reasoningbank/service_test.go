@@ -819,3 +819,241 @@ func TestResultToMemory(t *testing.T) {
 		assert.Equal(t, now.Unix(), memory.UpdatedAt.Unix())
 	})
 }
+
+// mockStoreProvider implements vectorstore.StoreProvider for testing.
+type mockStoreProvider struct {
+	stores map[string]*mockStore
+}
+
+func newMockStoreProvider() *mockStoreProvider {
+	return &mockStoreProvider{
+		stores: make(map[string]*mockStore),
+	}
+}
+
+func (p *mockStoreProvider) GetProjectStore(ctx context.Context, tenant, team, project string) (vectorstore.Store, error) {
+	var key string
+	if team != "" {
+		key = fmt.Sprintf("%s/%s/%s", tenant, team, project)
+	} else {
+		key = fmt.Sprintf("%s/%s", tenant, project)
+	}
+	if store, ok := p.stores[key]; ok {
+		return store, nil
+	}
+	store := newMockStore()
+	p.stores[key] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) GetTeamStore(ctx context.Context, tenant, team string) (vectorstore.Store, error) {
+	key := fmt.Sprintf("%s/%s", tenant, team)
+	if store, ok := p.stores[key]; ok {
+		return store, nil
+	}
+	store := newMockStore()
+	p.stores[key] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) GetOrgStore(ctx context.Context, tenant string) (vectorstore.Store, error) {
+	if store, ok := p.stores[tenant]; ok {
+		return store, nil
+	}
+	store := newMockStore()
+	p.stores[tenant] = store
+	return store, nil
+}
+
+func (p *mockStoreProvider) Close() error {
+	return nil
+}
+
+func TestNewServiceWithStoreProvider(t *testing.T) {
+	t.Run("requires store provider", func(t *testing.T) {
+		_, err := NewServiceWithStoreProvider(nil, "test-tenant", zap.NewNop())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "store provider cannot be nil")
+	})
+
+	t.Run("requires default tenant", func(t *testing.T) {
+		stores := newMockStoreProvider()
+		_, err := NewServiceWithStoreProvider(stores, "", zap.NewNop())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "default tenant cannot be empty")
+	})
+
+	t.Run("requires logger", func(t *testing.T) {
+		stores := newMockStoreProvider()
+		_, err := NewServiceWithStoreProvider(stores, "test-tenant", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "logger is required for ReasoningBank service")
+	})
+
+	t.Run("creates with valid inputs", func(t *testing.T) {
+		stores := newMockStoreProvider()
+		svc, err := NewServiceWithStoreProvider(stores, "test-tenant", zap.NewNop())
+		require.NoError(t, err)
+		assert.NotNil(t, svc)
+	})
+}
+
+func TestService_GetByProjectID(t *testing.T) {
+	ctx := context.Background()
+	stores := newMockStoreProvider()
+	svc, _ := NewServiceWithStoreProvider(stores, "test-tenant", zap.NewNop())
+
+	t.Run("requires project ID", func(t *testing.T) {
+		_, err := svc.GetByProjectID(ctx, "", "mem-123")
+		require.Error(t, err)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("requires memory ID", func(t *testing.T) {
+		_, err := svc.GetByProjectID(ctx, "project-123", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		_, err := svc.GetByProjectID(ctx, "project-123", "non-existent")
+		require.Error(t, err)
+		assert.Equal(t, ErrMemoryNotFound, err)
+	})
+
+	t.Run("retrieves memory by project and ID", func(t *testing.T) {
+		memory, _ := NewMemory(
+			"project-456",
+			"Test Memory",
+			"This is test content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		memory.Confidence = 0.85
+
+		err := svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		found, err := svc.GetByProjectID(ctx, "project-456", memory.ID)
+		require.NoError(t, err)
+		assert.Equal(t, memory.ID, found.ID)
+		assert.Equal(t, "project-456", found.ProjectID)
+		assert.Equal(t, "Test Memory", found.Title)
+	})
+}
+
+func TestService_DeleteByProjectID(t *testing.T) {
+	ctx := context.Background()
+	stores := newMockStoreProvider()
+	svc, _ := NewServiceWithStoreProvider(stores, "test-tenant", zap.NewNop())
+
+	t.Run("requires project ID", func(t *testing.T) {
+		err := svc.DeleteByProjectID(ctx, "", "mem-123")
+		require.Error(t, err)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("requires memory ID", func(t *testing.T) {
+		err := svc.DeleteByProjectID(ctx, "project-123", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("deletes memory by project and ID", func(t *testing.T) {
+		memory, _ := NewMemory(
+			"project-789",
+			"Memory to Delete",
+			"This memory will be deleted",
+			OutcomeSuccess,
+			[]string{"delete-test"},
+		)
+		memory.Confidence = 0.85
+
+		err := svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Verify it exists
+		found, err := svc.GetByProjectID(ctx, "project-789", memory.ID)
+		require.NoError(t, err)
+		assert.Equal(t, memory.ID, found.ID)
+
+		// Delete it
+		err = svc.DeleteByProjectID(ctx, "project-789", memory.ID)
+		require.NoError(t, err)
+
+		// Verify it's gone
+		_, err = svc.GetByProjectID(ctx, "project-789", memory.ID)
+		assert.Equal(t, ErrMemoryNotFound, err)
+	})
+}
+
+func TestService_WithStoreProvider_Operations(t *testing.T) {
+	ctx := context.Background()
+	stores := newMockStoreProvider()
+	svc, _ := NewServiceWithStoreProvider(stores, "test-tenant", zap.NewNop())
+
+	t.Run("Search uses StoreProvider", func(t *testing.T) {
+		// Record a memory with high confidence
+		memory, _ := NewMemory(
+			"search-project",
+			"Searchable Memory",
+			"This memory can be found via search",
+			OutcomeSuccess,
+			[]string{"search"},
+		)
+		memory.Confidence = 0.9
+
+		err := svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Search should find it
+		results, err := svc.Search(ctx, "search-project", "searchable", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, memory.ID, results[0].ID)
+	})
+
+	t.Run("Count uses StoreProvider", func(t *testing.T) {
+		// Count memories in the search-project (should have 1 from previous test)
+		count, err := svc.Count(ctx, "search-project")
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+
+		// Empty project should have 0
+		count, err = svc.Count(ctx, "empty-project")
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("Record creates per-project isolation", func(t *testing.T) {
+		// Record in project A
+		memA, _ := NewMemory(
+			"project-A",
+			"Memory A",
+			"Content for project A",
+			OutcomeSuccess,
+			[]string{},
+		)
+		memA.Confidence = 0.85
+		err := svc.Record(ctx, memA)
+		require.NoError(t, err)
+
+		// Record in project B
+		memB, _ := NewMemory(
+			"project-B",
+			"Memory B",
+			"Content for project B",
+			OutcomeSuccess,
+			[]string{},
+		)
+		memB.Confidence = 0.85
+		err = svc.Record(ctx, memB)
+		require.NoError(t, err)
+
+		// Each project should have its own store
+		_, okA := stores.stores["test-tenant/project-A"]
+		_, okB := stores.stores["test-tenant/project-B"]
+		assert.True(t, okA, "project-A should have its own store")
+		assert.True(t, okB, "project-B should have its own store")
+	})
+}

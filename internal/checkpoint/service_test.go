@@ -20,15 +20,21 @@ func TestDefaultServiceConfig(t *testing.T) {
 	assert.Len(t, cfg.AutoCheckpointThresholds, 4)
 }
 
-func TestNewService_RequiresStore(t *testing.T) {
+func TestNewService_RequiresStoreProvider(t *testing.T) {
 	_, err := NewService(nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "store provider is required")
+}
+
+func TestNewServiceWithStore_RequiresStore(t *testing.T) {
+	_, err := NewServiceWithStore(nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "vector store is required")
 }
 
-func TestNewService_RequiresLogger(t *testing.T) {
+func TestNewServiceWithStore_RequiresLogger(t *testing.T) {
 	store := newMockStore()
-	_, err := NewService(nil, store, nil)
+	_, err := NewServiceWithStore(nil, store, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "logger is required for checkpoint service")
 }
@@ -328,7 +334,7 @@ func (m *mockStore) Close() error {
 func TestService_SaveAndGet(t *testing.T) {
 	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, store, logger)
+	svc, err := NewServiceWithStore(nil, store, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -359,7 +365,7 @@ func TestService_SaveAndGet(t *testing.T) {
 func TestService_List(t *testing.T) {
 	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, store, logger)
+	svc, err := NewServiceWithStore(nil, store, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 
@@ -381,7 +387,7 @@ func TestService_List(t *testing.T) {
 func TestService_Close(t *testing.T) {
 	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, store, logger)
+	svc, err := NewServiceWithStore(nil, store, logger)
 	require.NoError(t, err)
 
 	// Close should work
@@ -399,7 +405,7 @@ func TestService_Close(t *testing.T) {
 func TestService_ListFiltersProjectPath(t *testing.T) {
 	store := newMockStore()
 	logger := zap.NewNop()
-	svc, err := NewService(nil, store, logger)
+	svc, err := NewServiceWithStore(nil, store, logger)
 	require.NoError(t, err)
 	defer svc.Close()
 

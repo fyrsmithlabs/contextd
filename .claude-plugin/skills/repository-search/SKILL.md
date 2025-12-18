@@ -11,7 +11,7 @@ Semantic code search finds code by meaning, not just keywords. Index once, searc
 
 ## When to Use
 
-**ALWAYS use repository_search FIRST for code lookups:**
+**ALWAYS use semantic_search FIRST for code lookups:**
 - "Where is authentication handled?"
 - "Find error handling patterns"
 - "How does the API validate input?"
@@ -19,13 +19,26 @@ Semantic code search finds code by meaning, not just keywords. Index once, searc
 **Use Read/Grep instead when:**
 - You know the exact file path
 - You need exact string matching
-- File isn't indexed yet
 
 ## Tools
 
+### semantic_search (PREFERRED)
+
+Smart search that auto-selects the best method:
+```json
+{
+  "query": "user authentication validation",
+  "project_path": "/path/to/repo",
+  "limit": 10
+}
+```
+- Uses semantic search if repository is indexed
+- Falls back to grep automatically if not indexed
+- No manual indexing required
+
 ### repository_index
 
-Index a repository for semantic search:
+Index a repository for semantic search (optional - enhances semantic_search):
 ```json
 {
   "path": "/path/to/repo",
@@ -37,7 +50,7 @@ Index a repository for semantic search:
 
 ### repository_search
 
-Search indexed code semantically:
+Direct semantic search (requires prior indexing):
 ```json
 {
   "query": "user authentication validation",

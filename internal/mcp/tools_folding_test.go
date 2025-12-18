@@ -37,7 +37,7 @@ func setupFoldingTestServer(t *testing.T) (*Server, *folding.BranchManager) {
 	vectorStore := &mockVectorStore{}
 
 	// Create required services
-	checkpointSvc, err := checkpoint.NewService(checkpoint.DefaultServiceConfig(), vectorStore, logger)
+	checkpointSvc, err := checkpoint.NewServiceWithStore(checkpoint.DefaultServiceConfig(), vectorStore, logger)
 	require.NoError(t, err)
 
 	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), vectorStore, logger)

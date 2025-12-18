@@ -77,7 +77,8 @@ func DefaultServiceConfig() *Config {
 // service implements the Service interface.
 type service struct {
 	config *Config
-	store  vectorstore.Store
+	store  vectorstore.Store         // Legacy single-store mode
+	stores vectorstore.StoreProvider // Database-per-project isolation mode
 	logger *zap.Logger
 
 	// Telemetry
@@ -106,6 +107,38 @@ func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Servi
 	s := &service{
 		config: cfg,
 		store:  store,
+		logger: logger,
+		tracer: otel.Tracer(instrumentationName),
+		meter:  otel.Meter(instrumentationName),
+	}
+
+	s.initMetrics()
+
+	return s, nil
+}
+
+// NewServiceWithStoreProvider creates a remediation service using StoreProvider
+// for database-per-scope isolation.
+//
+// With StoreProvider, each scope level (org, team, project) gets its own
+// chromem.DB instance at a unique filesystem path, providing physical isolation.
+//
+// The collection naming within each store is simplified to just "remediations"
+// since isolation is handled at the store/directory level.
+func NewServiceWithStoreProvider(cfg *Config, stores vectorstore.StoreProvider, logger *zap.Logger) (Service, error) {
+	if cfg == nil {
+		cfg = DefaultServiceConfig()
+	}
+	if stores == nil {
+		return nil, errors.New("store provider is required")
+	}
+	if logger == nil {
+		return nil, errors.New("logger is required for remediation service")
+	}
+
+	s := &service{
+		config: cfg,
+		stores: stores,
 		logger: logger,
 		tracer: otel.Tracer(instrumentationName),
 		meter:  otel.Meter(instrumentationName),
@@ -148,7 +181,43 @@ func (s *service) initMetrics() {
 	}
 }
 
+// getStore returns the appropriate store and collection name based on scope.
+// With StoreProvider, each scope level gets its own chromem.DB instance.
+// With legacy Store, collection names include scope prefixes.
+func (s *service) getStore(ctx context.Context, tenantID string, scope Scope, teamID, projectPath string) (vectorstore.Store, string, error) {
+	if s.stores != nil {
+		// Use StoreProvider for database-per-scope isolation
+		var store vectorstore.Store
+		var err error
+
+		switch scope {
+		case ScopeProject:
+			store, err = s.stores.GetProjectStore(ctx, tenantID, teamID, projectPath)
+		case ScopeTeam:
+			store, err = s.stores.GetTeamStore(ctx, tenantID, teamID)
+		case ScopeOrg:
+			store, err = s.stores.GetOrgStore(ctx, tenantID)
+		default:
+			store, err = s.stores.GetOrgStore(ctx, tenantID)
+		}
+
+		if err != nil {
+			return nil, "", fmt.Errorf("getting store for scope %s: %w", scope, err)
+		}
+
+		// With StoreProvider, use simple collection name (isolation is at store level)
+		return store, s.config.CollectionPrefix, nil
+	}
+
+	// Legacy: single store with prefixed collection names
+	if s.store == nil {
+		return nil, "", errors.New("no store configured")
+	}
+	return s.store, s.collectionName(tenantID, scope, teamID, projectPath), nil
+}
+
 // collectionName returns the collection name for a given tenant and scope.
+// Used in legacy single-store mode.
 func (s *service) collectionName(tenantID string, scope Scope, teamID, projectPath string) string {
 	switch scope {
 	case ScopeOrg:
@@ -208,8 +277,8 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	// Build metadata filters (excludes confidence - that's post-filtered)
 	filters := s.buildSearchFilters(req)
 
-	// Determine which collections to search
-	collections := s.getSearchCollections(req)
+	// Determine which scopes to search
+	scopes := s.getSearchScopes(req)
 
 	// Fetch extra results to account for confidence post-filtering
 	// Use 3x multiplier to ensure enough results after filtering, with bounds
@@ -222,23 +291,41 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	}
 
 	var allResults []*ScoredRemediation
+	var storesAccessed int
+	var lastStoreErr error
 
-	for _, collection := range collections {
+	for _, scopeInfo := range scopes {
+		// Get store for this scope
+		store, collection, err := s.getStore(ctx, req.TenantID, scopeInfo.scope, scopeInfo.teamID, scopeInfo.projectPath)
+		if err != nil {
+			s.logger.Warn("failed to get store", zap.String("scope", string(scopeInfo.scope)), zap.Error(err))
+			lastStoreErr = err
+			continue
+		}
+
 		// Check if collection exists
-		exists, err := s.store.CollectionExists(ctx, collection)
+		exists, err := store.CollectionExists(ctx, collection)
 		if err != nil {
 			s.logger.Warn("failed to check collection", zap.String("collection", collection), zap.Error(err))
+			lastStoreErr = err
 			continue
 		}
 		if !exists {
+			// Collection doesn't exist yet - not an error, just no data
+			// Note: We intentionally don't count this as "accessed" for error tracking
+			// because we want to know if ANY data was successfully retrieved
 			continue
 		}
 
-		results, err := s.store.SearchInCollection(ctx, collection, req.Query, searchLimit, filters)
+		results, err := store.SearchInCollection(ctx, collection, req.Query, searchLimit, filters)
 		if err != nil {
 			s.logger.Warn("search failed", zap.String("collection", collection), zap.Error(err))
+			lastStoreErr = err
 			continue
 		}
+
+		// Only increment after successful search (with or without results)
+		storesAccessed++
 
 		for _, r := range results {
 			rem := s.resultToRemediation(r)
@@ -262,6 +349,11 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 		}
 	}
 
+	// If no stores were accessible, return error instead of empty results
+	if storesAccessed == 0 && lastStoreErr != nil {
+		return nil, fmt.Errorf("failed to access any stores: %w", lastStoreErr)
+	}
+
 	// Sort by score and limit
 	allResults = sortAndLimit(allResults, limit)
 
@@ -275,6 +367,46 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 
 	span.SetAttributes(attribute.Int("result_count", len(allResults)))
 	return allResults, nil
+}
+
+// scopeInfo holds scope information for searching.
+type scopeInfo struct {
+	scope       Scope
+	teamID      string
+	projectPath string
+}
+
+// getSearchScopes returns the scopes to search based on request and hierarchy.
+// This replaces getSearchCollections to work with StoreProvider.
+func (s *service) getSearchScopes(req *SearchRequest) []scopeInfo {
+	var scopes []scopeInfo
+
+	switch req.Scope {
+	case ScopeProject:
+		scopes = append(scopes, scopeInfo{scope: ScopeProject, teamID: req.TeamID, projectPath: req.ProjectPath})
+		if req.IncludeHierarchy {
+			scopes = append(scopes, scopeInfo{scope: ScopeTeam, teamID: req.TeamID})
+			scopes = append(scopes, scopeInfo{scope: ScopeOrg})
+		}
+	case ScopeTeam:
+		scopes = append(scopes, scopeInfo{scope: ScopeTeam, teamID: req.TeamID})
+		if req.IncludeHierarchy {
+			scopes = append(scopes, scopeInfo{scope: ScopeOrg})
+		}
+	case ScopeOrg:
+		scopes = append(scopes, scopeInfo{scope: ScopeOrg})
+	default:
+		// Search all applicable scopes if not specified
+		if req.ProjectPath != "" {
+			scopes = append(scopes, scopeInfo{scope: ScopeProject, teamID: req.TeamID, projectPath: req.ProjectPath})
+		}
+		if req.TeamID != "" {
+			scopes = append(scopes, scopeInfo{scope: ScopeTeam, teamID: req.TeamID})
+		}
+		scopes = append(scopes, scopeInfo{scope: ScopeOrg})
+	}
+
+	return scopes
 }
 
 // buildSearchFilters creates metadata filters from search request.
@@ -374,18 +506,22 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 		UpdatedAt:     now,
 	}
 
-	// Get collection name
-	collection := s.collectionName(req.TenantID, req.Scope, req.TeamID, req.ProjectPath)
+	// Get store and collection name
+	store, collection, err := s.getStore(ctx, req.TenantID, req.Scope, req.TeamID, req.ProjectPath)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
 
 	// Ensure collection exists
-	exists, err := s.store.CollectionExists(ctx, collection)
+	exists, err := store.CollectionExists(ctx, collection)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
 		// Use store's configured vector size (0 = use default from embedder)
-		if err := s.store.CreateCollection(ctx, collection, 0); err != nil {
+		if err := store.CreateCollection(ctx, collection, 0); err != nil {
 			span.RecordError(err)
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
@@ -394,7 +530,7 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	// Convert to document for storage (Store handles embedding internally)
 	doc := s.remediationToDocument(rem, collection)
 
-	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
+	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to store remediation: %w", err)
@@ -420,6 +556,9 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 }
 
 // Get retrieves a remediation by ID.
+//
+// Note: This method searches org-level scope only. For project or team-scoped
+// remediations, use GetByScope which accepts full scope parameters.
 func (s *service) Get(ctx context.Context, tenantID, remediationID string) (*Remediation, error) {
 	ctx, span := s.tracer.Start(ctx, "remediation.get")
 	defer span.End()
@@ -436,7 +575,38 @@ func (s *service) Get(ctx context.Context, tenantID, remediationID string) (*Rem
 	}
 	s.mu.RUnlock()
 
-	// Try each scope level
+	// With StoreProvider, we can only search org scope without teamID/projectPath
+	// For legacy store, try all scopes
+	if s.stores != nil {
+		// StoreProvider mode: only search org scope
+		store, collection, err := s.getStore(ctx, tenantID, ScopeOrg, "", "")
+		if err != nil {
+			return nil, err
+		}
+
+		exists, err := store.CollectionExists(ctx, collection)
+		if err != nil || !exists {
+			return nil, fmt.Errorf("remediation not found: %s", remediationID)
+		}
+
+		filters := map[string]interface{}{
+			"id": remediationID,
+		}
+
+		results, err := store.SearchInCollection(ctx, collection, "remediation", 1, filters)
+		if err != nil {
+			return nil, fmt.Errorf("searching for remediation: %w", err)
+		}
+		if len(results) > 0 {
+			rem := s.resultToRemediation(results[0])
+			if rem != nil {
+				return rem, nil
+			}
+		}
+		return nil, fmt.Errorf("remediation not found: %s", remediationID)
+	}
+
+	// Legacy mode: try each scope level (can enumerate collections)
 	scopes := []Scope{ScopeProject, ScopeTeam, ScopeOrg}
 	for _, scope := range scopes {
 		collection := s.collectionName(tenantID, scope, "", "")
@@ -459,6 +629,53 @@ func (s *service) Get(ctx context.Context, tenantID, remediationID string) (*Rem
 			if rem != nil {
 				return rem, nil
 			}
+		}
+	}
+
+	return nil, fmt.Errorf("remediation not found: %s", remediationID)
+}
+
+// GetByScope retrieves a remediation by ID within a specific scope.
+// This method works with both legacy Store and StoreProvider modes.
+func (s *service) GetByScope(ctx context.Context, tenantID, remediationID string, scope Scope, teamID, projectPath string) (*Remediation, error) {
+	ctx, span := s.tracer.Start(ctx, "remediation.get_by_scope")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("tenant_id", tenantID),
+		attribute.String("remediation_id", remediationID),
+		attribute.String("scope", string(scope)),
+	)
+
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return nil, errors.New("service is closed")
+	}
+	s.mu.RUnlock()
+
+	store, collection, err := s.getStore(ctx, tenantID, scope, teamID, projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := store.CollectionExists(ctx, collection)
+	if err != nil || !exists {
+		return nil, fmt.Errorf("remediation not found: %s", remediationID)
+	}
+
+	filters := map[string]interface{}{
+		"id": remediationID,
+	}
+
+	results, err := store.SearchInCollection(ctx, collection, "remediation", 1, filters)
+	if err != nil {
+		return nil, fmt.Errorf("searching for remediation: %w", err)
+	}
+	if len(results) > 0 {
+		rem := s.resultToRemediation(results[0])
+		if rem != nil {
+			return rem, nil
 		}
 	}
 
@@ -503,18 +720,22 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	rem.UsageCount++
 	rem.UpdatedAt = time.Now()
 
-	// Update in storage (delete and re-add with new confidence)
-	collection := s.collectionName(req.TenantID, rem.Scope, rem.TeamID, rem.ProjectPath)
+	// Get store for the remediation's scope
+	store, collection, err := s.getStore(ctx, req.TenantID, rem.Scope, rem.TeamID, rem.ProjectPath)
+	if err != nil {
+		span.RecordError(err)
+		return err
+	}
 
 	// Delete old version
-	if err := s.store.DeleteDocumentsFromCollection(ctx, collection, []string{rem.ID}); err != nil {
+	if err := store.DeleteDocumentsFromCollection(ctx, collection, []string{rem.ID}); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to delete old remediation: %w", err)
 	}
 
 	// Re-add with updated confidence
 	doc := s.remediationToDocument(rem, collection)
-	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
+	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to update remediation: %w", err)
@@ -537,6 +758,9 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 }
 
 // Delete removes a remediation.
+//
+// Note: This method searches org-level scope only. For project or team-scoped
+// remediations, use DeleteByScope which accepts full scope parameters.
 func (s *service) Delete(ctx context.Context, tenantID, remediationID string) error {
 	ctx, span := s.tracer.Start(ctx, "remediation.delete")
 	defer span.End()
@@ -553,7 +777,26 @@ func (s *service) Delete(ctx context.Context, tenantID, remediationID string) er
 	}
 	s.mu.RUnlock()
 
-	// Try each scope level
+	// With StoreProvider, we can only search org scope without teamID/projectPath
+	if s.stores != nil {
+		store, collection, err := s.getStore(ctx, tenantID, ScopeOrg, "", "")
+		if err != nil {
+			return err
+		}
+
+		exists, err := store.CollectionExists(ctx, collection)
+		if err != nil || !exists {
+			return fmt.Errorf("remediation not found: %s", remediationID)
+		}
+
+		if err := store.DeleteDocumentsFromCollection(ctx, collection, []string{remediationID}); err == nil {
+			s.logger.Info("deleted remediation", zap.String("id", remediationID))
+			return nil
+		}
+		return fmt.Errorf("remediation not found: %s", remediationID)
+	}
+
+	// Legacy mode: try each scope level
 	scopes := []Scope{ScopeProject, ScopeTeam, ScopeOrg}
 	for _, scope := range scopes {
 		collection := s.collectionName(tenantID, scope, "", "")
@@ -569,6 +812,43 @@ func (s *service) Delete(ctx context.Context, tenantID, remediationID string) er
 	}
 
 	return fmt.Errorf("remediation not found: %s", remediationID)
+}
+
+// DeleteByScope removes a remediation from a specific scope.
+// This method works with both legacy Store and StoreProvider modes.
+func (s *service) DeleteByScope(ctx context.Context, tenantID, remediationID string, scope Scope, teamID, projectPath string) error {
+	ctx, span := s.tracer.Start(ctx, "remediation.delete_by_scope")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("tenant_id", tenantID),
+		attribute.String("remediation_id", remediationID),
+		attribute.String("scope", string(scope)),
+	)
+
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return errors.New("service is closed")
+	}
+	s.mu.RUnlock()
+
+	store, collection, err := s.getStore(ctx, tenantID, scope, teamID, projectPath)
+	if err != nil {
+		return err
+	}
+
+	exists, err := store.CollectionExists(ctx, collection)
+	if err != nil || !exists {
+		return fmt.Errorf("remediation not found: %s", remediationID)
+	}
+
+	if err := store.DeleteDocumentsFromCollection(ctx, collection, []string{remediationID}); err != nil {
+		return fmt.Errorf("failed to delete remediation: %w", err)
+	}
+
+	s.logger.Info("deleted remediation", zap.String("id", remediationID), zap.String("scope", string(scope)))
+	return nil
 }
 
 // Close closes the service.

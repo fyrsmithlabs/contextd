@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,9 +15,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
+
+// collectionCheckpoints is the simple collection name used within each project store.
+// With StoreProvider, each project gets its own chromem.DB instance, so we don't
+// need prefixed collection names like "{tenant}_{team}_{project}_checkpoints".
+const collectionCheckpoints = "checkpoints"
 
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/checkpoint"
 
@@ -67,9 +70,8 @@ func DefaultServiceConfig() *Config {
 // service implements the Service interface.
 type service struct {
 	config *Config
-	store  vectorstore.Store
+	stores vectorstore.StoreProvider
 	logger *zap.Logger
-	router tenant.CollectionRouter
 
 	// Telemetry
 	tracer        trace.Tracer
@@ -83,7 +85,34 @@ type service struct {
 }
 
 // NewService creates a new checkpoint service.
-func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Service, error) {
+func NewService(cfg *Config, stores vectorstore.StoreProvider, logger *zap.Logger) (Service, error) {
+	if cfg == nil {
+		cfg = DefaultServiceConfig()
+	}
+	if stores == nil {
+		return nil, errors.New("store provider is required")
+	}
+	if logger == nil {
+		return nil, errors.New("logger is required for checkpoint service")
+	}
+
+	s := &service{
+		config: cfg,
+		stores: stores,
+		logger: logger,
+		tracer: otel.Tracer(instrumentationName),
+		meter:  otel.Meter(instrumentationName),
+	}
+
+	s.initMetrics()
+
+	return s, nil
+}
+
+// NewServiceWithStore creates a checkpoint service with a legacy single Store.
+// This is for backward compatibility during migration.
+// Deprecated: Use NewService with StoreProvider instead.
+func NewServiceWithStore(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Service, error) {
 	if cfg == nil {
 		cfg = DefaultServiceConfig()
 	}
@@ -96,9 +125,8 @@ func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Servi
 
 	s := &service{
 		config: cfg,
-		store:  store,
+		stores: &legacyStoreAdapter{store: store},
 		logger: logger,
-		router: tenant.NewRouter(false),
 		tracer: otel.Tracer(instrumentationName),
 		meter:  otel.Meter(instrumentationName),
 	}
@@ -106,6 +134,27 @@ func NewService(cfg *Config, store vectorstore.Store, logger *zap.Logger) (Servi
 	s.initMetrics()
 
 	return s, nil
+}
+
+// legacyStoreAdapter wraps a single Store as a StoreProvider for backward compatibility.
+type legacyStoreAdapter struct {
+	store vectorstore.Store
+}
+
+func (a *legacyStoreAdapter) GetProjectStore(ctx context.Context, tenant, team, project string) (vectorstore.Store, error) {
+	return a.store, nil
+}
+
+func (a *legacyStoreAdapter) GetTeamStore(ctx context.Context, tenant, team string) (vectorstore.Store, error) {
+	return a.store, nil
+}
+
+func (a *legacyStoreAdapter) GetOrgStore(ctx context.Context, tenant string) (vectorstore.Store, error) {
+	return a.store, nil
+}
+
+func (a *legacyStoreAdapter) Close() error {
+	return a.store.Close()
 }
 
 // initMetrics initializes OpenTelemetry metrics.
@@ -143,6 +192,8 @@ func (s *service) initMetrics() {
 }
 
 // observeCheckpointCount is called when metrics are collected to report current checkpoint count.
+// Note: With StoreProvider, we can't easily count across all project stores without a registry.
+// This metric now reports 0 as a placeholder until per-project metrics are implemented.
 func (s *service) observeCheckpointCount(ctx context.Context, observer metric.Int64Observer) error {
 	s.mu.RLock()
 	if s.closed {
@@ -151,34 +202,17 @@ func (s *service) observeCheckpointCount(ctx context.Context, observer metric.In
 	}
 	s.mu.RUnlock()
 
-	// Get count from all tenant collections
-	// For now, we report a single total; per-tenant would need attribute labels
-	// This is a lightweight operation - just get collection info
-	collections, err := s.store.ListCollections(ctx)
-	if err != nil {
-		s.logger.Debug("failed to list collections for checkpoint count", zap.Error(err))
-		return nil // Don't fail metrics collection
-	}
-
-	var total int64
-	for _, coll := range collections {
-		// Only count checkpoint collections
-		if strings.Contains(coll, "checkpoint") {
-			info, err := s.store.GetCollectionInfo(ctx, coll)
-			if err == nil && info != nil {
-				total += int64(info.PointCount)
-			}
-		}
-	}
-
-	observer.Observe(total)
+	// With database-per-project isolation, counting all checkpoints requires
+	// iterating through all project stores. For now, report 0.
+	// TODO: Implement per-project checkpoint metrics with labels.
+	observer.Observe(0)
 	return nil
 }
 
-// collectionName returns the collection name for checkpoints (project-level).
-// Per spec, checkpoints are stored at project level: {team}_{project}_checkpoints
-func (s *service) collectionName(tenantID, teamID, projectID string) (string, error) {
-	return s.router.GetCollectionName(tenant.ScopeProject, tenant.CollectionCheckpoints, tenantID, teamID, projectID)
+// getProjectStore returns the vectorstore for a specific project.
+// With StoreProvider, each project gets its own isolated chromem.DB instance.
+func (s *service) getProjectStore(ctx context.Context, tenantID, teamID, projectID string) (vectorstore.Store, error) {
+	return s.stores.GetProjectStore(ctx, tenantID, teamID, projectID)
 }
 
 // Save creates a new checkpoint.
@@ -201,6 +235,14 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	}
 	s.mu.RUnlock()
 
+	// Get project-scoped store
+	store, err := s.getProjectStore(ctx, req.TenantID, req.TeamID, req.ProjectID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, fmt.Errorf("failed to get project store: %w", err)
+	}
+
 	// Create checkpoint
 	cp := &Checkpoint{
 		ID:          uuid.New().String(),
@@ -221,33 +263,25 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 		CreatedAt:   time.Now(),
 	}
 
-	// Get collection name
-	collection, err := s.collectionName(req.TenantID, req.TeamID, req.ProjectID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, fmt.Errorf("failed to get collection name: %w", err)
-	}
-
-	// Ensure collection exists
-	exists, err := s.store.CollectionExists(ctx, collection)
+	// Ensure collection exists (simple name, no routing prefix)
+	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
 		// Use store's configured vector size (0 = use default from embedder)
-		if err := s.store.CreateCollection(ctx, collection, 0); err != nil {
+		if err := store.CreateCollection(ctx, collectionCheckpoints, 0); err != nil {
 			span.RecordError(err)
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
 	}
 
 	// Convert checkpoint to document for storage
-	doc := s.checkpointToDocument(cp, collection)
+	doc := s.checkpointToDocument(cp, collectionCheckpoints)
 
 	// Store in vector store
-	if _, err := s.store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
+	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to save checkpoint: %w", err)
@@ -291,15 +325,16 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(req.TenantID, req.TeamID, req.ProjectID)
+	// Get project-scoped store
+	store, err := s.getProjectStore(ctx, req.TenantID, req.TeamID, req.ProjectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, fmt.Errorf("failed to get collection name: %w", err)
+		return nil, fmt.Errorf("failed to get project store: %w", err)
 	}
 
 	// Check if collection exists
-	exists, err := s.store.CollectionExists(ctx, collection)
+	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to check collection: %w", err)
@@ -312,12 +347,6 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	filters := make(map[string]interface{})
 	if req.SessionID != "" {
 		filters["session_id"] = req.SessionID
-	}
-	if req.TeamID != "" {
-		filters["team_id"] = req.TeamID
-	}
-	if req.ProjectID != "" {
-		filters["project_id"] = req.ProjectID
 	}
 	if req.ProjectPath != "" {
 		filters["project_path"] = req.ProjectPath
@@ -333,7 +362,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 
 	// Search with a generic query to get checkpoints
 	// Use "checkpoint" as a neutral search term since we filter by metadata
-	results, err := s.store.SearchInCollection(ctx, collection, "checkpoint", limit, filters)
+	results, err := store.SearchInCollection(ctx, collectionCheckpoints, "checkpoint", limit, filters)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -435,15 +464,16 @@ func (s *service) Get(ctx context.Context, tenantID, teamID, projectID, checkpoi
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(tenantID, teamID, projectID)
+	// Get project-scoped store
+	store, err := s.getProjectStore(ctx, tenantID, teamID, projectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, fmt.Errorf("failed to get collection name: %w", err)
+		return nil, fmt.Errorf("failed to get project store: %w", err)
 	}
 
 	// Check if collection exists
-	exists, err := s.store.CollectionExists(ctx, collection)
+	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil || !exists {
 		return nil, fmt.Errorf("checkpoint not found: %s", checkpointID)
 	}
@@ -454,7 +484,7 @@ func (s *service) Get(ctx context.Context, tenantID, teamID, projectID, checkpoi
 	}
 
 	// Use a dummy query since we're filtering by ID
-	results, err := s.store.SearchInCollection(ctx, collection, "checkpoint", 1, filters)
+	results, err := store.SearchInCollection(ctx, collectionCheckpoints, "checkpoint", 1, filters)
 	if err != nil {
 		span.RecordError(err)
 		return nil, fmt.Errorf("failed to get checkpoint: %w", err)
@@ -491,14 +521,15 @@ func (s *service) Delete(ctx context.Context, tenantID, teamID, projectID, check
 	}
 	s.mu.RUnlock()
 
-	collection, err := s.collectionName(tenantID, teamID, projectID)
+	// Get project-scoped store
+	store, err := s.getProjectStore(ctx, tenantID, teamID, projectID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to get collection name: %w", err)
+		return fmt.Errorf("failed to get project store: %w", err)
 	}
 
-	if err := s.store.DeleteDocumentsFromCollection(ctx, collection, []string{checkpointID}); err != nil {
+	if err := store.DeleteDocumentsFromCollection(ctx, collectionCheckpoints, []string{checkpointID}); err != nil {
 		span.RecordError(err)
 		return fmt.Errorf("failed to delete checkpoint: %w", err)
 	}
