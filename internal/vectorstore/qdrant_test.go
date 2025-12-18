@@ -173,6 +173,46 @@ func TestQdrantConfig_ApplyDefaults(t *testing.T) {
 	assert.Equal(t, qdrant.Distance_Cosine, config.Distance)
 }
 
+func TestQdrantConfig_IsolationViaConfig(t *testing.T) {
+	// Test that isolation can be set via config (thread-safe pattern)
+	// This mirrors ChromemConfig.Isolation for consistency
+
+	t.Run("isolation field exists in config", func(t *testing.T) {
+		// This test verifies the config struct has an Isolation field
+		config := vectorstore.QdrantConfig{
+			Host:           "localhost",
+			Port:           6334,
+			CollectionName: "test_collection",
+			VectorSize:     384,
+			Isolation:      vectorstore.NewNoIsolation(),
+		}
+
+		// Verify config is valid
+		err := config.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("store uses config isolation when provided", func(t *testing.T) {
+		// Skip if Qdrant not available - this tests constructor behavior
+		config := vectorstore.QdrantConfig{
+			Host:           "localhost",
+			Port:           6334,
+			CollectionName: "test_isolation",
+			VectorSize:     384,
+			Isolation:      vectorstore.NewNoIsolation(),
+		}
+
+		store, err := vectorstore.NewQdrantStore(config, &mockEmbedder{vectorSize: 384})
+		if err != nil {
+			t.Skipf("Qdrant not available: %v", err)
+		}
+		defer store.Close()
+
+		// Verify isolation mode was set from config
+		assert.Equal(t, "none", store.IsolationMode().Mode())
+	})
+}
+
 // Integration test - requires running Qdrant instance
 func TestQdrantStore_Integration(t *testing.T) {
 	if testing.Short() {

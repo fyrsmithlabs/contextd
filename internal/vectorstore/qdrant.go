@@ -70,6 +70,11 @@ type QdrantConfig struct {
 	// CircuitBreakerThreshold is the number of failures before opening circuit.
 	// Default: 5
 	CircuitBreakerThreshold int
+
+	// Isolation is the tenant isolation mode.
+	// Default: PayloadIsolation for fail-closed security.
+	// Set at construction time; immutable afterward to prevent race conditions.
+	Isolation IsolationMode
 }
 
 // Validate validates the configuration.
@@ -231,11 +236,17 @@ func NewQdrantStore(config QdrantConfig, embedder Embedder) (*QdrantStore, error
 		return nil, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	}
 
+	// Use isolation from config, defaulting to PayloadIsolation for fail-closed security
+	isolation := config.Isolation
+	if isolation == nil {
+		isolation = NewPayloadIsolation()
+	}
+
 	store := &QdrantStore{
 		client:    client,
 		embedder:  embedder,
 		config:    config,
-		isolation: NewPayloadIsolation(), // Default to payload isolation for fail-closed security
+		isolation: isolation,
 	}
 
 	// Health check
@@ -259,8 +270,18 @@ func (s *QdrantStore) Close() error {
 }
 
 // SetIsolationMode sets the tenant isolation mode for this store.
+//
+// DEPRECATED: Prefer setting isolation via config at construction time
+// (e.g., QdrantConfig.Isolation) for thread-safety. This method exists
+// for backward compatibility but should only be called once before any
+// operations. Calling SetIsolationMode concurrently with operations may
+// cause race conditions.
+//
 // Use NewPayloadIsolation() for multi-tenant payload filtering,
-// or NewNoIsolation() for testing (default).
+// NewFilesystemIsolation() for database-per-project isolation,
+// or NewNoIsolation() for testing only.
+//
+// Default is PayloadIsolation for fail-closed security.
 func (s *QdrantStore) SetIsolationMode(mode IsolationMode) {
 	s.isolation = mode
 }

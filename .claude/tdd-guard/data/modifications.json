@@ -1,0 +1,11 @@
+{
+  "session_id": "b423d8b3-3d12-41b0-881e-508eb5e6e4fb",
+  "transcript_path": "/home/dahendel/.claude/projects/-home-dahendel-projects-contextd/b423d8b3-3d12-41b0-881e-508eb5e6e4fb.jsonl",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/home/dahendel/projects/contextd/internal/vectorstore/qdrant.go",
+    "old_string": "// SetIsolationMode sets the tenant isolation mode for this store.\n// Use NewPayloadIsolation() for multi-tenant payload filtering,\n// or NewNoIsolation() for testing (default).\nfunc (s *QdrantStore) SetIsolationMode(mode IsolationMode) {",
+    "new_string": "// SetIsolationMode sets the tenant isolation mode for this store.\n//\n// DEPRECATED: Prefer setting isolation via config at construction time\n// (e.g., QdrantConfig.Isolation) for thread-safety. This method exists\n// for backward compatibility but should only be called once before any\n// operations. Calling SetIsolationMode concurrently with operations may\n// cause race conditions.\n//\n// Use NewPayloadIsolation() for multi-tenant payload filtering,\n// NewFilesystemIsolation() for database-per-project isolation,\n// or NewNoIsolation() for testing only.\n//\n// Default is PayloadIsolation for fail-closed security.\nfunc (s *QdrantStore) SetIsolationMode(mode IsolationMode) {"
+  }
+}
