@@ -155,6 +155,18 @@ func TestMetadataBuilder(t *testing.T) {
 			t.Errorf("Build() project_id = %v, want proj-1", got["project_id"])
 		}
 	})
+
+	t.Run("with map merges existing metadata", func(t *testing.T) {
+		existing := map[string]interface{}{"a": 1, "b": 2}
+		got := NewMetadataBuilder().
+			WithMap(existing).
+			With("c", 3).
+			Build()
+
+		if got["a"] != 1 || got["b"] != 2 || got["c"] != 3 {
+			t.Errorf("Build() = %v, want {a:1, b:2, c:3}", got)
+		}
+	})
 }
 
 func TestValidateFilterHasTenant(t *testing.T) {
@@ -181,6 +193,11 @@ func TestValidateFilterHasTenant(t *testing.T) {
 		{
 			name:    "empty tenant_id",
 			filters: map[string]interface{}{"tenant_id": ""},
+			wantErr: ErrInvalidTenant,
+		},
+		{
+			name:    "tenant_id wrong type (int)",
+			filters: map[string]interface{}{"tenant_id": 123},
 			wantErr: ErrInvalidTenant,
 		},
 	}
@@ -232,6 +249,14 @@ func TestExtractTenantFromFilters(t *testing.T) {
 		}
 		if got.TeamID != "" || got.ProjectID != "" {
 			t.Errorf("ExtractTenantFromFilters() optional fields should be empty")
+		}
+	})
+
+	t.Run("tenant_id wrong type returns error", func(t *testing.T) {
+		filters := map[string]interface{}{"tenant_id": 123}
+		_, err := ExtractTenantFromFilters(filters)
+		if err != ErrInvalidTenant {
+			t.Errorf("ExtractTenantFromFilters() error = %v, want ErrInvalidTenant", err)
 		}
 	})
 }

@@ -195,6 +195,32 @@ func TestFilesystemIsolation_InjectFilter(t *testing.T) {
 	})
 }
 
+func TestFilesystemIsolation_InjectMetadata(t *testing.T) {
+	iso := NewFilesystemIsolation()
+
+	t.Run("adds tenant metadata for audit purposes", func(t *testing.T) {
+		ctx := ContextWithTenant(context.Background(), &TenantInfo{
+			TenantID:  "org-123",
+			TeamID:    "team-1",
+			ProjectID: "proj-1",
+		})
+
+		docs := []Document{{ID: "doc1", Content: "test"}}
+		err := iso.InjectMetadata(ctx, docs)
+		if err != nil {
+			t.Fatalf("InjectMetadata() error = %v", err)
+		}
+
+		// Filesystem isolation still adds metadata for audit purposes
+		if docs[0].Metadata["tenant_id"] != "org-123" {
+			t.Errorf("InjectMetadata() tenant_id = %v, want org-123", docs[0].Metadata["tenant_id"])
+		}
+		if docs[0].Metadata["team_id"] != "team-1" {
+			t.Errorf("InjectMetadata() team_id = %v, want team-1", docs[0].Metadata["team_id"])
+		}
+	})
+}
+
 func TestNoIsolation(t *testing.T) {
 	iso := NewNoIsolation()
 
