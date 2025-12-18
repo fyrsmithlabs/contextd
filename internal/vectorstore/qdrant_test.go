@@ -10,31 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockEmbedder is a simple embedder that returns fixed-size zero vectors.
-type mockEmbedder struct {
-	vectorSize int
-}
-
-func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
-	embeddings := make([][]float32, len(texts))
-	for i := range embeddings {
-		embeddings[i] = make([]float32, m.vectorSize)
-		// Simple hash-based embedding for testing
-		for j := range embeddings[i] {
-			embeddings[i][j] = float32((i + j) % 10) / 10.0
-		}
-	}
-	return embeddings, nil
-}
-
-func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
-	vectors, err := m.EmbedDocuments(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	return vectors[0], nil
-}
-
 func TestValidateCollectionName(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -202,7 +177,7 @@ func TestQdrantConfig_IsolationViaConfig(t *testing.T) {
 			Isolation:      vectorstore.NewNoIsolation(),
 		}
 
-		store, err := vectorstore.NewQdrantStore(config, &mockEmbedder{vectorSize: 384})
+		store, err := vectorstore.NewQdrantStore(config, &TestEmbedder{VectorSize: 384})
 		if err != nil {
 			t.Skipf("Qdrant not available: %v", err)
 		}
@@ -231,7 +206,7 @@ func TestQdrantStore_Integration(t *testing.T) {
 		UseTLS:         false,
 	}
 
-	embedder := &mockEmbedder{vectorSize: 10}
+	embedder := &TestEmbedder{VectorSize: 10}
 
 	store, err := vectorstore.NewQdrantStore(config, embedder)
 	if err != nil {
