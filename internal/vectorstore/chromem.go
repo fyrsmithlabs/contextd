@@ -74,11 +74,13 @@ func (c *ChromemConfig) Validate() error {
 //   - No external database service needed
 //   - Fast similarity search (1000 docs in 0.3ms)
 //   - Automatic persistence to disk
+//   - Tenant isolation via payload filtering or filesystem isolation
 type ChromemStore struct {
-	db       *chromem.DB
-	embedder Embedder
-	config   ChromemConfig
-	logger   *zap.Logger
+	db        *chromem.DB
+	embedder  Embedder
+	config    ChromemConfig
+	logger    *zap.Logger
+	isolation IsolationMode
 
 	// collections tracks which collections have been created
 	collections sync.Map
@@ -118,10 +120,11 @@ func NewChromemStore(config ChromemConfig, embedder Embedder, logger *zap.Logger
 	}
 
 	store := &ChromemStore{
-		db:       db,
-		embedder: embedder,
-		config:   config,
-		logger:   logger,
+		db:        db,
+		embedder:  embedder,
+		config:    config,
+		logger:    logger,
+		isolation: NewPayloadIsolation(), // Default to payload isolation for fail-closed security
 	}
 
 	logger.Info("ChromemStore initialized",
@@ -144,6 +147,18 @@ func expandChromemPath(path string) (string, error) {
 		return filepath.Join(home, path[1:]), nil
 	}
 	return path, nil
+}
+
+// SetIsolationMode sets the tenant isolation mode for this store.
+// Use NewPayloadIsolation() for multi-tenant payload filtering,
+// or NewNoIsolation() for testing (default).
+func (s *ChromemStore) SetIsolationMode(mode IsolationMode) {
+	s.isolation = mode
+}
+
+// IsolationMode returns the current isolation mode.
+func (s *ChromemStore) IsolationMode() IsolationMode {
+	return s.isolation
 }
 
 // createEmbeddingFunc creates a chromem.EmbeddingFunc from our Embedder interface.
@@ -170,6 +185,7 @@ func (s *ChromemStore) getOrCreateCollection(ctx context.Context, name string) (
 }
 
 // AddDocuments adds documents to the vector store.
+// If isolation mode is set, tenant metadata is automatically injected.
 func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]string, error) {
 	ctx, span := chromemTracer.Start(ctx, "ChromemStore.AddDocuments")
 	defer span.End()
@@ -178,6 +194,15 @@ func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]str
 
 	if len(docs) == 0 {
 		return nil, ErrEmptyDocuments
+	}
+
+	// Inject tenant metadata if isolation mode requires it
+	if s.isolation != nil {
+		if err := s.isolation.InjectMetadata(ctx, docs); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("injecting tenant metadata: %w", err)
+		}
 	}
 
 	// Determine collection name from first document
@@ -265,6 +290,7 @@ func (s *ChromemStore) SearchWithFilters(ctx context.Context, query string, k in
 }
 
 // SearchInCollection performs similarity search in a specific collection.
+// If isolation mode is set, tenant filters are automatically injected.
 func (s *ChromemStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]SearchResult, error) {
 	ctx, span := chromemTracer.Start(ctx, "ChromemStore.SearchInCollection")
 	defer span.End()
@@ -285,6 +311,17 @@ func (s *ChromemStore) SearchInCollection(ctx context.Context, collectionName st
 
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
+	}
+
+	// Inject tenant filters if isolation mode requires it
+	if s.isolation != nil {
+		var err error
+		filters, err = s.isolation.InjectFilter(ctx, filters)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("injecting tenant filter: %w", err)
+		}
 	}
 
 	collection := s.db.GetCollection(collectionName, s.createEmbeddingFunc())

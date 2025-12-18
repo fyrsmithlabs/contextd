@@ -155,6 +155,7 @@ func IsTransientError(err error) bool {
 //   - Better performance than HTTP REST
 //   - Full Qdrant feature access
 //   - Collection-per-project isolation
+//   - Tenant isolation via payload filtering
 type QdrantStore struct {
 	// client is the official Qdrant Go gRPC client
 	client *qdrant.Client
@@ -164,6 +165,9 @@ type QdrantStore struct {
 
 	// config holds the store configuration
 	config QdrantConfig
+
+	// isolation defines how tenant isolation is enforced
+	isolation IsolationMode
 
 	// collections is a cache of collection existence to avoid repeated checks
 	// Key: collection name, Value: true if exists
@@ -228,9 +232,10 @@ func NewQdrantStore(config QdrantConfig, embedder Embedder) (*QdrantStore, error
 	}
 
 	store := &QdrantStore{
-		client:   client,
-		embedder: embedder,
-		config:   config,
+		client:    client,
+		embedder:  embedder,
+		config:    config,
+		isolation: NewPayloadIsolation(), // Default to payload isolation for fail-closed security
 	}
 
 	// Health check
@@ -251,6 +256,18 @@ func (s *QdrantStore) Close() error {
 		return s.client.Close()
 	}
 	return nil
+}
+
+// SetIsolationMode sets the tenant isolation mode for this store.
+// Use NewPayloadIsolation() for multi-tenant payload filtering,
+// or NewNoIsolation() for testing (default).
+func (s *QdrantStore) SetIsolationMode(mode IsolationMode) {
+	s.isolation = mode
+}
+
+// IsolationMode returns the current isolation mode.
+func (s *QdrantStore) IsolationMode() IsolationMode {
+	return s.isolation
 }
 
 // healthCheck performs a health check on the Qdrant connection.
@@ -339,6 +356,7 @@ func (s *QdrantStore) isCircuitOpen() bool {
 }
 
 // AddDocuments adds documents to the vector store.
+// If isolation mode is set, tenant metadata is automatically injected.
 func (s *QdrantStore) AddDocuments(ctx context.Context, docs []Document) ([]string, error) {
 	ctx, span := tracer.Start(ctx, "QdrantStore.AddDocuments")
 	defer span.End()
@@ -350,6 +368,15 @@ func (s *QdrantStore) AddDocuments(ctx context.Context, docs []Document) ([]stri
 
 	if len(docs) == 0 {
 		return nil, fmt.Errorf("documents cannot be empty")
+	}
+
+	// Inject tenant metadata if isolation mode requires it
+	if s.isolation != nil {
+		if err := s.isolation.InjectMetadata(ctx, docs); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("injecting tenant metadata: %w", err)
+		}
 	}
 
 	// Generate embeddings
@@ -472,6 +499,7 @@ func (s *QdrantStore) SearchWithFilters(ctx context.Context, query string, k int
 }
 
 // SearchInCollection performs similarity search in a specific collection.
+// If isolation mode is set, tenant filters are automatically injected.
 func (s *QdrantStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]SearchResult, error) {
 	ctx, span := tracer.Start(ctx, "QdrantStore.SearchInCollection")
 	defer span.End()
@@ -502,6 +530,17 @@ func (s *QdrantStore) SearchInCollection(ctx context.Context, collectionName str
 	const maxQueryLength = 10000 // characters
 	if len(query) > maxQueryLength {
 		return nil, fmt.Errorf("query exceeds maximum length of %d characters", maxQueryLength)
+	}
+
+	// Inject tenant filters if isolation mode requires it
+	if s.isolation != nil {
+		var err error
+		filters, err = s.isolation.InjectFilter(ctx, filters)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("injecting tenant filter: %w", err)
+		}
 	}
 
 	// Generate embedding for query

@@ -318,6 +318,14 @@ func (m *mockVectorStore) GetCollectionInfo(ctx context.Context, collectionName 
 	}, nil
 }
 
+func (m *mockVectorStore) SetIsolationMode(mode vectorstore.IsolationMode) {
+	// No-op for mock
+}
+
+func (m *mockVectorStore) IsolationMode() vectorstore.IsolationMode {
+	return vectorstore.NewNoIsolation()
+}
+
 // DeveloperConfig configures a simulated developer.
 type DeveloperConfig struct {
 	ID        string
@@ -459,13 +467,15 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 	} else {
 		// Create own isolated store
 		embedder := newTestEmbedder(384)
-		var err error
-		store, err = vectorstore.NewChromemStore(vectorstore.ChromemConfig{
+		chromemStore, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
 			Path: "", // Empty = in-memory
 		}, embedder, d.logger)
 		if err != nil {
 			return fmt.Errorf("creating vector store: %w", err)
 		}
+		// Disable tenant isolation for test stores - isolation is handled by test harness
+		chromemStore.SetIsolationMode(vectorstore.NewNoIsolation())
+		store = chromemStore
 		d.ownsStore = true
 	}
 	d.vectorStore = store

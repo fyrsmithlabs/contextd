@@ -68,9 +68,32 @@ type Embedder interface {
 //   - Team: {team}_{type} (e.g., platform_memories)
 //   - Project: {team}_{project}_{type} (e.g., platform_contextd_memories)
 //
+// Tenant Isolation:
+//
+// Stores support two isolation modes configured via SetIsolationMode():
+//
+//   - PayloadIsolation: Single collection per type with metadata-based filtering.
+//     All documents include tenant_id, team_id, project_id in metadata.
+//     Queries automatically filter by tenant context from ctx.
+//     Requires: TenantInfo in context (see ContextWithTenant).
+//     Security: Fail-closed - missing tenant context returns ErrMissingTenant.
+//
+//   - FilesystemIsolation: Database-per-project isolation (legacy).
+//     Uses StoreProvider to create separate stores per tenant/project path.
+//     Physical filesystem isolation provides security boundary.
+//
+// When using PayloadIsolation, callers MUST provide tenant context:
+//
+//	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+//	    TenantID:  "org-123",
+//	    TeamID:    "team-1",    // optional
+//	    ProjectID: "proj-1",    // optional
+//	})
+//	results, err := store.Search(ctx, query, k)
+//
 // Implementations:
-//   - QdrantStore: Uses official Qdrant gRPC client (built-in)
-//   - Future providers via plugins
+//   - ChromemStore: Embedded chromem-go (default)
+//   - QdrantStore: External Qdrant gRPC client
 type Store interface {
 	// AddDocuments adds documents to the vector store.
 	//
@@ -156,6 +179,18 @@ type Store interface {
 	//
 	// Returns search results ordered by similarity score (highest first).
 	ExactSearch(ctx context.Context, collectionName string, query string, k int) ([]SearchResult, error)
+
+	// SetIsolationMode sets the tenant isolation mode for this store.
+	//
+	// Use NewPayloadIsolation() for multi-tenant payload filtering,
+	// NewFilesystemIsolation() for database-per-project isolation,
+	// or NewNoIsolation() for testing only.
+	//
+	// Default is PayloadIsolation for fail-closed security.
+	SetIsolationMode(mode IsolationMode)
+
+	// IsolationMode returns the current isolation mode.
+	IsolationMode() IsolationMode
 
 	// Close closes the vector store connection and releases resources.
 	Close() error
