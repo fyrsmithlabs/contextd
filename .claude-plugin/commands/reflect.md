@@ -139,19 +139,78 @@ User selects which findings to remediate. Respect user's choices.
 
 ### 7. Pressure Test Proposed Changes
 
-For each proposed fix:
+> **STATUS: v2 Roadmap Item**
+>
+> Full automated pressure testing is planned for v2. Currently, use the manual
+> process below. The v2 implementation will include:
+> - Automated scenario generation from memory/remediation context
+> - LLM-based counterfactual analysis
+> - Integration with the reflection feedback loop
 
-1. Generate test scenarios from the original failure
-2. Simulate agent behavior with proposed instruction
-3. Verify the instruction would have prevented the original behavior
-4. Report pass/fail for each scenario
+For each proposed fix, manually validate using the following process:
+
+#### Step 1: Extract the Original Context
+
+From the memory/remediation that surfaced the issue, identify:
+- **Trigger**: What prompted the problematic behavior?
+- **Rationalization**: How did the agent justify it?
+- **Outcome**: What negative result occurred?
 
 ```
-# Example pressure test
-Scenario: "Agent skipped TDD because 'function is trivial'"
-Proposed fix: Add to CLAUDE.md: "No function is too trivial for tests. Write test first."
-Test: Would this instruction have prevented the skip? → PASS/FAIL
+# Example extraction
+Memory: "Skipped TDD because function seemed trivial"
+Trigger: Simple getter function implementation
+Rationalization: "Too simple to need tests"
+Outcome: Bug in edge case caught late in review
 ```
+
+#### Step 2: Generate Test Scenarios
+
+Create 2-3 scenarios that would test the proposed instruction:
+
+| Scenario Type | Description | Purpose |
+|---------------|-------------|---------|
+| **Direct replay** | Exact situation from original failure | Verify basic fix |
+| **Boundary case** | Similar but slightly different situation | Test instruction specificity |
+| **Adversarial** | Agent trying to rationalize around instruction | Test instruction robustness |
+
+```
+# Example scenarios for "No function is too trivial for tests"
+1. Direct replay: "Implement getId() getter"
+2. Boundary case: "Implement toString() that just returns a field"
+3. Adversarial: "The test would be identical to the implementation"
+```
+
+#### Step 3: Evaluate Each Scenario
+
+For each scenario, ask:
+
+1. **Would the instruction apply?** (Yes/No)
+   - If No: Instruction may be too narrow
+2. **Would it be clear what to do?** (Yes/No)  
+   - If No: Instruction may be ambiguous
+3. **Could it be reasonably bypassed?** (Yes/No)
+   - If Yes: Instruction may need stronger language
+
+#### Step 4: Record Results
+
+```
+Pressure Test Results:
+├── Scenario 1 (Direct): PASS - Instruction clearly applies
+├── Scenario 2 (Boundary): PASS - "Trivial" definition is clear
+└── Scenario 3 (Adversarial): FAIL - "identical to implementation" creates loophole
+
+Recommendation: Strengthen to "No function is too trivial. If testing seems
+pointless, that's a sign the function design may need review."
+```
+
+#### Pass/Fail Criteria
+
+- **PASS**: Instruction would clearly prevent the original behavior in >= 2/3 scenarios
+- **CONDITIONAL PASS**: Works for direct replay but needs refinement for edge cases
+- **FAIL**: Instruction is too vague, narrow, or easily rationalized around
+
+If a pressure test fails, iterate on the proposed instruction before applying.
 
 ### 8. Review Summary
 
