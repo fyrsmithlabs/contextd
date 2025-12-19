@@ -1,10 +1,11 @@
-Analyze memories and remediations for behavior patterns, generate improvement reports, and optionally remediate with pressure-tested doc updates.
+Analyze memories and remediations for behavior patterns, evaluate policy compliance, and optionally remediate with pressure-tested doc updates.
 
 ## Flags
 
 | Flag | Description |
 |------|-------------|
 | `--health` | ReasoningBank health report only |
+| `--policies` | Policy compliance report only |
 | `--apply` | Apply changes after review using **tiered defaults**: security/destructive issues → full brainstorm, process/validation issues → quick proposals, style issues → auto-fix |
 | `--scope=project\|global` | Limit to project or global docs |
 | `--behavior=<type>` | Filter by behavior type (rationalized-skip, overclaimed, ignored-instruction, assumed-context, undocumented-decision) |
@@ -25,19 +26,28 @@ Analyze memories and remediations for behavior patterns, generate improvement re
 /contextd:reflect --apply
 ```
 
-### Example 2: High-Stakes Review
+### Example 2: Policy Compliance Only
+```bash
+# Check policy compliance for current session
+/contextd:reflect --policies
+
+# Policy compliance with specific severity
+/contextd:reflect --policies --severity=HIGH
+```
+
+### Example 3: High-Stakes Review
 ```bash
 # Full brainstorm for every finding - maximum deliberation
 /contextd:reflect --all-brainstorm --scope=global
 ```
 
-### Example 3: Trust Mode (Experienced Users)
+### Example 4: Trust Mode (Experienced Users)
 ```bash
 # Auto-fix all findings without prompts
 /contextd:reflect --all-auto
 ```
 
-### Example 4: Targeted Review
+### Example 5: Targeted Review
 ```bash
 # Only review rationalized-skip behaviors from last 7 days
 /contextd:reflect --behavior=rationalized-skip --since=7d --apply
@@ -66,7 +76,21 @@ Before searching, verify the repo index is up to date:
 repository_index(project_path)
 ```
 
-### 2. Generate Report (Default: Dry-Run)
+### 2. Load Active Policies
+
+Search for all enabled policies:
+
+```
+memory_search(project_id: "global", query: "type:policy enabled:true", limit: 50)
+```
+
+Parse policy content to extract:
+- `rule`: The MUST statement
+- `category`: verification, process, security, quality
+- `severity`: critical, high, medium
+- `scope`: global, skill:{name}, project:{path}
+
+### 3. Generate Report (Default: Dry-Run)
 
 Search for **behavioral patterns**, not technical failures:
 
@@ -92,7 +116,35 @@ semantic_search(project_path, "agent behavior patterns violations")
 | **assumed-context** | Assumed without verification | Assumed permission, requirements, state |
 | **undocumented-decision** | Significant choice without rationale | Changed architecture, picked library |
 
-### 3. Correlate Behavior → Source
+### 4. Evaluate Policy Compliance
+
+For each enabled policy, check recent actions:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  POLICY COMPLIANCE CHECK                                         │
+├──────────────────────────────────────────────────────────────────┤
+│  For each policy:                                                │
+│  1. Search recent memories for policy-relevant actions           │
+│  2. Determine if action followed or violated the rule            │
+│  3. Track violation count and evidence                           │
+│  4. Update policy stats (violations++/successes++)               │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Example evaluation:
+```
+Policy: test-before-fix
+Rule: "Always run tests before claiming a fix is complete"
+
+Recent memory: "Fixed the null pointer exception by adding a null check"
+Evidence: No test run mentioned before claiming fix
+Verdict: VIOLATION
+
+Action: Update policy violations count, record finding
+```
+
+### 5. Correlate Behavior → Source
 
 For each finding, identify which instruction was violated:
 
@@ -101,25 +153,61 @@ repository_search(project_path, "<behavior description>")
 → Returns: skill file, command, or CLAUDE.md section that was ignored
 ```
 
-### 4. Apply Severity Overlay
+If a policy exists for the violated behavior, link to that policy.
+
+### 6. Apply Severity Overlay
 
 Combine behavioral type with impact area for priority:
 
-- **CRITICAL**: `rationalized-skip` + destructive/security operation
-- **HIGH**: `rationalized-skip` + validation/test skip, `ignored-instruction`
-- **MEDIUM**: `overclaimed`, `assumed-context`
+- **CRITICAL**: `rationalized-skip` + destructive/security operation, critical policy violation
+- **HIGH**: `rationalized-skip` + validation/test skip, `ignored-instruction`, high policy violation
+- **MEDIUM**: `overclaimed`, `assumed-context`, medium policy violation
 - **LOW**: `undocumented-decision`, style issues
 
-### 5. Present Findings
+### 7. Present Findings
 
 For each finding, show:
 - **Behavior Type**: Which taxonomy category
 - **Severity**: CRITICAL/HIGH/MEDIUM/LOW
 - **Evidence**: Memory/remediation IDs with excerpts
+- **Policy Violated**: If applicable, the specific policy rule
 - **Violated Instruction**: The skill, command, or CLAUDE.md section that was ignored
-- **Suggested Fix**: Proposed doc improvement
+- **Suggested Fix**: Proposed doc improvement or policy creation
 
-### 6. User Interaction
+### Policy Compliance Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POLICY COMPLIANCE REPORT                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ SUMMARY                                                                     │
+│ ───────                                                                     │
+│ Policies Checked: 6                                                         │
+│ Compliance Rate: 83% (5/6 policies followed)                                │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ VIOLATIONS                                                                  │
+│ ──────────                                                                  │
+│                                                                             │
+│ [HIGH] test-before-fix                                                      │
+│        Rule: "Always run tests before claiming a fix is complete"           │
+│        Evidence: Memory mem_abc123 - "Fixed bug without running tests"      │
+│        Suggestion: Run tests before marking task complete                   │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ COMPLIANT                                                                   │
+│ ─────────                                                                   │
+│ ✓ no-secrets-in-context (critical) - No violations detected                 │
+│ ✓ contextd-first (high) - 3 searches before grep observed                   │
+│ ✓ verify-before-complete (high) - Verification commands run                 │
+│ ✓ consensus-binary (medium) - No "APPROVE WITH RESERVATIONS"                │
+│ ✓ no-force-push-main (critical) - No force pushes detected                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8. User Interaction
 
 Ask user: **"Would you like to brainstorm improvements or see proposed corrections?"**
 
@@ -137,7 +225,7 @@ User can respond with:
 
 User selects which findings to remediate. Respect user's choices.
 
-### 7. Pressure Test Proposed Changes
+### 9. Pressure Test Proposed Changes
 
 > **STATUS: v2 Roadmap Item**
 >
@@ -187,7 +275,7 @@ For each scenario, ask:
 
 1. **Would the instruction apply?** (Yes/No)
    - If No: Instruction may be too narrow
-2. **Would it be clear what to do?** (Yes/No)  
+2. **Would it be clear what to do?** (Yes/No)
    - If No: Instruction may be ambiguous
 3. **Could it be reasonably bypassed?** (Yes/No)
    - If Yes: Instruction may need stronger language
@@ -212,16 +300,29 @@ pointless, that's a sign the function design may need review."
 
 If a pressure test fails, iterate on the proposed instruction before applying.
 
-### 8. Review Summary
+### 10. Review Summary
 
 Present consolidated findings with:
 - Total findings by behavior type
+- Policy compliance summary
 - Proposed changes with pressure test results
 - Files to be modified
 
 Use `consensus-review` for approval of changes.
 
-### 9. Issue/PR Creation
+### 11. Update Policy Stats
+
+After compliance evaluation, update policy statistics:
+
+```
+# For each policy violation
+# Update the policy memory with incremented violation count
+
+# For each policy followed
+# Update the policy memory with incremented success count
+```
+
+### 12. Issue/PR Creation
 
 After approval:
 - **Auto mode**: Create issue/PR with generated content
@@ -229,10 +330,11 @@ After approval:
 
 Include in PR/issue:
 - Behavioral pattern addressed
+- Policy violations (if any)
 - Evidence from memories/remediations
 - Pressure test results
 
-### 10. Close Feedback Loop
+### 13. Close Feedback Loop
 
 After remediation:
 
@@ -243,7 +345,7 @@ memory_record(project_id, title, content, outcome="success", tags=["reflection:r
 
 Tag original memories as addressed to prevent re-surfacing.
 
-### 11. Store Results
+### 14. Store Results
 
 Record findings and remediations in ReasoningBank:
 
@@ -253,6 +355,10 @@ Record findings and remediations in ReasoningBank:
 }
 ```
 
+Store reflection report:
+- Full report to `.claude/reflections/{timestamp}.md` (git-ignored)
+- Summary via `memory_record` with `type:reflection` tag
+
 ## Health Report (`--health`)
 
 Analyze ReasoningBank quality:
@@ -261,8 +367,23 @@ Analyze ReasoningBank quality:
 - **Tag hygiene**: inconsistent tags, suggested consolidations
 - **Remediation coverage**: completeness of fields
 - **Stale content**: old unfeedback'd memories, outdated remediations
+- **Policy health**: enabled/disabled ratio, violation rates, unused policies
 
 Suggest actions: consolidate tags, prune stale, add feedback, complete partials.
+
+## Policy Report (`--policies`)
+
+Policy-focused compliance analysis:
+
+```
+/contextd:reflect --policies
+```
+
+Outputs:
+- List of all enabled policies
+- Compliance rate for each
+- Recent violations with evidence
+- Suggestions for new policies based on behavioral patterns
 
 ## Doc Targets
 
@@ -274,6 +395,7 @@ Suggest actions: consolidate tags, prune stale, add feedback, complete partials.
 | Design docs | Yes | `docs/plans/`, `docs/spec/` |
 | Plugin usage includes | Yes | `.claude/includes/using-<plugin>.md` |
 | Plugin source | **No** | Use includes instead |
+| Policies | Yes | Via `/policies add` command |
 
 ## Behavioral Patterns to Surface
 
