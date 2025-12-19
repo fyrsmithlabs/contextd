@@ -5,7 +5,7 @@ Analyze memories and remediations for behavior patterns, generate improvement re
 | Flag | Description |
 |------|-------------|
 | `--health` | ReasoningBank health report only |
-| `--apply` | Apply changes after review (uses tiered defaults) |
+| `--apply` | Apply changes after review using **tiered defaults**: security/destructive issues → full brainstorm, process/validation issues → quick proposals, style issues → auto-fix |
 | `--scope=project\|global` | Limit to project or global docs |
 | `--behavior=<type>` | Filter by behavior type (rationalized-skip, overclaimed, ignored-instruction, assumed-context, undocumented-decision) |
 | `--severity=CRITICAL\|HIGH\|MEDIUM\|LOW` | Filter by severity level |
@@ -13,6 +13,48 @@ Analyze memories and remediations for behavior patterns, generate improvement re
 | `--all-brainstorm` | Full brainstorm treatment for all findings |
 | `--all-auto` | Auto-fix all (trust mode) |
 | `--interactive` | Prompt for each finding |
+
+## Complete Workflow Examples
+
+### Example 1: Safe Review (Recommended First Run)
+```bash
+# Generate report without making changes (dry-run)
+/contextd:reflect --scope=project
+
+# Review findings, then apply with tiered defaults
+/contextd:reflect --apply
+```
+
+### Example 2: High-Stakes Review
+```bash
+# Full brainstorm for every finding - maximum deliberation
+/contextd:reflect --all-brainstorm --scope=global
+```
+
+### Example 3: Trust Mode (Experienced Users)
+```bash
+# Auto-fix all findings without prompts
+/contextd:reflect --all-auto
+```
+
+### Example 4: Targeted Review
+```bash
+# Only review rationalized-skip behaviors from last 7 days
+/contextd:reflect --behavior=rationalized-skip --since=7d --apply
+```
+
+### Tiered Defaults Explained
+
+When using `--apply`, remediation approach is automatically selected by severity:
+
+| Severity | Impact Area | Remediation Approach |
+|----------|-------------|---------------------|
+| **CRITICAL** | Security, destructive ops | Full brainstorm with root cause analysis |
+| **HIGH** | Validation skips, ignored instructions | Quick proposals with approval |
+| **MEDIUM** | Overclaims, assumed context | Auto-fix with summary |
+| **LOW** | Style, undocumented decisions | Auto-fix silently |
+
+Override with `--all-brainstorm` or `--all-auto` if needed.
 
 ## Flow
 
@@ -81,8 +123,17 @@ For each finding, show:
 
 Ask user: **"Would you like to brainstorm improvements or see proposed corrections?"**
 
-- **Brainstorm**: Full exploration of root causes and solutions
-- **Propose**: Quick proposals for approval
+- **Brainstorm**: Opens full exploration with root cause analysis, multiple solution proposals, trade-off discussion
+- **Propose**: Shows quick fix proposals for each finding with approve/reject options
+
+**Selecting Findings:**
+
+User can respond with:
+- `"all"` - Fix everything
+- `"1, 3, 5"` - Fix specific findings by number
+- `"only HIGH"` - Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)
+- `"skip 2"` - Skip specific findings
+- `"none"` - Exit without changes
 
 User selects which findings to remediate. Respect user's choices.
 
@@ -187,4 +238,14 @@ Suggest actions: consolidate tags, prune stale, add feedback, complete partials.
 
 @_error-handling.md
 
-If memory/remediation search fails, report partial results and note the gap.
+**When searches fail:**
+
+1. **Partial Results**: Show findings from successful searches
+   - Example: "3 findings from memories, remediations unavailable"
+
+2. **Gap Communication**: Display warning
+   - `⚠️ Remediation search failed. Results may be incomplete.`
+
+3. **User Action**: Continue with available data or retry
+   - Use `--verbose` for debugging failed searches
+   - Partial results are still valuable - don't block on failures

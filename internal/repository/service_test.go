@@ -96,6 +96,14 @@ func (m *mockStore) ExactSearch(ctx context.Context, collectionName string, quer
 	return m.searchResults, nil
 }
 
+func (m *mockStore) SetIsolationMode(mode vectorstore.IsolationMode) {
+	// No-op for mock
+}
+
+func (m *mockStore) IsolationMode() vectorstore.IsolationMode {
+	return vectorstore.NewNoIsolation()
+}
+
 // ===== MOCK STORE PROVIDER =====
 
 // mockStoreProvider implements vectorstore.StoreProvider for testing

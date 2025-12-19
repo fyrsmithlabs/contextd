@@ -10,31 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockEmbedder is a simple embedder that returns fixed-size zero vectors.
-type mockEmbedder struct {
-	vectorSize int
-}
-
-func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
-	embeddings := make([][]float32, len(texts))
-	for i := range embeddings {
-		embeddings[i] = make([]float32, m.vectorSize)
-		// Simple hash-based embedding for testing
-		for j := range embeddings[i] {
-			embeddings[i][j] = float32((i + j) % 10) / 10.0
-		}
-	}
-	return embeddings, nil
-}
-
-func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
-	vectors, err := m.EmbedDocuments(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	return vectors[0], nil
-}
-
 func TestValidateCollectionName(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -173,6 +148,46 @@ func TestQdrantConfig_ApplyDefaults(t *testing.T) {
 	assert.Equal(t, qdrant.Distance_Cosine, config.Distance)
 }
 
+func TestQdrantConfig_IsolationViaConfig(t *testing.T) {
+	// Test that isolation can be set via config (thread-safe pattern)
+	// This mirrors ChromemConfig.Isolation for consistency
+
+	t.Run("isolation field exists in config", func(t *testing.T) {
+		// This test verifies the config struct has an Isolation field
+		config := vectorstore.QdrantConfig{
+			Host:           "localhost",
+			Port:           6334,
+			CollectionName: "test_collection",
+			VectorSize:     384,
+			Isolation:      vectorstore.NewNoIsolation(),
+		}
+
+		// Verify config is valid
+		err := config.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("store uses config isolation when provided", func(t *testing.T) {
+		// Skip if Qdrant not available - this tests constructor behavior
+		config := vectorstore.QdrantConfig{
+			Host:           "localhost",
+			Port:           6334,
+			CollectionName: "test_isolation",
+			VectorSize:     384,
+			Isolation:      vectorstore.NewNoIsolation(),
+		}
+
+		store, err := vectorstore.NewQdrantStore(config, &TestEmbedder{VectorSize: 384})
+		if err != nil {
+			t.Skipf("Qdrant not available: %v", err)
+		}
+		defer store.Close()
+
+		// Verify isolation mode was set from config
+		assert.Equal(t, "none", store.IsolationMode().Mode())
+	})
+}
+
 // Integration test - requires running Qdrant instance
 func TestQdrantStore_Integration(t *testing.T) {
 	if testing.Short() {
@@ -191,7 +206,7 @@ func TestQdrantStore_Integration(t *testing.T) {
 		UseTLS:         false,
 	}
 
-	embedder := &mockEmbedder{vectorSize: 10}
+	embedder := &TestEmbedder{VectorSize: 10}
 
 	store, err := vectorstore.NewQdrantStore(config, embedder)
 	if err != nil {

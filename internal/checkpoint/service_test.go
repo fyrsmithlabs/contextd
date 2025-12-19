@@ -331,6 +331,14 @@ func (m *mockStore) Close() error {
 	return nil
 }
 
+func (m *mockStore) SetIsolationMode(mode vectorstore.IsolationMode) {
+	// No-op for mock
+}
+
+func (m *mockStore) IsolationMode() vectorstore.IsolationMode {
+	return vectorstore.NewNoIsolation()
+}
+
 func TestService_SaveAndGet(t *testing.T) {
 	store := newMockStore()
 	logger := zap.NewNop()

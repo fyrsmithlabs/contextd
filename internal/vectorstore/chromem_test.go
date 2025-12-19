@@ -77,6 +77,7 @@ func newTestChromemStore(t *testing.T) (*vectorstore.ChromemStore, string) {
 		Compress:          false, // Faster for tests
 		DefaultCollection: "test_collection",
 		VectorSize:        384,
+		Isolation:         vectorstore.NewNoIsolation(), // Disable isolation for general tests
 	}
 
 	embedder := &chromemTestEmbedder{vectorSize: 384}
@@ -546,6 +547,7 @@ func TestChromemStore_Persistence(t *testing.T) {
 		Compress:          false,
 		DefaultCollection: "persist_test",
 		VectorSize:        384,
+		Isolation:         vectorstore.NewNoIsolation(), // Disable isolation for test
 	}
 
 	// Create store and add documents
@@ -616,6 +618,7 @@ func TestNewChromemStore_NilLogger(t *testing.T) {
 		Path:              tmpDir,
 		DefaultCollection: "test",
 		VectorSize:        384,
+		Isolation:         vectorstore.NewNoIsolation(), // Disable isolation for test
 	}
 
 	embedder := &chromemTestEmbedder{vectorSize: 384}
@@ -800,4 +803,183 @@ func TestChromemStore_SearchInCollection_AfterAutoCreate(t *testing.T) {
 	results, err := store.SearchInCollection(ctx, "auto_created_collection", "Go programming", 5, nil)
 	require.NoError(t, err, "SearchInCollection should find collection created by AddDocuments")
 	assert.NotEmpty(t, results, "Search should return results from the auto-created collection")
+}
+
+// =============================================================================
+// Tenant Isolation Tests
+// =============================================================================
+
+// newTestChromemStoreWithIsolation creates a test store with specific isolation mode.
+func newTestChromemStoreWithIsolation(t *testing.T, isolation vectorstore.IsolationMode) (*vectorstore.ChromemStore, string) {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "chromem_isolation_test_*")
+	require.NoError(t, err)
+
+	config := vectorstore.ChromemConfig{
+		Path:              tmpDir,
+		Compress:          false,
+		DefaultCollection: "test_collection",
+		VectorSize:        384,
+		Isolation:         isolation,
+	}
+
+	embedder := &chromemTestEmbedder{vectorSize: 384}
+	store, err := vectorstore.NewChromemStore(config, embedder, zap.NewNop())
+	require.NoError(t, err)
+
+	return store, tmpDir
+}
+
+// TestChromemStore_PayloadIsolation_AddDocuments verifies tenant metadata injection.
+func TestChromemStore_PayloadIsolation_AddDocuments(t *testing.T) {
+	store, tmpDir := newTestChromemStoreWithIsolation(t, vectorstore.NewPayloadIsolation())
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	// Create context with tenant info
+	tenant := &vectorstore.TenantInfo{
+		TenantID:  "org-123",
+		TeamID:    "team-1",
+		ProjectID: "proj-1",
+	}
+	ctx := vectorstore.ContextWithTenant(context.Background(), tenant)
+
+	// Add document
+	docs := []vectorstore.Document{
+		{ID: "doc1", Content: "Test document with tenant isolation"},
+	}
+	ids, err := store.AddDocuments(ctx, docs)
+	require.NoError(t, err)
+	assert.Len(t, ids, 1)
+
+	// Verify metadata was injected
+	assert.Equal(t, "org-123", docs[0].Metadata["tenant_id"])
+	assert.Equal(t, "team-1", docs[0].Metadata["team_id"])
+	assert.Equal(t, "proj-1", docs[0].Metadata["project_id"])
+}
+
+// TestChromemStore_PayloadIsolation_FailsClosed verifies fail-closed behavior.
+func TestChromemStore_PayloadIsolation_FailsClosed(t *testing.T) {
+	store, tmpDir := newTestChromemStoreWithIsolation(t, vectorstore.NewPayloadIsolation())
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	// Try to add document WITHOUT tenant context - should fail
+	ctx := context.Background()
+	docs := []vectorstore.Document{
+		{ID: "doc1", Content: "Test document"},
+	}
+	_, err := store.AddDocuments(ctx, docs)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, vectorstore.ErrMissingTenant)
+}
+
+// TestChromemStore_PayloadIsolation_SearchFailsClosed verifies search fails without tenant.
+func TestChromemStore_PayloadIsolation_SearchFailsClosed(t *testing.T) {
+	store, tmpDir := newTestChromemStoreWithIsolation(t, vectorstore.NewPayloadIsolation())
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	// First add some data WITH tenant context
+	tenant := &vectorstore.TenantInfo{TenantID: "org-123"}
+	tenantCtx := vectorstore.ContextWithTenant(context.Background(), tenant)
+	docs := []vectorstore.Document{
+		{ID: "doc1", Content: "Test document"},
+	}
+	_, err := store.AddDocuments(tenantCtx, docs)
+	require.NoError(t, err)
+
+	// Search WITHOUT tenant context - should fail
+	_, err = store.SearchInCollection(context.Background(), "test_collection", "test", 5, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, vectorstore.ErrMissingTenant)
+}
+
+// TestChromemStore_PayloadIsolation_SearchInjectsTenantFilter verifies filter injection.
+func TestChromemStore_PayloadIsolation_SearchInjectsTenantFilter(t *testing.T) {
+	store, tmpDir := newTestChromemStoreWithIsolation(t, vectorstore.NewPayloadIsolation())
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	// Add documents for two tenants with proper tenant context
+	tenant1 := &vectorstore.TenantInfo{TenantID: "org-1"}
+	tenant1Ctx := vectorstore.ContextWithTenant(context.Background(), tenant1)
+	tenant1Docs := []vectorstore.Document{
+		{ID: "t1-doc1", Content: "Tenant 1 document alpha"},
+		{ID: "t1-doc2", Content: "Tenant 1 document beta"},
+	}
+
+	tenant2 := &vectorstore.TenantInfo{TenantID: "org-2"}
+	tenant2Ctx := vectorstore.ContextWithTenant(context.Background(), tenant2)
+	tenant2Docs := []vectorstore.Document{
+		{ID: "t2-doc1", Content: "Tenant 2 document alpha"},
+	}
+
+	_, err := store.AddDocuments(tenant1Ctx, tenant1Docs)
+	require.NoError(t, err)
+	_, err = store.AddDocuments(tenant2Ctx, tenant2Docs)
+	require.NoError(t, err)
+
+	// Search as tenant 1 - should only find tenant 1 documents
+	results, err := store.SearchInCollection(tenant1Ctx, "test_collection", "document", 10, nil)
+	require.NoError(t, err)
+
+	// Should only find tenant 1 documents
+	for _, r := range results {
+		tenantID, ok := r.Metadata["tenant_id"]
+		if ok {
+			assert.Equal(t, "org-1", tenantID, "Should only find tenant 1 documents")
+		}
+	}
+}
+
+// TestChromemStore_NoIsolation_AllowsEverything verifies no isolation mode.
+func TestChromemStore_NoIsolation_AllowsEverything(t *testing.T) {
+	store, tmpDir := newTestChromemStore(t)
+	defer os.RemoveAll(tmpDir)
+	defer store.Close()
+
+	// Default is NoIsolation
+	ctx := context.Background()
+
+	// Add document without tenant context - should succeed
+	docs := []vectorstore.Document{
+		{ID: "doc1", Content: "Test document"},
+	}
+	ids, err := store.AddDocuments(ctx, docs)
+	require.NoError(t, err)
+	assert.Len(t, ids, 1)
+
+	// Search without tenant context - should succeed
+	results, err := store.SearchInCollection(ctx, "test_collection", "test", 5, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+}
+
+// TestChromemStore_IsolationViaConfig verifies isolation is set at construction via config.
+func TestChromemStore_IsolationViaConfig(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "chromem_isolation_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	embedder := &chromemTestEmbedder{vectorSize: 384}
+	logger := zap.NewNop()
+
+	t.Run("uses isolation from config not hardcoded default", func(t *testing.T) {
+		// Set NoIsolation in config - if constructor ignores config, it will use PayloadIsolation
+		config := vectorstore.ChromemConfig{
+			Path:              tmpDir,
+			DefaultCollection: "test",
+			VectorSize:        384,
+			Isolation:         vectorstore.NewNoIsolation(),
+		}
+
+		store, err := vectorstore.NewChromemStore(config, embedder, logger)
+		require.NoError(t, err)
+		defer store.Close()
+
+		// Isolation should match config (none), NOT the hardcoded default (payload)
+		assert.Equal(t, "none", store.IsolationMode().Mode())
+	})
 }

@@ -4,11 +4,17 @@ package vectorstore
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/fyrsmithlabs/contextd/internal/registry"
 	"go.uber.org/zap"
 )
+
+// Environment variable to acknowledge local-only security model.
+// Set CONTEXTD_LOCAL_MODE=1 to suppress security warnings.
+// In production, use AuthorizedStoreProvider wrapper instead.
+const envLocalMode = "CONTEXTD_LOCAL_MODE"
 
 // StoreProvider manages chromem.DB instances per scope path.
 //
@@ -32,12 +38,28 @@ import (
 //   - CLI tools (trusted environment)
 //   - Testing environments
 //
-// For multi-tenant production deployments, you MUST add:
-//   - Session-based authentication
-//   - Tenant membership verification before granting store access
-//   - Audit logging for all store access
+// For multi-tenant production deployments, you MUST:
+//   1. Wrap with AuthorizedStoreProvider with session-based authentication
+//   2. Implement tenant membership verification before granting store access
+//   3. Enable audit logging for all store access
 //
-// TODO: Implement AuthorizedStoreProvider wrapper for production use.
+// To acknowledge local-only mode and suppress warnings:
+//   - Set CONTEXTD_LOCAL_MODE=1 environment variable, OR
+//   - Set LocalModeAcknowledged=true in ProviderConfig
+//
+// Example AuthorizedStoreProvider pattern (NOT IMPLEMENTED - reference only):
+//
+//	type AuthorizedStoreProvider struct {
+//	    inner   StoreProvider
+//	    session *AuthSession  // Contains tenant, user, permissions
+//	}
+//
+//	func (a *AuthorizedStoreProvider) GetProjectStore(ctx context.Context, tenant, team, project string) (Store, error) {
+//	    if !a.session.CanAccess(tenant, project) {
+//	        return nil, fmt.Errorf("unauthorized: user cannot access tenant %s", tenant)
+//	    }
+//	    return a.inner.GetProjectStore(ctx, tenant, team, project)
+//	}
 type StoreProvider interface {
 	// GetProjectStore returns a store for project-level collections.
 	// Path: {basePath}/{tenant}/{project}/ (direct)
@@ -80,6 +102,11 @@ type ProviderConfig struct {
 	// VectorSize is the expected embedding dimension.
 	// Default: 384 (for FastEmbed bge-small-en-v1.5)
 	VectorSize int
+
+	// LocalModeAcknowledged suppresses security warnings about missing authorization.
+	// Set to true when you understand this provider has no auth and is for local use only.
+	// Alternative: Set CONTEXTD_LOCAL_MODE=1 environment variable.
+	LocalModeAcknowledged bool
 }
 
 // ApplyDefaults sets default values for unset fields.
@@ -90,6 +117,13 @@ func (c *ProviderConfig) ApplyDefaults() {
 }
 
 // NewChromemStoreProvider creates a new StoreProvider backed by chromem-go.
+//
+// SECURITY: This provider has NO authorization checks. It is suitable for:
+//   - Local development (single-user, localhost)
+//   - CLI tools (trusted environment)
+//   - Testing environments
+//
+// For production multi-tenant use, wrap with AuthorizedStoreProvider.
 func NewChromemStoreProvider(config ProviderConfig, embedder Embedder, logger *zap.Logger) (*ChromemStoreProvider, error) {
 	if embedder == nil {
 		return nil, fmt.Errorf("%w: embedder is required", ErrInvalidConfig)
@@ -99,6 +133,16 @@ func NewChromemStoreProvider(config ProviderConfig, embedder Embedder, logger *z
 	}
 
 	config.ApplyDefaults()
+
+	// Security enforcement: warn if local mode not acknowledged
+	localModeEnv := os.Getenv(envLocalMode) == "1"
+	if !config.LocalModeAcknowledged && !localModeEnv {
+		logger.Warn("SECURITY: StoreProvider has no authorization - any caller can access any tenant's data",
+			zap.String("context", "This is normal for local development, CLI tools, and testing"),
+			zap.String("if_local", "Set "+envLocalMode+"=1 env var OR LocalModeAcknowledged=true in config"),
+			zap.String("if_production", "Wrap with AuthorizedStoreProvider + session auth (see provider.go comments)"),
+		)
+	}
 
 	// Create registry
 	reg, err := registry.NewRegistry(config.BasePath)
@@ -198,6 +242,11 @@ func (p *ChromemStoreProvider) getOrCreateStore(path string) (Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating store at %s: %w", path, err)
 	}
+
+	// Use NoIsolation since StoreProvider provides structural isolation
+	// via separate databases per path. Tenant context is not required because
+	// physical filesystem isolation already handles security boundaries.
+	store.SetIsolationMode(NewNoIsolation())
 
 	p.stores[path] = store
 
