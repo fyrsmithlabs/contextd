@@ -26,6 +26,7 @@
     "./.claude-plugin/commands/init.md",
     "./.claude-plugin/commands/install.md",
     "./.claude-plugin/commands/onboard.md",
+    "./.claude-plugin/commands/policies.md",
     "./.claude-plugin/commands/reflect.md",
     "./.claude-plugin/commands/remember.md",
     "./.claude-plugin/commands/resume.md",

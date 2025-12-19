@@ -2,14 +2,34 @@ Onboard an EXISTING project to contextd by analyzing codebase and generating CLA
 
 **Use `/init` instead for brand new projects starting from scratch.**
 
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--conversations` | Index past Claude Code conversations for this project |
+| `--batch` | Process offline via `ctxd onboard` CLI (no context cost, runs outside agent) |
+| `--file={uuid}` | Index specific conversation file only |
+| `--skip-claude-md` | Skip CLAUDE.md generation, only do indexing |
+
+**Batch Mode**: When `--batch` is specified, the agent outputs a command for the user to run:
+```
+Run this command to index conversations offline:
+  ctxd onboard --conversations --project=/path/to/project
+
+This processes conversations without using agent context.
+Results will be available in contextd on next session.
+```
+
 ## Detection Phase
 
 Check project status:
 1. Does CLAUDE.md already exist?
 2. Does the project have source code files?
+3. Are there Claude Code conversations to index?
 
 **If CLAUDE.md exists:** Ask user if they want to regenerate or enhance it.
 **If no source code:** Inform user to use `/init` for new projects.
+**If --conversations:** Also scan `~/.claude/projects/` for past sessions.
 
 ---
 
@@ -80,10 +100,139 @@ mcp__contextd__memory_record(
 
 ---
 
+## Conversation Indexing (--conversations)
+
+When `--conversations` flag is provided, also index past Claude Code conversations.
+
+### Phase 6: Find Conversations
+
+```bash
+# Encode project path for ~/.claude/projects/ lookup
+PROJECT_PATH=$(pwd)
+ENCODED_PATH=$(echo "$PROJECT_PATH" | tr '/' '-')
+
+# Find conversation files
+ls ~/.claude/projects/${ENCODED_PATH}/*.jsonl 2>/dev/null
+```
+
+### Phase 7: Context Warning
+
+If conversations found, display warning:
+
+```
+⚠️  WARNING: Conversation indexing uses significant context.
+
+    Found: 15 conversations for this project
+    Estimated tokens: ~750k total
+
+    Options:
+    [1] Continue with context folding (recommended for <10 conversations)
+    [2] Switch to batch mode (process offline, no context cost)
+    [3] Index specific conversations only
+    [4] Skip conversation indexing
+
+    Choice: _
+```
+
+Use `conversation-indexing` skill for extraction.
+
+### Phase 8: Extract Learnings
+
+For each conversation file:
+
+**Step 1: Scrub secrets FIRST**
+```
+# Read and scrub before any processing
+content = Read(conversation_file)
+scrubbed = POST http://localhost:9090/api/v1/scrub {"content": content}
+# Verify scrubbing succeeded before proceeding
+```
+
+**Step 2: Extract and store remediations (error → fix patterns)**
+```
+# For each error/fix pair found:
+mcp__contextd__remediation_record(
+  title: "ENOENT when reading config",
+  problem: "Error: ENOENT: no such file or directory",
+  root_cause: "Relative path used instead of absolute",
+  solution: "Use path.resolve() before file operations",
+  category: "runtime",
+  tenant_id: "user",
+  scope: "project",
+  tags: ["nodejs", "filesystem"]
+)
+```
+
+**Step 3: Extract and store memories (learnings)**
+```
+mcp__contextd__memory_record(
+  project_id: "{project}",
+  title: "Always use absolute paths for file ops",
+  content: "Relative paths break when cwd changes. Use path.resolve().",
+  outcome: "success",
+  tags: ["learning", "extracted", "nodejs"]
+)
+```
+
+**Step 4: Extract and store policies (user corrections)**
+```
+mcp__contextd__memory_record(
+  project_id: "global",
+  title: "POLICY: verify-file-exists",
+  content: "RULE: Check if file exists before reading.\nDESCRIPTION: User corrected agent for assuming files exist.\nCATEGORY: verification\nSEVERITY: medium\nSCOPE: global",
+  outcome: "success",
+  tags: ["type:policy", "category:verification", "severity:medium", "scope:global", "enabled:true"]
+)
+```
+
+### Phase 9: Deduplicate
+
+Before storing, check for existing similar entries:
+
+```
+# Check for duplicate remediations
+remediation_search(query: "{problem summary}", tenant_id: "user")
+
+# Check for duplicate memories
+memory_search(project_id: "{project}", query: "{learning summary}")
+
+# Check for duplicate policies
+memory_search(project_id: "global", query: "type:policy {rule summary}")
+```
+
+### Phase 10: Store Index Record
+
+Record which files were indexed:
+
+```json
+{
+  "project_id": "{project}",
+  "title": "Conversation index: {file}",
+  "content": "SHA256: {hash}\nExtractions: {count} remediations, {count} memories, {count} policies",
+  "outcome": "success",
+  "tags": ["type:index-record", "file:{filename}"]
+}
+```
+
+---
+
 ## Present to User
 
 Show the generated CLAUDE.md and ask:
 "I've analyzed the codebase and generated this CLAUDE.md. Want me to write it, or would you like to adjust anything first?"
+
+If `--conversations` was used, also show:
+```
+Conversation Indexing Results:
+- 5 remediations extracted
+- 12 memories recorded
+- 3 policies created
+
+Top findings:
+1. POLICY: test-before-fix - "Always run tests before claiming fix"
+2. REMEDIATION: "ENOENT errors → use path.resolve()"
+3. MEMORY: "Use context folding for large tasks"
+```
 
 ---
 
@@ -98,3 +247,8 @@ If contextd unavailable:
 If codebase is too complex:
 - Break into sections, analyze incrementally
 - Focus on most critical paths first
+
+If conversation parsing fails:
+- Log error with file path
+- Continue with remaining files
+- Show partial results

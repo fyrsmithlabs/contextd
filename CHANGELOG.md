@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Agent Policies** (Issue #46) - STRICT guardrails for agent behavior
+  - New `policies` skill - defines policy schema, storage pattern, and management workflow
+  - New `/policies` command - list, add, remove, stats, init subcommands (like `/plugin`)
+  - Policies stored as memories with `type:policy` tags
+  - Built-in recommended policies: no-secrets-in-context, test-before-fix, contextd-first, etc.
+  - Policy compliance evaluation integrated into `/reflect` command
+- **Conversation Indexing** (Issue #46) - Extract learnings from past Claude Code sessions
+  - New `conversation-indexing` skill - guides JSONL parsing and extraction
+  - Extracts remediations (error→fix), memories (learnings), and policies (corrections)
+  - Secret scrubbing before processing (gitleaks patterns)
+  - Deduplication against existing entries
+  - Context cost warnings with batch mode option
+- **Updated `/onboard` command** with `--conversations` flag
+  - Index past Claude Code conversations for current project
+  - `--batch` flag for offline processing (no context cost)
+  - `--file={uuid}` for indexing specific conversations
+- **Updated `/reflect` command** with policy compliance checking
+  - `--policies` flag for policy-focused compliance report
+  - Policy violation tracking with evidence
+  - Policy stats update (violations/successes) after evaluation
 - **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
 - **Production Mode Fail-Fast** (Issue #39) - `CONTEXTD_PRODUCTION_MODE=1` environment variable
   - Provider fails to start without explicit auth acknowledgment in production mode
