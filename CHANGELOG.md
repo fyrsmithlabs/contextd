@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
+- **Production Mode Fail-Fast** (Issue #39) - `CONTEXTD_PRODUCTION_MODE=1` environment variable
+  - Provider fails to start without explicit auth acknowledgment in production mode
+  - Prevents accidental deployment without security review
+  - Override available via `LocalModeAcknowledged=true` or `CONTEXTD_LOCAL_MODE=1`
+
+### Changed
+- **Enhanced Pressure Testing** (Issue #39) - Updated reflect.md with manual pressure testing process
+  - v2 roadmap note for automated testing
+  - Step-by-step scenario generation guide
+  - Pass/fail criteria for instruction validation
 
 ### Documentation
 - **Multi-Tenancy Documentation** (Issue #45) - Added comprehensive documentation for unified payload filtering
@@ -21,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `internal/checkpoint/CLAUDE.md` with tenant isolation section
   - Updated `internal/repository/CLAUDE.md` with tenant isolation section
   - Added multi-tenancy section to `README.md`
+
 - **SEC-004: Session Authorization** for context-folding
   - `SessionValidator` interface with `PermissiveSessionValidator` (default, single-user) and `StrictSessionValidator` (multi-tenant)
   - `CallerID` field added to `BranchRequest` and `ReturnRequest`

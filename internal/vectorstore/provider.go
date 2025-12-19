@@ -47,6 +47,22 @@ const envLocalMode = "CONTEXTD_LOCAL_MODE"
 //   - Set CONTEXTD_LOCAL_MODE=1 environment variable, OR
 //   - Set LocalModeAcknowledged=true in ProviderConfig
 //
+// PRODUCTION MODE ENFORCEMENT:
+//
+// When CONTEXTD_PRODUCTION_MODE=1 is set, the provider will FAIL FAST
+// if authorization is not explicitly acknowledged. This prevents
+// accidental deployment without security review.
+//
+// Production mode behavior:
+//   - Without acknowledgment: Returns error, server fails to start
+//   - With CONTEXTD_LOCAL_MODE=1: Starts with warning (explicit override)
+//   - With LocalModeAcknowledged=true: Starts with warning (explicit override)
+//
+// Recommended production setup:
+//   1. Set CONTEXTD_PRODUCTION_MODE=1 in your deployment
+//   2. Implement AuthorizedStoreProvider wrapper (see example below)
+//   3. Never set CONTEXTD_LOCAL_MODE=1 in production
+//
 // Example AuthorizedStoreProvider pattern (NOT IMPLEMENTED - reference only):
 //
 //	type AuthorizedStoreProvider struct {
@@ -136,6 +152,11 @@ func NewChromemStoreProvider(config ProviderConfig, embedder Embedder, logger *z
 
 	// Security enforcement: warn if local mode not acknowledged
 	localModeEnv := os.Getenv(envLocalMode) == "1"
+
+	// Fail fast in production mode if auth not acknowledged
+	if os.Getenv("CONTEXTD_PRODUCTION_MODE") == "1" && !config.LocalModeAcknowledged && !localModeEnv {
+		return nil, fmt.Errorf("SECURITY: cannot start in production mode without auth")
+	}
 	if !config.LocalModeAcknowledged && !localModeEnv {
 		logger.Warn("SECURITY: StoreProvider has no authorization - any caller can access any tenant's data",
 			zap.String("context", "This is normal for local development, CLI tools, and testing"),

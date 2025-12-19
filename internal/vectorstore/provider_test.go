@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -315,4 +316,77 @@ func TestChromemStoreProvider_Registry(t *testing.T) {
 	if entry.UUID == "" {
 		t.Error("expected UUID to be assigned")
 	}
+}
+
+func TestChromemStoreProvider_ProductionModeFailsFast(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	embedder := &mockEmbedder{dimension: 384}
+
+	// Set production mode environment variable
+	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
+	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
+
+	// Unset local mode to ensure we're testing production behavior
+	os.Unsetenv("CONTEXTD_LOCAL_MODE")
+
+	// Creating provider without LocalModeAcknowledged should fail in production mode
+	_, err := NewChromemStoreProvider(ProviderConfig{
+		BasePath:              tmpDir,
+		VectorSize:            384,
+		LocalModeAcknowledged: false,
+	}, embedder, nil)
+
+	if err == nil {
+		t.Fatal("expected error when creating provider in production mode without auth acknowledgment")
+	}
+
+	if !strings.Contains(err.Error(), "production mode") {
+		t.Errorf("expected error to mention 'production mode', got: %v", err)
+	}
+}
+
+func TestChromemStoreProvider_ProductionModeWithLocalAcknowledged(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	embedder := &mockEmbedder{dimension: 384}
+
+	// Set production mode environment variable
+	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
+	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
+
+	// With LocalModeAcknowledged=true, should succeed even in production mode
+	provider, err := NewChromemStoreProvider(ProviderConfig{
+		BasePath:              tmpDir,
+		VectorSize:            384,
+		LocalModeAcknowledged: true,
+	}, embedder, nil)
+
+	if err != nil {
+		t.Fatalf("expected provider creation to succeed with LocalModeAcknowledged=true, got: %v", err)
+	}
+	defer provider.Close()
+}
+
+func TestChromemStoreProvider_ProductionModeWithEnvOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	embedder := &mockEmbedder{dimension: 384}
+
+	// Set both production mode and local mode env vars
+	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
+	os.Setenv("CONTEXTD_LOCAL_MODE", "1")
+	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
+	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
+
+	// With CONTEXTD_LOCAL_MODE=1, should succeed even in production mode
+	provider, err := NewChromemStoreProvider(ProviderConfig{
+		BasePath:   tmpDir,
+		VectorSize: 384,
+	}, embedder, nil)
+
+	if err != nil {
+		t.Fatalf("expected provider creation to succeed with CONTEXTD_LOCAL_MODE=1, got: %v", err)
+	}
+	defer provider.Close()
 }
