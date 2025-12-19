@@ -333,6 +333,43 @@ ContextD exposes these tools to Claude Code:
 
 ---
 
+## Multi-Tenancy
+
+ContextD uses **payload-based tenant isolation** to ensure data separation between organizations, teams, and projects.
+
+### How It Works
+
+- All documents stored in shared collections with tenant metadata
+- Queries automatically filtered by tenant context
+- Missing tenant context returns an error (fail-closed security)
+
+### Tenant Hierarchy
+
+| Scope | Description | Example |
+|-------|-------------|---------|
+| TenantID | Organization/user identifier | `github.com/acme-corp` |
+| TeamID | Team within organization | `platform` |
+| ProjectID | Project within team | `contextd` |
+
+### Security Guarantees
+
+| Behavior | Description |
+|----------|-------------|
+| Fail-closed | Operations without tenant context return errors |
+| Filter injection blocked | Users cannot override tenant filters |
+| Metadata enforced | Tenant fields always set from authenticated context |
+
+### Automatic Detection
+
+ContextD automatically detects tenant context from git:
+
+1. **TenantID** - Derived from git remote URL (e.g., `github.com/username`)
+2. **ProjectID** - Derived from repository name
+
+No manual configuration needed for single-user deployments.
+
+---
+
 ## Advanced Configuration
 
 ### Environment Variables

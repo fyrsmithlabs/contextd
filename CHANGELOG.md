@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Context-Folding Design** (Issue #17) - branch()/return() MCP tools for context isolation
+
+### Documentation
+- **Multi-Tenancy Documentation** (Issue #45) - Added comprehensive documentation for unified payload filtering
+  - Updated `CLAUDE.md` with multi-tenancy architecture section
+  - Updated `docs/architecture.md` with security model and tenant context flow
+  - Updated `docs/spec/vector-storage/security.md` with TenantFromContext pattern, fail-closed behavior, and defense-in-depth layers
+  - Created `docs/migration/payload-filtering.md` migration guide
+  - Created `internal/vectorstore/CLAUDE.md` package documentation
+  - Created `internal/reasoningbank/CLAUDE.md` package documentation
+  - Updated `internal/checkpoint/CLAUDE.md` with tenant isolation section
+  - Updated `internal/repository/CLAUDE.md` with tenant isolation section
+  - Added multi-tenancy section to `README.md`
 - **SEC-004: Session Authorization** for context-folding
   - `SessionValidator` interface with `PermissiveSessionValidator` (default, single-user) and `StrictSessionValidator` (multi-tenant)
   - `CallerID` field added to `BranchRequest` and `ReturnRequest`

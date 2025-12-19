@@ -59,9 +59,82 @@ Simplified MCP server for AI agent memory and context management. Calls internal
 - Checkpoints: Context persistence and recovery
 - Remediation: Error pattern tracking
 - Secret scrubbing: gitleaks SDK on all tool responses
-- Vectorstore: chromem (embedded, default) or Qdrant (external) with collection-per-project isolation
+- Vectorstore: chromem (embedded, default) or Qdrant (external) with payload-based tenant isolation
 - Compression: Extractive, abstractive, and hybrid context compression
 - Hooks: Lifecycle hooks for session management and auto-checkpoint
+
+---
+
+## Multi-Tenancy Architecture
+
+contextd uses **payload-based tenant isolation** as the default multi-tenant strategy. All documents are stored in shared collections with automatic tenant filtering.
+
+### Tenant Context
+
+All operations require tenant context via Go's `context.Context`:
+
+```go
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
+
+// Create tenant-scoped context (REQUIRED for all operations)
+ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+    TenantID:  "org-123",      // Required: Organization/user identifier
+    TeamID:    "platform",     // Optional: Team scope
+    ProjectID: "contextd",     // Optional: Project scope
+})
+
+// All operations automatically filtered by tenant
+results, err := store.Search(ctx, "query", 10)
+```
+
+### Isolation Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `PayloadIsolation` | Single collection with metadata filtering | **Default, recommended** |
+| `FilesystemIsolation` | Separate database per tenant/project | Legacy, migration path available |
+| `NoIsolation` | No tenant filtering | **Testing only** |
+
+### Security Guarantees
+
+| Behavior | Description |
+|----------|-------------|
+| **Fail-closed** | Missing tenant context returns `ErrMissingTenant`, not empty results |
+| **Filter injection blocked** | User-provided `tenant_id`/`team_id`/`project_id` filters are rejected with `ErrTenantFilterInUserFilters` |
+| **Metadata enforced** | Tenant fields always set from authenticated context, never from user input |
+
+### Configuration
+
+```go
+// PayloadIsolation is the default - no explicit config needed
+config := vectorstore.ChromemConfig{
+    Path:              "/data/vectorstore",
+    DefaultCollection: "memories",
+    VectorSize:        384,
+    // Isolation: vectorstore.NewPayloadIsolation(), // Default if not specified
+}
+
+// Or explicitly set isolation mode
+config.Isolation = vectorstore.NewPayloadIsolation()    // Recommended
+config.Isolation = vectorstore.NewFilesystemIsolation() // Legacy
+config.Isolation = vectorstore.NewNoIsolation()         // Testing only!
+```
+
+### Key Types
+
+| Type | Purpose |
+|------|---------|
+| `TenantInfo` | Holds TenantID, TeamID, ProjectID |
+| `ContextWithTenant()` | Adds tenant info to context |
+| `TenantFromContext()` | Extracts tenant info (returns `ErrMissingTenant` if absent) |
+| `ApplyTenantFilters()` | Merges user filters with tenant filters, rejects injection attempts |
+| `IsolationMode` | Interface for isolation strategies |
+
+### See Also
+
+- Security spec: `docs/spec/vector-storage/security.md`
+- Migration guide: `docs/migration/payload-filtering.md`
+- Package docs: `internal/vectorstore/README.md`
 
 ---
 
