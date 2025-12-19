@@ -384,9 +384,37 @@ contextd/
 
 ### Multi-Tenancy
 
-- All data isolated by `tenant_id`
-- Collection-per-project in vectorstore
-- No cross-tenant queries possible
+contextd uses **payload-based tenant isolation** as the default strategy:
+
+**Tenant Context Flow:**
+```
+1. Tenant info set in context via ContextWithTenant()
+   |
+2. All vectorstore operations extract tenant from context
+   |
+3. Queries: TenantFilter() injected into all searches
+   |
+4. Writes: TenantMetadata() injected into all documents
+   |
+5. Missing context: ErrMissingTenant returned (fail-closed)
+```
+
+**Isolation Modes:**
+
+| Mode | Isolation | Use Case |
+|------|-----------|----------|
+| `PayloadIsolation` | Metadata filtering in shared collection | **Default** |
+| `FilesystemIsolation` | Separate database per tenant | Legacy |
+| `NoIsolation` | None | Testing only |
+
+**Defense-in-Depth:**
+
+| Threat | Defense |
+|--------|---------|
+| Cross-tenant query | Tenant filters injected on all queries |
+| Filter injection | `ApplyTenantFilters()` rejects user tenant fields |
+| Metadata poisoning | Tenant fields overwritten from context |
+| Context bypass | Fail-closed returns error, not empty results |
 
 ### Secret Protection
 

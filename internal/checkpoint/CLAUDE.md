@@ -2,7 +2,7 @@
 
 Session checkpoint storage and resumption.
 
-**Last Updated**: 2025-11-25
+**Last Updated**: 2025-12-18
 
 ---
 
@@ -12,7 +12,31 @@ Session checkpoint storage and resumption.
 
 **Spec**: @../../docs/spec/interface/SPEC.md (CheckpointService)
 
-**Storage**: Qdrant (project_checkpoints collection)
+**Storage**: Vectorstore with payload-based tenant isolation
+
+---
+
+## Tenant Isolation
+
+Checkpoints use context-based tenant isolation. Tenant context is required for all operations:
+
+```go
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
+
+// Set tenant context before checkpoint operations
+ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+    TenantID:  "org-123",
+    ProjectID: "contextd",
+})
+
+// Save checkpoint (tenant metadata injected automatically)
+id, err := checkpointService.Save(ctx, &checkpoint.SaveRequest{...})
+
+// List checkpoints (filtered by tenant)
+checkpoints, err := checkpointService.List(ctx, &checkpoint.ListRequest{...})
+```
+
+**Security**: Missing tenant context returns `ErrMissingTenant` (fail-closed behavior).
 
 ---
 

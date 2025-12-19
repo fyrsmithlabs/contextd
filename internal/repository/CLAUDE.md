@@ -88,8 +88,30 @@ go test -race ./internal/repository/
 - **Path Traversal Prevention**: All paths cleaned with `filepath.Clean()`
 - **File Size Limits**: Prevents indexing large files (max 10MB)
 - **Pattern Validation**: Glob patterns validated before use
-- **Multi-Tenant Isolation**: Checkpoints scoped to project_path
+- **Multi-Tenant Isolation**: Context-based tenant filtering via `ContextWithTenant()`
 - **Input Validation**: All user inputs (path, patterns) validated
+
+## Tenant Isolation
+
+Repository indexing uses context-based tenant isolation:
+
+```go
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
+
+// Set tenant context before indexing
+ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+    TenantID:  "org-123",
+    ProjectID: "contextd",
+})
+
+// Index repository (files tagged with tenant metadata)
+result, err := svc.IndexRepository(ctx, "/path/to/repo", opts)
+
+// Search indexed code (filtered by tenant)
+results, err := svc.Search(ctx, "authentication logic", 10)
+```
+
+**Security**: Missing tenant context returns `ErrMissingTenant` (fail-closed behavior).
 
 ## Performance Notes
 
