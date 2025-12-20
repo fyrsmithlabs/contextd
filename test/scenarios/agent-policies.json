@@ -1,0 +1,353 @@
+{
+  "scenarios": [
+    {
+      "name": "policies_init_creates_recommended",
+      "description": "Verify /policies init creates recommended policies with correct schema",
+      "persona": {
+        "name": "PolicyAdmin",
+        "description": "An administrator setting up agent policies for a new project",
+        "goals": ["Initialize recommended policies", "Verify policy storage format"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.9
+      },
+      "project_id": "test-policies-init",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: test-before-fix",
+            "content": "RULE: Always run tests before claiming a fix is complete\nDESCRIPTION: Ensures fixes are verified, not assumed\nCATEGORY: verification\nSEVERITY: high\nSCOPE: global",
+            "outcome": "success",
+            "tags": ["type:policy", "category:verification", "severity:high", "scope:global", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: contextd-first",
+            "content": "RULE: Search contextd memory before filesystem search\nDESCRIPTION: Leverage existing knowledge before grepping\nCATEGORY: process\nSEVERITY: high\nSCOPE: global",
+            "outcome": "success",
+            "tags": ["type:policy", "category:process", "severity:high", "scope:global", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: no-secrets-in-context",
+            "content": "RULE: Never read secrets, credentials, or API keys into context\nDESCRIPTION: Prevents credential exposure in conversation history\nCATEGORY: security\nSEVERITY: critical\nSCOPE: global",
+            "outcome": "success",
+            "tags": ["type:policy", "category:security", "severity:critical", "scope:global", "enabled:true"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy enabled:true", "limit": 10 }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 3,
+          "message": "Should have recorded 3 recommended policies"
+        }
+      ]
+    },
+    {
+      "name": "policies_list_retrieves_all",
+      "description": "Verify /policies list retrieves all enabled policies",
+      "persona": {
+        "name": "PolicyViewer",
+        "description": "A user viewing existing policies",
+        "goals": ["List all policies", "Verify retrieval by tag"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.9
+      },
+      "project_id": "test-policies-list",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: verify-before-complete",
+            "content": "RULE: Run verification commands before marking task complete\nCATEGORY: verification\nSEVERITY: high\nSCOPE: global",
+            "outcome": "success",
+            "tags": ["type:policy", "category:verification", "severity:high", "scope:global", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: no-force-push-main",
+            "content": "RULE: Never force push to main/master branch\nCATEGORY: security\nSEVERITY: critical\nSCOPE: global",
+            "outcome": "success",
+            "tags": ["type:policy", "category:security", "severity:critical", "scope:global", "enabled:true"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy", "limit": 20 }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy severity:critical", "limit": 10 }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 2,
+          "message": "Should have recorded 2 policies"
+        }
+      ]
+    },
+    {
+      "name": "policies_add_custom",
+      "description": "Verify /policies add creates custom policy with user input",
+      "persona": {
+        "name": "PolicyCreator",
+        "description": "A user adding a custom policy for their project",
+        "goals": ["Create custom policy", "Verify custom tags"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.9
+      },
+      "project_id": "test-policies-add",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: always-update-changelog",
+            "content": "RULE: Update CHANGELOG.md for every user-facing change\nDESCRIPTION: Maintains documentation for releases\nCATEGORY: documentation\nSEVERITY: medium\nSCOPE: project:contextd",
+            "outcome": "success",
+            "tags": ["type:policy", "category:documentation", "severity:medium", "scope:project:contextd", "enabled:true", "source:manual"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "POLICY changelog documentation", "limit": 5 }
+        },
+        {
+          "type": "feedback",
+          "args": { "memory_id": "last", "helpful": true, "reasoning": "Custom policy created successfully" }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 1,
+          "message": "Should have recorded 1 custom policy"
+        },
+        {
+          "type": "feedback_count",
+          "value": 1,
+          "message": "Should have 1 feedback confirming policy"
+        }
+      ]
+    },
+    {
+      "name": "policies_stats_tracks_usage",
+      "description": "Verify policy stats track violations and successes via separate memories",
+      "persona": {
+        "name": "PolicyAnalyst",
+        "description": "A user analyzing policy compliance statistics",
+        "goals": ["Track policy violations", "Track policy successes", "Verify stats pattern"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.7
+      },
+      "project_id": "test-policies-stats",
+      "max_turns": 15,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: test-before-fix",
+            "content": "RULE: Always run tests before claiming a fix is complete\nCATEGORY: verification\nSEVERITY: high",
+            "outcome": "success",
+            "tags": ["type:policy", "category:verification", "severity:high", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY-EVENT: test-before-fix violation",
+            "content": "Policy 'test-before-fix' was violated. Agent claimed fix without running tests.",
+            "outcome": "failure",
+            "tags": ["type:policy-event", "policy:test-before-fix", "event:violation"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY-EVENT: test-before-fix success",
+            "content": "Policy 'test-before-fix' was followed. Agent ran tests before claiming fix.",
+            "outcome": "success",
+            "tags": ["type:policy-event", "policy:test-before-fix", "event:success"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY-EVENT: test-before-fix success",
+            "content": "Policy 'test-before-fix' was followed. Agent ran tests before claiming fix.",
+            "outcome": "success",
+            "tags": ["type:policy-event", "policy:test-before-fix", "event:success"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy-event policy:test-before-fix event:violation", "limit": 10 }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy-event policy:test-before-fix event:success", "limit": 10 }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 4,
+          "message": "Should have 1 policy + 3 policy events"
+        }
+      ]
+    },
+    {
+      "name": "reflect_policies_compliance_check",
+      "description": "Verify /reflect --policies evaluates policy compliance",
+      "persona": {
+        "name": "ComplianceChecker",
+        "description": "An agent performing policy compliance review",
+        "goals": ["Check policy compliance", "Identify violations", "Report compliance rate"],
+        "constraints": [],
+        "feedback_style": "critical",
+        "success_rate": 0.8
+      },
+      "project_id": "test-reflect-policies",
+      "max_turns": 20,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: no-secrets-in-context",
+            "content": "RULE: Never read secrets into context\nCATEGORY: security\nSEVERITY: critical",
+            "outcome": "success",
+            "tags": ["type:policy", "category:security", "severity:critical", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: contextd-first",
+            "content": "RULE: Search contextd before filesystem\nCATEGORY: process\nSEVERITY: high",
+            "outcome": "success",
+            "tags": ["type:policy", "category:process", "severity:high", "enabled:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "Session action: Searched contextd before grep",
+            "content": "Agent used memory_search before grepping filesystem. Followed contextd-first policy.",
+            "outcome": "success",
+            "tags": ["session:current", "action:search", "policy:contextd-first", "compliant:true"]
+          }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "Session action: Read .env file",
+            "content": "Agent read .env file contents into context. Violated no-secrets-in-context policy.",
+            "outcome": "failure",
+            "tags": ["session:current", "action:read", "policy:no-secrets-in-context", "compliant:false"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy enabled:true", "limit": 10 }
+        },
+        {
+          "type": "search",
+          "args": { "query": "session:current compliant:false", "limit": 10 }
+        },
+        {
+          "type": "search",
+          "args": { "query": "session:current compliant:true", "limit": 10 }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "REFLECTION: Policy Compliance Report",
+            "content": "Policies Checked: 2\nCompliance Rate: 50% (1/2)\n\nVIOLATIONS:\n- [CRITICAL] no-secrets-in-context: Read .env file\n\nCOMPLIANT:\n- contextd-first: Searched memory before grep",
+            "outcome": "success",
+            "tags": ["type:reflection", "scope:policies", "compliance:partial"]
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 5,
+          "message": "Should have 2 policies + 2 actions + 1 reflection"
+        }
+      ]
+    },
+    {
+      "name": "policy_enforcement_at_skill_load",
+      "description": "Verify policies are checked when skills are loaded",
+      "persona": {
+        "name": "SkillLoader",
+        "description": "An agent loading skills that should check applicable policies",
+        "goals": ["Load skill", "Check applicable policies", "Inject constraints"],
+        "constraints": [],
+        "feedback_style": "realistic",
+        "success_rate": 0.9
+      },
+      "project_id": "test-policy-enforcement",
+      "max_turns": 10,
+      "actions": [
+        {
+          "type": "record",
+          "args": {
+            "title": "POLICY: tdd-required",
+            "content": "RULE: Write tests before implementation\nCATEGORY: verification\nSEVERITY: high\nSCOPE: skill:test-driven-development",
+            "outcome": "success",
+            "tags": ["type:policy", "category:verification", "severity:high", "scope:skill:test-driven-development", "enabled:true"]
+          }
+        },
+        {
+          "type": "search",
+          "args": { "query": "type:policy scope:skill:test-driven-development", "limit": 5 }
+        },
+        {
+          "type": "record",
+          "args": {
+            "title": "SKILL-LOAD: test-driven-development",
+            "content": "Skill loaded with 1 applicable policy:\n- tdd-required: Write tests before implementation\n\nThese constraints are now active for this skill invocation.",
+            "outcome": "success",
+            "tags": ["type:skill-load", "skill:test-driven-development", "policies-injected:1"]
+          }
+        },
+        {
+          "type": "feedback",
+          "args": { "memory_id": "last", "helpful": true, "reasoning": "Policy enforcement working" }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_count",
+          "value": 2,
+          "message": "Should have 1 policy + 1 skill-load event"
+        },
+        {
+          "type": "feedback_count",
+          "value": 1,
+          "message": "Should have feedback confirming enforcement"
+        }
+      ]
+    }
+  ]
+}

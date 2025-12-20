@@ -37,19 +37,27 @@ Each line is a JSON message with:
 │  1. SCAN                                                         │
 │     Find JSONL files in ~/.claude/projects/{project}/            │
 ├──────────────────────────────────────────────────────────────────┤
-│  2. SCRUB (MANDATORY - VERIFY SUCCESS)                           │
-│     POST to /api/v1/scrub, check response before proceeding      │
+│  2. VALIDATE PATHS (SECURITY GATE)                               │
+│     Verify each file is under allowed base, no path traversal    │
+│     ABORT if validation fails (see Path Validation section)      │
 ├──────────────────────────────────────────────────────────────────┤
-│  3. EXTRACT                                                      │
+│  3. SCRUB (SECURITY GATE - VERIFY SUCCESS)                       │
+│     POST to /api/v1/scrub, ABORT if scrubbing fails              │
+│     Set scrubbing_verified=true only on success                  │
+├──────────────────────────────────────────────────────────────────┤
+│  4. EXTRACT                                                      │
 │     Identify patterns using heuristics + LLM                     │
+│     ONLY proceed if scrubbing_verified=true                      │
 ├──────────────────────────────────────────────────────────────────┤
-│  4. DEDUPLICATE                                                  │
+│  5. DEDUPLICATE                                                  │
 │     Similarity > 0.85 = merge, 0.6-0.85 = review, <0.6 = new     │
 ├──────────────────────────────────────────────────────────────────┤
-│  5. STORE                                                        │
+│  6. STORE                                                        │
 │     Save to contextd (memory_record, remediation_record)         │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+**Security Gates**: Steps 2 and 3 are mandatory security gates. Failure at either gate ABORTS the entire operation for that file. No exceptions.
 
 ## Consent Protocol (REQUIRED)
 
@@ -225,32 +233,74 @@ This runs outside the agent context, no token cost.
 }
 ```
 
-## Secret Scrubbing (MANDATORY)
+## Secret Scrubbing (MANDATORY - FAIL CLOSED)
 
-Before processing ANY conversation content, scrub secrets:
+Before processing ANY conversation content, scrub secrets. **This is a security-critical step.**
+
+### Scrubbing Protocol
 
 ```
 # Step 1: Read raw content
 raw_content = Read(conversation_file)
 
-# Step 2: Call scrub API
-response = POST http://localhost:9090/api/v1/scrub
-  Body: {"content": raw_content}
+# Step 2: Call scrub API with error handling
+try:
+  response = POST http://localhost:9090/api/v1/scrub
+    Body: {"content": raw_content}
+    Timeout: 30s
+catch NetworkError:
+  ERROR: "Scrubbing service unreachable - ABORTING"
+  LOG: "Cannot proceed without secret scrubbing. Ensure contextd HTTP server is running."
+  return ABORT
 
-# Step 3: VERIFY success before proceeding
+# Step 3: VERIFY HTTP SUCCESS
 if response.status != 200:
-  ERROR: "Scrubbing failed - DO NOT proceed with indexing"
-  return
+  ERROR: "Scrubbing failed with status {response.status} - ABORTING"
+  LOG: "Response: {response.body}"
+  return ABORT
 
-# Step 4: Check for scrubbed secrets
-if response.secrets_found > 0:
-  LOG: "Scrubbed {count} secrets from conversation"
+# Step 4: VERIFY RESPONSE STRUCTURE
+if response.body.scrubbed_content is undefined:
+  ERROR: "Invalid scrub response - missing scrubbed_content field - ABORTING"
+  return ABORT
 
-scrubbed_content = response.content
-# ONLY use scrubbed_content from this point forward
+# Step 5: SET VERIFICATION FLAG
+scrubbing_verified = true
+scrubbed_content = response.body.scrubbed_content
+
+# Step 6: Log scrubbing results
+if response.body.secrets_found > 0:
+  LOG: "⚠️  Scrubbed {secrets_found} secrets from conversation"
+  LOG: "Secret types: {response.body.secret_types}"
+else:
+  LOG: "✓ No secrets detected"
 ```
 
-**NEVER process unscrubbed content. Fail closed if scrubbing fails.**
+### Critical Verification Check
+
+**Before ANY extraction or storage, verify scrubbing succeeded:**
+
+```
+# GATE: This check MUST pass before proceeding to extraction
+if NOT scrubbing_verified:
+  ERROR: "SECURITY VIOLATION: Attempting to process unscrubbed content"
+  return ABORT
+
+# ONLY after this gate can you proceed
+proceed_with_extraction(scrubbed_content)
+```
+
+### Failure Modes
+
+| Failure | Action | Recovery |
+|---------|--------|----------|
+| HTTP server not running | ABORT | Start contextd with `--http` flag |
+| Network timeout | ABORT | Retry once, then abort |
+| Non-200 response | ABORT | Check server logs |
+| Missing response fields | ABORT | Update contextd version |
+| Scrubbing exception | ABORT | Report bug |
+
+**NEVER process unscrubbed content. NEVER catch and ignore scrubbing errors. ALWAYS fail closed.**
 
 ## Deduplication
 
@@ -322,10 +372,143 @@ On re-run:
 
 ## Security Considerations
 
-1. **Secret Scrubbing**: All content scrubbed with gitleaks before processing
-2. **Path Validation**: Prevent path traversal in project paths
-3. **Consent**: User must explicitly request conversation indexing
+1. **Secret Scrubbing**: All content scrubbed with gitleaks before processing (see Scrubbing Protocol above)
+2. **Path Validation**: Prevent path traversal attacks (see Path Validation below)
+3. **Consent**: User must explicitly request conversation indexing with "YES"
 4. **Scope**: Only index conversations for specific project (not all)
+
+## Path Validation (REQUIRED)
+
+Before processing ANY conversation file, validate the path to prevent path traversal attacks.
+
+### Path Validation Protocol
+
+```
+# Step 1: Define allowed base directory
+ALLOWED_BASE = os.path.expanduser("~/.claude/projects/")
+
+# Step 2: Resolve the target path (follows symlinks, normalizes)
+target_path = os.path.realpath(conversation_file)
+
+# Step 3: Validate path is under allowed base
+if NOT target_path.startswith(ALLOWED_BASE):
+  ERROR: "SECURITY VIOLATION: Path traversal attempt detected"
+  LOG: "Attempted path: {conversation_file}"
+  LOG: "Resolved to: {target_path}"
+  LOG: "Not under allowed base: {ALLOWED_BASE}"
+  return ABORT
+
+# Step 4: Additional checks
+if ".." in conversation_file:
+  ERROR: "SECURITY VIOLATION: Path contains '..' component"
+  return ABORT
+
+if conversation_file.startswith("/") and NOT conversation_file.startswith(ALLOWED_BASE):
+  ERROR: "SECURITY VIOLATION: Absolute path outside allowed directory"
+  return ABORT
+```
+
+### Valid Path Examples
+
+```
+# ✅ Valid
+~/.claude/projects/-home-user-myproject/abc123.jsonl
+~/.claude/projects/-home-user-myproject/agent-xyz.jsonl
+
+# ❌ Invalid - Path traversal
+~/.claude/projects/../../../etc/passwd
+~/.claude/projects/-home-user-myproject/../../../secret.txt
+
+# ❌ Invalid - Symlink escape
+~/.claude/projects/symlink-to-root/etc/passwd
+
+# ❌ Invalid - Absolute path outside base
+/etc/passwd
+/home/user/.ssh/id_rsa
+```
+
+### Implementation in Go
+
+```go
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
+)
+
+func validateConversationPath(conversationFile string) error {
+    // Get home directory (more reliable than os.Getenv)
+    homeDir, err := os.UserHomeDir()
+    if err != nil {
+        return fmt.Errorf("cannot determine home directory: %w", err)
+    }
+
+    // Build and resolve allowed base path
+    allowedBase := filepath.Join(homeDir, ".claude", "projects")
+    allowedBase, err = filepath.Abs(allowedBase)
+    if err != nil {
+        return fmt.Errorf("cannot resolve allowed base: %w", err)
+    }
+
+    // Clean and make target path absolute
+    targetPath, err := filepath.Abs(filepath.Clean(conversationFile))
+    if err != nil {
+        return fmt.Errorf("invalid path: %w", err)
+    }
+
+    // Additional safety: reject paths with ".." in original input
+    if strings.Contains(conversationFile, "..") {
+        return fmt.Errorf("path contains '..' component: %s", conversationFile)
+    }
+
+    // Resolve symlinks if file exists, otherwise use cleaned path
+    // NOTE: EvalSymlinks fails for non-existent files, which is OK
+    realTarget := targetPath
+    if resolved, err := filepath.EvalSymlinks(targetPath); err == nil {
+        realTarget = resolved
+    }
+
+    // Resolve symlinks on base path too for accurate comparison
+    realBase := allowedBase
+    if resolved, err := filepath.EvalSymlinks(allowedBase); err == nil {
+        realBase = resolved
+    }
+
+    // Check if under allowed base using filepath.Rel
+    relPath, err := filepath.Rel(realBase, realTarget)
+    if err != nil || strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+        return fmt.Errorf("path traversal: %s is outside %s", realTarget, realBase)
+    }
+
+    return nil
+}
+```
+
+### Validation Gate
+
+**This check MUST pass before reading any file:**
+
+```
+for conversation_file in files_to_index:
+  # GATE: Validate path BEFORE reading
+  if NOT validate_path(conversation_file):
+    ERROR: "Skipping invalid path: {conversation_file}"
+    continue
+
+  # ONLY after validation can you read the file
+  content = Read(conversation_file)
+```
+
+### Path Validation Failure Modes
+
+| Failure | Action | Recovery |
+|---------|--------|----------|
+| Path contains `..` | Skip file | Check file path construction |
+| Symlink outside allowed base | Skip file | Remove malicious symlink |
+| Cannot determine home directory | ABORT all | Check environment |
+| Absolute path outside base | Skip file | Use project-relative paths |
+| Cannot resolve path | Skip file | Check file permissions |
 
 ## Usage
 
