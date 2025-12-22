@@ -289,15 +289,38 @@ func (s *Service) Search(ctx context.Context, query string, opts SearchOptions) 
 			return nil, fmt.Errorf("store not configured")
 		}
 		store = s.store
+
+		// Inject tenant context even when using CollectionName
+		// Require ProjectPath to derive tenant info (fail-closed)
+		if opts.ProjectPath == "" {
+			return nil, fmt.Errorf("project_path is required for tenant context")
+		}
+		tenantID := opts.TenantID
+		if tenantID == "" {
+			tenantID = tenant.GetTenantIDForPath(opts.ProjectPath)
+		}
+		projectName := filepath.Base(opts.ProjectPath)
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  sanitize.Identifier(tenantID),
+			ProjectID: sanitize.Identifier(projectName),
+		})
 	} else {
 		// Use getStore() to determine appropriate store and collection
 		if opts.ProjectPath == "" {
 			return nil, fmt.Errorf("project_path is required when collection_name not provided")
 		}
-		store, collectionName, _, err = s.getStore(ctx, opts.ProjectPath, opts.TenantID)
+		var tenantID string
+		store, collectionName, tenantID, err = s.getStore(ctx, opts.ProjectPath, opts.TenantID)
 		if err != nil {
 			return nil, fmt.Errorf("getting store: %w", err)
 		}
+
+		// Inject tenant context for payload-based isolation
+		projectName := filepath.Base(opts.ProjectPath)
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  sanitize.Identifier(tenantID),
+			ProjectID: sanitize.Identifier(projectName),
+		})
 	}
 
 	// Build filters
@@ -381,6 +404,13 @@ func (s *Service) IndexRepository(ctx context.Context, path string, opts IndexOp
 
 	// Sanitize tenant ID for metadata consistency (store what we use for lookups)
 	sanitizedTenant := sanitize.Identifier(tenantID)
+
+	// Inject tenant context for payload-based isolation
+	projectName := filepath.Base(cleanPath)
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  sanitizedTenant,
+		ProjectID: sanitize.Identifier(projectName),
+	})
 
 	// Collect documents to index
 	var docs []vectorstore.Document
