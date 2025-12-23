@@ -14,11 +14,17 @@ RUN CGO_ENABLED=0 go build -o github-webhook ./cmd/github-webhook
 
 FROM alpine:3.19
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates && \
+    addgroup -S appgroup && \
+    adduser -S appuser -G appgroup
 
 WORKDIR /app
 
 COPY --from=builder /build/github-webhook .
+
+RUN chown -R appuser:appgroup /app
+
+USER appuser
 
 EXPOSE 3000
 

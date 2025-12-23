@@ -122,7 +122,7 @@ go test ./internal/workflows/... -run TestCategorizeFilesActivity -v
 | `GITHUB_TOKEN` | Yes | GitHub personal access token for API access |
 | `GITHUB_WEBHOOK_SECRET` | Yes | Secret for validating webhook signatures |
 | `TEMPORAL_HOST` | No | Temporal server address (default: localhost:7233) |
-| `PORT` | No | Webhook server port (default: 8080) |
+| `PORT` | No | Webhook server port (default: 3000) |
 
 ### Monitoring
 

@@ -3,6 +3,7 @@ package workflows
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -95,18 +96,30 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 	// Step 3: Validate plugin schemas if modified
 	if len(categorized.PluginFiles) > 0 {
 		logger.Info("Validating plugin schemas", "files", categorized.PluginFiles)
-		var schemaResult SchemaValidationResult
-		err = workflow.ExecuteActivity(ctx, ValidatePluginSchemasActivity, ValidateSchemasInput{
-			Owner:    config.Owner,
-			Repo:     config.Repo,
-			HeadSHA:  config.HeadSHA,
-			FilePath: ".claude-plugin/schemas/contextd-mcp-tools.schema.json",
-		}).Get(ctx, &schemaResult)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("schema validation failed: %v", err))
-		} else {
-			result.SchemaValid = schemaResult.Valid
-			if !schemaResult.Valid {
+
+		// Find all JSON files in plugin changes
+		var jsonFiles []string
+		for _, file := range categorized.PluginFiles {
+			if strings.HasSuffix(file, ".json") {
+				jsonFiles = append(jsonFiles, file)
+			}
+		}
+
+		// Validate each JSON file
+		result.SchemaValid = true
+		for _, jsonFile := range jsonFiles {
+			var schemaResult SchemaValidationResult
+			err = workflow.ExecuteActivity(ctx, ValidatePluginSchemasActivity, ValidateSchemasInput{
+				Owner:    config.Owner,
+				Repo:     config.Repo,
+				HeadSHA:  config.HeadSHA,
+				FilePath: jsonFile,
+			}).Get(ctx, &schemaResult)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("schema validation failed for %s: %v", jsonFile, err))
+				result.SchemaValid = false
+			} else if !schemaResult.Valid {
+				result.SchemaValid = false
 				result.Errors = append(result.Errors, schemaResult.Errors...)
 			}
 		}

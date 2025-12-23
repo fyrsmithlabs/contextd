@@ -4,26 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
+	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/google/go-github/v57/github"
-	"golang.org/x/oauth2"
 )
+
+var (
+	// gitHubToken holds the GitHub token for all activities.
+	// Set via SetGitHubToken() during worker initialization.
+	gitHubToken config.Secret
+)
+
+// SetGitHubToken sets the GitHub token for all activities.
+// Must be called before activities are executed.
+func SetGitHubToken(token config.Secret) {
+	gitHubToken = token
+}
 
 // FetchPRFilesActivity fetches the list of files changed in a PR.
 func FetchPRFilesActivity(ctx context.Context, input FetchPRFilesInput) ([]FileChange, error) {
-	// Get GitHub token from environment
-	token := getGitHubToken()
-	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN not set")
-	}
-
 	// Create GitHub client
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	client, err := NewGitHubClient(ctx, gitHubToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
 
 	// Fetch PR files
 	opts := &github.ListOptions{PerPage: 100}
@@ -108,16 +114,11 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 		Errors: make([]string, 0),
 	}
 
-	// Get GitHub token
-	token := getGitHubToken()
-	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN not set")
-	}
-
 	// Create GitHub client
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	client, err := NewGitHubClient(ctx, gitHubToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
 
 	// Fetch file content at HEAD SHA
 	fileContent, _, _, err := client.Repositories.GetContents(ctx, input.Owner, input.Repo, input.FilePath, &github.RepositoryContentGetOptions{
@@ -138,6 +139,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 	if err := json.Unmarshal([]byte(content), &jsonData); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, fmt.Sprintf("Invalid JSON in %s: %v", input.FilePath, err))
+		return result, nil // Early return - don't process invalid JSON
 	}
 
 	// Additional validation: check for required fields in MCP tools schema
@@ -163,27 +165,34 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 
 // PostReminderCommentActivity posts a reminder comment to the PR.
 func PostReminderCommentActivity(ctx context.Context, input PostCommentInput) (*PostCommentResult, error) {
-	token := getGitHubToken()
-	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN not set")
+	client, err := NewGitHubClient(ctx, gitHubToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
-
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
 
 	// Build comment body
 	body := buildReminderComment(input.CodeFiles)
 
-	// Check if we already posted a comment
-	comments, _, err := client.Issues.ListComments(ctx, input.Owner, input.Repo, input.PRNumber, &github.IssueListCommentsOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list comments: %w", err)
+	// Check if we already posted a comment (with pagination)
+	opts := &github.IssueListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	var allComments []*github.IssueComment
+	for {
+		comments, resp, err := client.Issues.ListComments(ctx, input.Owner, input.Repo, input.PRNumber, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list comments: %w", err)
+		}
+		allComments = append(allComments, comments...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
 	}
 
 	// Look for existing bot comment
 	var existingComment *github.IssueComment
-	for _, comment := range comments {
+	for _, comment := range allComments {
 		if strings.Contains(comment.GetBody(), "⚠️ Claude Plugin Update Reminder") {
 			existingComment = comment
 			break
@@ -216,36 +225,69 @@ func PostReminderCommentActivity(ctx context.Context, input PostCommentInput) (*
 
 // PostSuccessCommentActivity posts a success message to the PR.
 func PostSuccessCommentActivity(ctx context.Context, input PostCommentInput) (*PostCommentResult, error) {
-	token := getGitHubToken()
-	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN not set")
+	client, err := NewGitHubClient(ctx, gitHubToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
-
+	// Build success message
 	body := `## ✅ Claude Plugin Updated
 
 Great! This PR includes updates to the Claude plugin alongside code changes.
 
 Plugin schemas have been validated and are correct.`
 
-	created, _, err := client.Issues.CreateComment(ctx, input.Owner, input.Repo, input.PRNumber, &github.IssueComment{
-		Body: &body,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create comment: %w", err)
+	// Check if we already posted a success comment (with pagination)
+	opts := &github.IssueListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	var allComments []*github.IssueComment
+	for {
+		comments, resp, err := client.Issues.ListComments(ctx, input.Owner, input.Repo, input.PRNumber, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list comments: %w", err)
+		}
+		allComments = append(allComments, comments...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
 	}
 
-	return &PostCommentResult{URL: created.GetHTMLURL()}, nil
+	// Look for existing success comment
+	var existingComment *github.IssueComment
+	for _, comment := range allComments {
+		if strings.Contains(comment.GetBody(), "✅ Claude Plugin Updated") {
+			existingComment = comment
+			break
+		}
+	}
+
+	var commentURL string
+	if existingComment != nil {
+		// Update existing comment
+		updated, _, err := client.Issues.EditComment(ctx, input.Owner, input.Repo, existingComment.GetID(), &github.IssueComment{
+			Body: &body,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update comment: %w", err)
+		}
+		commentURL = updated.GetHTMLURL()
+	} else {
+		// Create new comment
+		created, _, err := client.Issues.CreateComment(ctx, input.Owner, input.Repo, input.PRNumber, &github.IssueComment{
+			Body: &body,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create comment: %w", err)
+		}
+		commentURL = created.GetHTMLURL()
+	}
+
+	return &PostCommentResult{URL: commentURL}, nil
 }
 
 // Helper functions
-
-func getGitHubToken() string {
-	return os.Getenv("GITHUB_TOKEN")
-}
 
 func buildReminderComment(codeFiles []string) string {
 	var b strings.Builder
@@ -273,7 +315,7 @@ func buildReminderComment(codeFiles []string) string {
 	b.WriteString("- `.claude-plugin/commands/*.md` - Command documentation\n")
 	b.WriteString("- `.claude-plugin/includes/*.md` - Shared documentation\n\n")
 
-	b.WriteString("See [CLAUDE.md Priority #3](../CLAUDE.md#critical-update-claude-plugin-on-changes-priority-3) for details.\n\n")
+	b.WriteString("See [CLAUDE.md Priority #3](https://github.com/fyrsmithlabs/contextd/blob/main/CLAUDE.md#critical-update-claude-plugin-on-changes-priority-3) for details.\n\n")
 	b.WriteString("---\n\n")
 	b.WriteString("**Note**: This is a reminder, not a blocker. If your changes don't affect user-facing functionality, you can check \"Not applicable\" in the PR description.\n")
 

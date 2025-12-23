@@ -11,30 +11,72 @@
 package main
 
 import (
-	"log"
+	"context"
+	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	"go.uber.org/zap"
 
+	"github.com/fyrsmithlabs/contextd/internal/config"
+	"github.com/fyrsmithlabs/contextd/internal/logging"
 	"github.com/fyrsmithlabs/contextd/internal/workflows"
 )
 
+// Config holds worker configuration.
+type Config struct {
+	TemporalHost string
+	GitHubToken  config.Secret
+}
+
 func main() {
-	// Get Temporal server address
-	temporalHost := os.Getenv("TEMPORAL_HOST")
-	if temporalHost == "" {
-		temporalHost = "localhost:7233"
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
+}
+
+func run() error {
+	// Create root context with signal handling
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Initialize logging
+	logCfg := logging.NewDefaultConfig()
+	logger, err := logging.NewLogger(logCfg, nil)
+	if err != nil {
+		return fmt.Errorf("initializing logger: %w", err)
+	}
+	defer logger.Sync()
+
+	// Load configuration
+	cfg := loadConfig()
+
+	logger.Info(ctx, "plugin validation worker starting",
+		zap.String("temporal_host", cfg.TemporalHost),
+	)
+
+	// Validate configuration
+	if !cfg.GitHubToken.IsSet() {
+		return fmt.Errorf("GITHUB_TOKEN not set")
+	}
+
+	// Set GitHub token for workflow activities
+	workflows.SetGitHubToken(cfg.GitHubToken)
 
 	// Create Temporal client
 	c, err := client.Dial(client.Options{
-		HostPort: temporalHost,
+		HostPort: cfg.TemporalHost,
 	})
 	if err != nil {
-		log.Fatalf("Unable to create Temporal client: %v", err)
+		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	defer c.Close()
+
+	logger.Info(ctx, "temporal client connected", zap.String("host", cfg.TemporalHost))
 
 	// Create worker
 	w := worker.New(c, "plugin-validation-queue", worker.Options{})
@@ -49,13 +91,40 @@ func main() {
 	w.RegisterActivity(workflows.PostReminderCommentActivity)
 	w.RegisterActivity(workflows.PostSuccessCommentActivity)
 
-	// Start worker
-	log.Println("Plugin validation worker starting...")
-	log.Printf("Temporal server: %s", temporalHost)
-	log.Printf("Task queue: plugin-validation-queue")
+	logger.Info(ctx, "worker configured",
+		zap.String("task_queue", "plugin-validation-queue"),
+	)
 
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		log.Fatalf("Unable to start worker: %v", err)
+	// Start worker in background
+	workerErrors := make(chan error, 1)
+	go func() {
+		logger.Info(ctx, "worker starting")
+		workerErrors <- w.Run(worker.InterruptCh())
+	}()
+
+	// Wait for shutdown signal or worker error
+	select {
+	case err := <-workerErrors:
+		if err != nil {
+			return fmt.Errorf("worker error: %w", err)
+		}
+	case <-ctx.Done():
+		logger.Info(ctx, "shutdown signal received")
+	}
+
+	// Worker stops automatically on interrupt signal
+	logger.Info(ctx, "worker stopped gracefully")
+	return nil
+}
+
+func loadConfig() *Config {
+	temporalHost := os.Getenv("TEMPORAL_HOST")
+	if temporalHost == "" {
+		temporalHost = "localhost:7233"
+	}
+
+	return &Config{
+		TemporalHost: temporalHost,
+		GitHubToken:  config.Secret(os.Getenv("GITHUB_TOKEN")),
 	}
 }

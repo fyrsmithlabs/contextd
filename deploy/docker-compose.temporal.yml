@@ -20,9 +20,9 @@ services:
     environment:
       POSTGRES_DB: temporal
       POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - temporal-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -41,12 +41,12 @@ services:
       - DB=postgresql
       - DB_PORT=5432
       - POSTGRES_USER=temporal
-      - POSTGRES_PWD=temporal
+      - POSTGRES_PWD=${TEMPORAL_POSTGRES_PASSWORD:-temporal}
       - POSTGRES_SEEDS=postgresql
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
       - "7233:7233"  # gRPC
-      - "8233:8233"  # Web UI
+      - "8233:8233"  # HTTP API
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "workflow", "list"]
       interval: 10s
