@@ -9,6 +9,21 @@
 
 **ALWAYS use contextd MCP tools before filesystem search. ALWAYS.**
 
+### MANDATORY Pre-Flight Check
+
+Before ANY codebase exploration or task work:
+
+```
+1. mcp__contextd__semantic_search(query, project_path: ".")
+   → Semantic search with automatic grep fallback
+   → NEVER skip this - it's your first tool for code lookup
+
+2. mcp__contextd__memory_search(project_id, query)
+   → Check past learnings and solutions
+```
+
+**DO NOT use Read, Grep, or Glob until AFTER semantic_search.**
+
 ---
 
 ## ⚠️ CRITICAL: GitHub MCP over gh CLI (Priority #2)
