@@ -1,7 +1,7 @@
 # CLAUDE.md - contextd
 
 **Status**: Active Development (Phase 5 complete, Phase 6 pending)
-**Last Updated**: 2025-12-11
+**Last Updated**: 2025-12-23
 
 ---
 
@@ -202,6 +202,48 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 3. **MCP Integration** - simplified server, tool handlers, scrubbing
 4. **ReasoningBank** - memory package, MCP tools, distiller stub
 5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/scrub`, `/api/v1/threshold`, `/api/v1/status` endpoints; `ctxd` CLI binary
+
+---
+
+## Temporal Workflows (Automation)
+
+The repository includes Temporal-based workflows for internal automation tasks.
+
+### Plugin Update Validation
+
+**Location:** `internal/workflows/`
+
+Automatically validates that Claude plugin files are updated when code changes require it.
+
+**Triggers:**
+- PR opened, synchronized, or reopened
+
+**Process:**
+1. Fetch PR file changes via GitHub API
+2. Categorize files (code vs plugin vs other)
+3. Validate plugin schemas if modified
+4. Post reminder or success comment to PR
+
+**Components:**
+- **Workflow:** `PluginUpdateValidationWorkflow` (orchestration)
+- **Activities:** GitHub API calls, file categorization, schema validation
+- **Worker:** `cmd/plugin-validator/main.go` (executes workflows)
+- **Webhook:** `cmd/github-webhook/main.go` (receives GitHub events)
+
+**Running:**
+```bash
+# Set environment variables
+export GITHUB_TOKEN=ghp_xxx
+export GITHUB_WEBHOOK_SECRET=your_secret
+
+# Start full stack
+docker-compose -f deploy/docker-compose.temporal.yml up
+
+# Access Temporal UI
+open http://localhost:8080
+```
+
+**See:** `internal/workflows/README.md` for complete documentation
 
 ---
 
