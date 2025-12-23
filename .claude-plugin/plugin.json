@@ -36,7 +36,8 @@
     "./.claude-plugin/commands/test-skill.md"
   ],
   "agents": [
-    "./.claude-plugin/agents/contextd-task-executor.md"
+    "./.claude-plugin/agents/contextd-task-executor.md",
+    "./.claude-plugin/agents/task-orchestrator.md"
   ],
   "hooks": "./.claude-plugin/hooks/hooks.json"
 }
