@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
@@ -128,9 +129,17 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointSaveOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
 		}
 
+		// Derive project_id from project_path (directory name)
+		projectID := ""
+		if args.ProjectPath != "" {
+			projectID = filepath.Base(args.ProjectPath)
+		}
+
 		saveReq := &checkpoint.SaveRequest{
 			SessionID:   args.SessionID,
 			TenantID:    tenantID,
+			TeamID:      "", // Empty team is allowed
+			ProjectID:   projectID,
 			ProjectPath: args.ProjectPath,
 			Name:        args.Name,
 			Description: args.Description,
@@ -183,9 +192,17 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointListOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
 		}
 
+		// Derive project_id from project_path (directory name)
+		projectID := ""
+		if args.ProjectPath != "" {
+			projectID = filepath.Base(args.ProjectPath)
+		}
+
 		listReq := &checkpoint.ListRequest{
 			SessionID:   args.SessionID,
 			TenantID:    tenantID,
+			TeamID:      "", // Empty team is allowed
+			ProjectID:   projectID,
 			ProjectPath: args.ProjectPath,
 			Limit:       args.Limit,
 			AutoOnly:    args.AutoOnly,
@@ -587,29 +604,26 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_search",
 		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
-		// Prefer collection_name if provided (avoids tenant_id derivation issues)
-		// Otherwise derive from tenant_id + project_path
+		// project_path is always required for tenant context (fail-closed security)
+		if args.ProjectPath == "" {
+			return nil, repositorySearchOutput{}, fmt.Errorf("project_path is required for tenant context")
+		}
+
+		// Derive tenant_id if not provided
+		tenantID := args.TenantID
+		if tenantID == "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+		if tenantID == "" {
+			return nil, repositorySearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
 		opts := repository.SearchOptions{
 			CollectionName: args.CollectionName,
 			ProjectPath:    args.ProjectPath,
+			TenantID:       tenantID,
 			Branch:         args.Branch,
 			Limit:          args.Limit,
-		}
-
-		// Only derive tenant_id if collection_name not provided
-		if args.CollectionName == "" {
-			if args.ProjectPath == "" {
-				return nil, repositorySearchOutput{}, fmt.Errorf("either collection_name or project_path is required")
-			}
-			tenantID := args.TenantID
-			if tenantID == "" && args.ProjectPath != "" {
-				tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-			}
-			// Validate tenant_id was derived successfully
-			if tenantID == "" {
-				return nil, repositorySearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
-			}
-			opts.TenantID = tenantID
 		}
 
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)

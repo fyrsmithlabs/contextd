@@ -543,9 +543,10 @@ func TestSearch_WithCollectionName(t *testing.T) {
 	}
 	svc := NewService(store)
 
-	// Use CollectionName directly - no tenant_id/project_path needed
+	// Use CollectionName directly - project_path required for tenant context
 	opts := SearchOptions{
 		CollectionName: "dahendel_onprem_pw_codebase",
+		ProjectPath:    "/home/dahendel/projects/onprem-pw", // Required for tenant context
 		Limit:          10,
 	}
 

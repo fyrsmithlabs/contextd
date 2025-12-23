@@ -303,8 +303,15 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 			continue
 		}
 
+		// Inject tenant context for payload-based isolation
+		scopedCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  req.TenantID,
+			TeamID:    scopeInfo.teamID,
+			ProjectID: scopeInfo.projectPath,
+		})
+
 		// Check if collection exists
-		exists, err := store.CollectionExists(ctx, collection)
+		exists, err := store.CollectionExists(scopedCtx, collection)
 		if err != nil {
 			s.logger.Warn("failed to check collection", zap.String("collection", collection), zap.Error(err))
 			lastStoreErr = err
@@ -317,7 +324,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 			continue
 		}
 
-		results, err := store.SearchInCollection(ctx, collection, req.Query, searchLimit, filters)
+		results, err := store.SearchInCollection(scopedCtx, collection, req.Query, searchLimit, filters)
 		if err != nil {
 			s.logger.Warn("search failed", zap.String("collection", collection), zap.Error(err))
 			lastStoreErr = err
@@ -512,6 +519,13 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 		span.RecordError(err)
 		return nil, err
 	}
+
+	// Inject tenant context for payload-based isolation
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  req.TenantID,
+		TeamID:    req.TeamID,
+		ProjectID: req.ProjectPath,
+	})
 
 	// Ensure collection exists
 	exists, err := store.CollectionExists(ctx, collection)

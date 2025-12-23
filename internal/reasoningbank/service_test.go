@@ -204,7 +204,7 @@ func TestNewService(t *testing.T) {
 
 	t.Run("creates with valid inputs", func(t *testing.T) {
 		store := newMockStore()
-		svc, err := NewService(store, zap.NewNop())
+		svc, err := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		require.NoError(t, err)
 		assert.NotNil(t, svc)
 	})
@@ -220,7 +220,7 @@ func TestNewService(t *testing.T) {
 func TestService_Record(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	t.Run("validates memory", func(t *testing.T) {
 		err := svc.Record(ctx, nil)
@@ -302,7 +302,7 @@ func TestService_Record(t *testing.T) {
 func TestService_Search(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	projectID := "project-123"
 
@@ -359,7 +359,7 @@ func TestService_Search(t *testing.T) {
 func TestService_Get(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	projectID := "project-123"
 	memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
@@ -392,7 +392,7 @@ func TestService_Feedback(t *testing.T) {
 	t.Run("increases confidence for helpful feedback", func(t *testing.T) {
 		// Fresh service and memory for isolated test
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -410,7 +410,7 @@ func TestService_Feedback(t *testing.T) {
 	t.Run("decreases confidence for unhelpful feedback", func(t *testing.T) {
 		// Fresh service and memory for isolated test
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -427,7 +427,7 @@ func TestService_Feedback(t *testing.T) {
 
 	t.Run("requires memory ID", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		err := svc.Feedback(ctx, "", true)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "memory ID cannot be empty")
@@ -435,7 +435,7 @@ func TestService_Feedback(t *testing.T) {
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -450,7 +450,7 @@ func TestService_RecordOutcome(t *testing.T) {
 	t.Run("increases confidence for successful outcome", func(t *testing.T) {
 		// Fresh service and memory for isolated test
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -470,7 +470,7 @@ func TestService_RecordOutcome(t *testing.T) {
 	t.Run("decreases confidence for failed outcome", func(t *testing.T) {
 		// Fresh service and memory for isolated test
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -489,7 +489,7 @@ func TestService_RecordOutcome(t *testing.T) {
 
 	t.Run("requires memory ID", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		_, err := svc.RecordOutcome(ctx, "", true, "session-125")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "memory ID cannot be empty")
@@ -497,7 +497,7 @@ func TestService_RecordOutcome(t *testing.T) {
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -507,7 +507,7 @@ func TestService_RecordOutcome(t *testing.T) {
 
 	t.Run("accepts empty session ID", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
@@ -520,7 +520,7 @@ func TestService_RecordOutcome(t *testing.T) {
 func TestService_Delete(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	projectID := "project-123"
 	memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
@@ -549,7 +549,7 @@ func TestService_Delete(t *testing.T) {
 func TestDistiller_DistillSession(t *testing.T) {
 	ctx := context.Background()
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 	distiller, err := NewDistiller(svc, zap.NewNop())
 	require.NoError(t, err)
 
@@ -726,7 +726,7 @@ func TestNewDistiller(t *testing.T) {
 
 	t.Run("requires logger", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		_, err := NewDistiller(svc, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "logger cannot be nil")
@@ -734,7 +734,7 @@ func TestNewDistiller(t *testing.T) {
 
 	t.Run("creates with valid inputs", func(t *testing.T) {
 		store := newMockStore()
-		svc, _ := NewService(store, zap.NewNop())
+		svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 		distiller, err := NewDistiller(svc, zap.NewNop())
 		require.NoError(t, err)
 		assert.NotNil(t, distiller)
@@ -743,7 +743,7 @@ func TestNewDistiller(t *testing.T) {
 
 func TestMemoryToDocument(t *testing.T) {
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	memory, _ := NewMemory(
 		"project-123",
@@ -783,7 +783,7 @@ func TestMemoryToDocument(t *testing.T) {
 
 func TestResultToMemory(t *testing.T) {
 	store := newMockStore()
-	svc, _ := NewService(store, zap.NewNop())
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
 
 	now := time.Now()
 	result := vectorstore.SearchResult{

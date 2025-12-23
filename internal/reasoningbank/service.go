@@ -77,6 +77,14 @@ func WithSignalStore(ss SignalStore) ServiceOption {
 	}
 }
 
+// WithDefaultTenant sets the default tenant ID for single-store mode.
+// Required when using a single vectorstore instead of StoreProvider.
+func WithDefaultTenant(tenantID string) ServiceOption {
+	return func(s *Service) {
+		s.defaultTenant = tenantID
+	}
+}
+
 // NewService creates a new ReasoningBank service.
 func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOption) (*Service, error) {
 	if store == nil {
@@ -254,6 +262,17 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, err
 	}
 
+	// Inject tenant context for payload-based isolation
+	// Fail-closed: require tenant ID to be set (no fallback)
+	tenantID := s.defaultTenant
+	if tenantID == "" {
+		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	}
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: projectID,
+	})
+
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
@@ -380,6 +399,17 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 	if err != nil {
 		return err
 	}
+
+	// Inject tenant context for payload-based isolation
+	// Fail-closed: require tenant ID to be set (no fallback)
+	tenantID := s.defaultTenant
+	if tenantID == "" {
+		return fmt.Errorf("tenant ID not configured for reasoningbank service")
+	}
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: memory.ProjectID,
+	})
 
 	// Ensure collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)

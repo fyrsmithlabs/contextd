@@ -33,6 +33,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/fyrsmithlabs/contextd/internal/telemetry"
+	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
@@ -289,7 +290,8 @@ func run() error {
 
 	// Initialize reasoningbank service
 	if store != nil {
-		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying())
+		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying(),
+			reasoningbank.WithDefaultTenant(tenant.GetDefaultTenantID()))
 		if err != nil {
 			logger.Warn(ctx, "reasoningbank service initialization failed", zap.Error(err))
 		} else {
