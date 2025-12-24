@@ -1,0 +1,11 @@
+{
+  "session_id": "a16dc19d-a3a3-4f55-b059-77d33e53d2f9",
+  "transcript_path": "/home/dahendel/.claude/projects/-home-dahendel-projects-contextd/a16dc19d-a3a3-4f55-b059-77d33e53d2f9.jsonl",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/home/dahendel/projects/contextd/internal/workflows/documentation_validation.go",
+    "old_string": "\t// Critical issues\n\tif len(result.CriticalIssues) > 0 {\n\t\tb.WriteString(\"### 🔴 Critical Issues (MUST FIX)\\n\\n\")\n\t\tfor i, issue := range result.CriticalIssues {\n\t\t\tb.WriteString(fmt.Sprintf(\"%d. **%s**\", i+1, issue.File))\n\t\t\tif issue.Line > 0 {\n\t\t\t\tb.WriteString(fmt.Sprintf(\":%d\", issue.Line))\n\t\t\t}\n\t\t\tb.WriteString(\"\\n\")\n\t\t\tb.WriteString(fmt.Sprintf(\"   - Issue: %s\\n\", issue.Issue))",
+    "new_string": "\t// Critical issues\n\tif len(result.CriticalIssues) > 0 {\n\t\tb.WriteString(\"### 🔴 Critical Issues (MUST FIX)\\n\\n\")\n\t\tfor i, issue := range result.CriticalIssues {\n\t\t\tlocation := issue.File\n\t\t\tif issue.Line > 0 {\n\t\t\t\tlocation = fmt.Sprintf(\"%s:%d\", issue.File, issue.Line)\n\t\t\t}\n\t\t\tb.WriteString(fmt.Sprintf(\"%d. **%s**\\n\", i+1, location))\n\t\t\tb.WriteString(fmt.Sprintf(\"   - Issue: %s\\n\", issue.Issue))"
+  }
+}

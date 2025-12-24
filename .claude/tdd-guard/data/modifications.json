@@ -1,11 +1,11 @@
 {
-  "session_id": "b423d8b3-3d12-41b0-881e-508eb5e6e4fb",
-  "transcript_path": "/home/dahendel/.claude/projects/-home-dahendel-projects-contextd/b423d8b3-3d12-41b0-881e-508eb5e6e4fb.jsonl",
+  "session_id": "a16dc19d-a3a3-4f55-b059-77d33e53d2f9",
+  "transcript_path": "/home/dahendel/.claude/projects/-home-dahendel-projects-contextd/a16dc19d-a3a3-4f55-b059-77d33e53d2f9.jsonl",
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/home/dahendel/projects/contextd/internal/vectorstore/filter_test.go",
-    "old_string": "package vectorstore\n\nimport (\n\t\"testing\"\n)",
-    "new_string": "package vectorstore\n\nimport (\n\t\"testing\"\n)\n\n// =============================================================================\n// FILTER UTILITIES - Security Tests\n// =============================================================================\n//\n// These tests verify the filter manipulation utilities used in multi-tenant\n// isolation. The security-critical function is ApplyTenantFilters().\n//\n// KEY SECURITY FUNCTION: ApplyTenantFilters\n//   - Purpose: Safely merge user-provided filters with system-enforced tenant filters\n//   - Security: MUST reject any user filter containing tenant_id/team_id/project_id\n//   - Threat: Attacker provides {\"tenant_id\": \"victim\"} to access other tenant's data\n//   - Defense: Check for reserved keys BEFORE merging, return ErrTenantFilterInUserFilters\n//\n// DEPRECATED: MergeFilters\n//   - Has NO security validation - simply overwrites keys\n//   - MUST NOT be used for user-provided input\n//   - Only safe for internal/trusted filter composition\n//\n// See isolation_test.go for full threat model documentation.\n// ============================================================================="
+    "file_path": "/home/dahendel/projects/contextd/internal/embeddings/onnx_setup.go",
+    "old_string": "\t// Create destination directory\n\tif err := os.MkdirAll(destDir, 0755); err != nil {\n\t\treturn fmt.Errorf(\"creating directory: %w\", err)\n\t}",
+    "new_string": "\t// Create destination directory with secure permissions (owner-only)\n\tif err := os.MkdirAll(destDir, 0700); err != nil {\n\t\treturn fmt.Errorf(\"creating directory: %w\", err)\n\t}"
   }
 }

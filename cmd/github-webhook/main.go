@@ -13,7 +13,11 @@
 package main
 
 import (
+	"regexp"
 	"context"
+	"net"
+	"strings"
+	"sync"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,12 +27,19 @@ import (
 	"time"
 
 	"github.com/google/go-github/v57/github"
+	"golang.org/x/time/rate"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
 	"github.com/fyrsmithlabs/contextd/internal/workflows"
+)
+
+// Validation regexes compiled once at package initialization
+var (
+	validNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	validSHARegex  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 // Config holds webhook server configuration.
@@ -42,7 +53,11 @@ type Config struct {
 type WebhookServer struct {
 	temporalClient client.Client
 	webhookSecret  config.Secret
+	gitHubToken    config.Secret
 	logger         *logging.Logger
+	rateLimiters   map[string]*rate.Limiter
+	mu             sync.RWMutex
+	lastCleanup    time.Time
 }
 
 func main() {
@@ -81,9 +96,6 @@ func run() error {
 		return fmt.Errorf("GITHUB_TOKEN not set")
 	}
 
-	// Set GitHub token for workflow activities
-	workflows.SetGitHubToken(cfg.GitHubToken)
-
 	// Create Temporal client
 	c, err := client.Dial(client.Options{
 		HostPort: cfg.TemporalHost,
@@ -99,6 +111,7 @@ func run() error {
 	server := &WebhookServer{
 		temporalClient: c,
 		webhookSecret:  cfg.WebhookSecret,
+		gitHubToken:    cfg.GitHubToken,
 		logger:         logger,
 	}
 
@@ -107,10 +120,13 @@ func run() error {
 	mux.HandleFunc("/webhook", server.handleWebhook)
 	mux.HandleFunc("/health", handleHealth)
 
-	// Create HTTP server
+	// Create HTTP server with timeouts to prevent slowloris attacks
 	httpServer := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: mux,
+		Addr:         ":" + cfg.Port,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Start server in background
@@ -162,8 +178,73 @@ func loadConfig() *Config {
 	}
 }
 
+
+// getRateLimiter returns a rate limiter for the given IP address.
+// Rate limit: 60 requests per minute per IP address.
+func (s *WebhookServer) getRateLimiter(ip string) *rate.Limiter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Initialize map if needed
+	if s.rateLimiters == nil {
+		s.rateLimiters = make(map[string]*rate.Limiter)
+		s.lastCleanup = time.Now()
+	}
+
+	// Clean up old limiters every hour to prevent memory leaks
+	if time.Since(s.lastCleanup) > time.Hour {
+		s.rateLimiters = make(map[string]*rate.Limiter)
+		s.lastCleanup = time.Now()
+	}
+
+	// Get or create limiter for this IP
+	limiter, exists := s.rateLimiters[ip]
+	if !exists {
+		// 60 requests per minute = 1 per second with burst of 10
+		limiter = rate.NewLimiter(rate.Limit(1), 10)
+		s.rateLimiters[ip] = limiter
+	}
+
+	return limiter
+}
+
+// getClientIP extracts the client IP address from the request.
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (proxy/load balancer)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take first IP in the comma-separated list
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return ip
+	}
+	return r.RemoteAddr
+}
+
 func (s *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	// Rate limiting: Check if this IP has exceeded the rate limit
+	clientIP := getClientIP(r)
+	limiter := s.getRateLimiter(clientIP)
+	if !limiter.Allow() {
+		s.logger.Warn(ctx, "rate limit exceeded", zap.String("ip", clientIP))
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
+	// Limit request body size to prevent DoS attacks (1MB max)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	// Validate webhook signature
 	payload, err := github.ValidatePayload(r, []byte(s.webhookSecret.Value()))
@@ -198,7 +279,47 @@ func (s *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// validatePREvent validates PR event data to prevent injection attacks
+func validatePREvent(e *github.PullRequestEvent) error {
+	// Validate PR number
+	if e.PullRequest == nil || e.PullRequest.Number == nil || *e.PullRequest.Number <= 0 {
+		return fmt.Errorf("invalid PR number")
+	}
+	
+	// Validate owner and repo names (alphanumeric, hyphens, underscores, dots)
+	
+	if e.Repo == nil || e.Repo.Owner == nil || e.Repo.Owner.Login == nil {
+		return fmt.Errorf("invalid repository owner")
+	}
+	if !validNameRegex.MatchString(*e.Repo.Owner.Login) {
+		return fmt.Errorf("invalid repository owner format")
+	}
+	
+	if e.Repo.Name == nil {
+		return fmt.Errorf("invalid repository name")
+	}
+	if !validNameRegex.MatchString(*e.Repo.Name) {
+		return fmt.Errorf("invalid repository name format")
+	}
+	
+	// Validate SHA format (40-character hex string)
+	if e.PullRequest.Head == nil || e.PullRequest.Head.SHA == nil {
+		return fmt.Errorf("invalid PR head SHA")
+	}
+	if !validSHARegex.MatchString(*e.PullRequest.Head.SHA) {
+		return fmt.Errorf("invalid SHA format")
+	}
+	
+	return nil
+}
+
 func (s *WebhookServer) handlePullRequestEvent(ctx context.Context, event *github.PullRequestEvent) error {
+	// Validate PR event data to prevent injection attacks
+	if err := validatePREvent(event); err != nil {
+		s.logger.Warn(ctx, "invalid PR event data", zap.Error(err))
+		return fmt.Errorf("invalid PR event: %w", err)
+	}
+
 	// Only trigger on opened, synchronize (new commits), and reopened
 	action := event.GetAction()
 	if action != "opened" && action != "synchronize" && action != "reopened" {
@@ -218,12 +339,13 @@ func (s *WebhookServer) handlePullRequestEvent(ctx context.Context, event *githu
 
 	// Create workflow config
 	config := workflows.PluginUpdateValidationConfig{
-		Owner:      repo.GetOwner().GetLogin(),
-		Repo:       repo.GetName(),
-		PRNumber:   pr.GetNumber(),
-		BaseBranch: pr.GetBase().GetRef(),
-		HeadBranch: pr.GetHead().GetRef(),
-		HeadSHA:    pr.GetHead().GetSHA(),
+		Owner:       repo.GetOwner().GetLogin(),
+		Repo:        repo.GetName(),
+		PRNumber:    pr.GetNumber(),
+		BaseBranch:  pr.GetBase().GetRef(),
+		HeadBranch:  pr.GetHead().GetRef(),
+		HeadSHA:     pr.GetHead().GetSHA(),
+		GitHubToken: s.gitHubToken,
 	}
 
 	// Start Temporal workflow (use commit SHA for idempotency)

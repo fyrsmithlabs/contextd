@@ -89,6 +89,7 @@ services:
     environment:
       - TEMPORAL_HOST=temporal:7233
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
       - PORT=3000
     ports:
       - "3000:3000"

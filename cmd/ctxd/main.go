@@ -179,7 +179,12 @@ func runHealth(cmd *cobra.Command, args []string) error {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to connect to %s: %v\n", url, err)
+		fmt.Fprintf(os.Stderr, "Error: Failed to connect to %s: %v\n\n", url, err)
+		fmt.Fprintf(os.Stderr, "Hint: The contextd HTTP server is not running.\n")
+		fmt.Fprintf(os.Stderr, "      Start contextd with HTTP enabled:\n")
+		fmt.Fprintf(os.Stderr, "        contextd           (HTTP mode, default port 9090)\n")
+		fmt.Fprintf(os.Stderr, "      Or if using MCP mode, check your Claude Code MCP server status.\n")
+		fmt.Fprintln(os.Stderr)
 		return err
 	}
 	defer resp.Body.Close()

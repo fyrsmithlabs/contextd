@@ -7,26 +7,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/google/go-github/v57/github"
 )
-
-var (
-	// gitHubToken holds the GitHub token for all activities.
-	// Set via SetGitHubToken() during worker initialization.
-	gitHubToken config.Secret
-)
-
-// SetGitHubToken sets the GitHub token for all activities.
-// Must be called before activities are executed.
-func SetGitHubToken(token config.Secret) {
-	gitHubToken = token
-}
 
 // FetchPRFilesActivity fetches the list of files changed in a PR.
 func FetchPRFilesActivity(ctx context.Context, input FetchPRFilesInput) ([]FileChange, error) {
 	// Create GitHub client
-	client, err := NewGitHubClient(ctx, gitHubToken)
+	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
@@ -115,7 +102,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 	}
 
 	// Create GitHub client
-	client, err := NewGitHubClient(ctx, gitHubToken)
+	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
@@ -165,7 +152,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 
 // PostReminderCommentActivity posts a reminder comment to the PR.
 func PostReminderCommentActivity(ctx context.Context, input PostCommentInput) (*PostCommentResult, error) {
-	client, err := NewGitHubClient(ctx, gitHubToken)
+	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
@@ -225,17 +212,24 @@ func PostReminderCommentActivity(ctx context.Context, input PostCommentInput) (*
 
 // PostSuccessCommentActivity posts a success message to the PR.
 func PostSuccessCommentActivity(ctx context.Context, input PostCommentInput) (*PostCommentResult, error) {
-	client, err := NewGitHubClient(ctx, gitHubToken)
+	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
 	// Build success message
-	body := `## ✅ Claude Plugin Updated
+	var b strings.Builder
+	b.WriteString("## ✅ Claude Plugin Updated\n\n")
+	b.WriteString("Great! This PR includes updates to the Claude plugin alongside code changes.\n\n")
+	b.WriteString("Plugin schemas have been validated and are correct.\n")
 
-Great! This PR includes updates to the Claude plugin alongside code changes.
+	// Include agent validation results if available
+	if input.AgentValidation != nil {
+		b.WriteString("\n")
+		b.WriteString(buildValidationComment(input.AgentValidation))
+	}
 
-Plugin schemas have been validated and are correct.`
+	body := b.String()
 
 	// Check if we already posted a success comment (with pagination)
 	opts := &github.IssueListCommentsOptions{
