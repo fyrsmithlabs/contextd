@@ -15,34 +15,43 @@ Cross-session memory and context management for AI agents.
 
 ## Installation
 
-### 1. Install the Plugin
+### Automated Setup (Recommended)
 
 ```bash
+# 1. Install the plugin
 claude plugins add fyrsmithlabs/contextd
-```
 
-### 2. Install the MCP Server
-
-Run the install command after adding the plugin:
-
-```
+# 2. Run auto-setup in Claude Code
 /contextd:install
 ```
 
-Or install manually:
+This command automatically:
+- ✅ Downloads contextd binary (or uses Docker)
+- ✅ Configures MCP settings in `~/.claude/settings.json`
+- ✅ Validates the setup
 
-**Homebrew (Recommended):**
+**Restart Claude Code and you're ready!**
+
+### Manual Setup (Alternative)
+
+If you prefer manual configuration:
+
+**1. Install Binary:**
 ```bash
+# Homebrew
 brew install fyrsmithlabs/tap/contextd
+
+# Or download from releases
+# https://github.com/fyrsmithlabs/contextd/releases/latest
 ```
 
-**Binary:**
-Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest)
+**2. Configure MCP:**
+```bash
+ctxd mcp install    # Auto-configure
+ctxd mcp status     # Verify setup
+```
 
-### 3. Configure Claude Code
-
-Add to `~/.claude/settings.json`:
-
+Or manually edit `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
@@ -55,7 +64,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-Restart Claude Code after configuration.
+**3. Restart Claude Code**
 
 ## Commands
 
@@ -73,6 +82,24 @@ Restart Claude Code after configuration.
 | `/contextd:status` | Show contextd status for session and project |
 | `/contextd:help` | Show available commands and skills |
 | `/contextd:consensus-review` | Multi-reviewer code review |
+
+## Agents
+
+Specialized agents for complex workflows leveraging ReasoningBank and Context Folding:
+
+| Agent | Purpose | Key Features |
+|-------|---------|--------------|
+| `contextd-task-executor` | Standard contextd-first task execution | Memory search, error remediation, learning capture |
+| `task-orchestrator` | Multi-agent coordination | Sub-task isolation, budget allocation, parallel execution |
+| `systematic-debugging` | Methodical bug investigation | Hypothesis testing in branches, debugging playbook |
+| `refactoring-agent` | Safe code refactoring | Checkpoint rollback, incremental execution, pattern library |
+| `architecture-analyzer` | Deep codebase analysis | Component deep-dives, pattern discovery, knowledge accumulation |
+
+**When to Use Agents:**
+- Complex multi-step tasks requiring isolation
+- High-risk operations needing rollback safety
+- Cross-project pattern learning
+- Systematic problem-solving workflows
 
 ## Skills
 

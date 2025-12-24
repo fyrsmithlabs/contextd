@@ -27,8 +27,8 @@ The learning loop: search before starting, record after completing. Your insight
 
 ```
 ┌─────────────────────────────────────────┐
-│  1. SEARCH at task start                │
-│     repository_search(query, path)      │  ← Code first
+│  1. SEARCH at task start (MANDATORY)    │
+│     semantic_search(query, path)        │  ← Code first (auto grep fallback)
 │     memory_search(project_id, query)    │  ← Then memories
 ├─────────────────────────────────────────┤
 │  2. DO the work                         │

@@ -5,6 +5,21 @@ description: Use when starting any session with contextd MCP server available - 
 
 # Using contextd
 
+## ⚠️ CRITICAL: Pre-Flight Checks (DO THIS FIRST)
+
+**BEFORE touching Read, Grep, or Glob, you MUST:**
+
+1. **`mcp__contextd__semantic_search(query, project_path: ".")`**
+   - Semantic code search with automatic grep fallback
+   - This is your PRIMARY tool for code lookup
+   - NEVER skip this step
+
+2. **`mcp__contextd__memory_search(project_id, query)`**
+   - Check past learnings and solutions
+   - Required at the start of every task
+
+**Skipping semantic_search is a protocol violation. Always search contextd first.**
+
 ## Overview
 
 contextd provides cross-session memory and context management via MCP. Your learnings persist across sessions, errors get remembered, and context can be checkpointed and resumed.

@@ -2,38 +2,69 @@
 
 AI agent memory and context management for Claude Code.
 
-## Install
+## Prerequisites
 
-### Option 1: Homebrew (Recommended)
+**You need [Claude Code](https://claude.ai/claude-code) installed first.**
 
 ```bash
-brew install fyrsmithlabs/tap/contextd
+# macOS/Linux
+curl -fsSL https://claude.ai/install.sh | bash
+
+# Verify
+claude --version
 ```
 
-### Option 2: Binary Download
+## Installation
 
-Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
-- macOS Apple Silicon: `contextd_*_darwin_arm64.tar.gz`
-- macOS Intel: `contextd_*_darwin_amd64.tar.gz`
-- Linux x64: `contextd_*_linux_amd64.tar.gz`
+### Option 1: Automated Setup (Recommended)
+
+Install the Claude Code plugin and let it handle everything:
 
 ```bash
+# 1. Add the plugin
+claude plugins add fyrsmithlabs/contextd
+
+# 2. Run auto-setup in Claude Code
+/contextd:install
+```
+
+This automatically:
+- Downloads contextd binary (or uses Docker if binary unavailable)
+- Configures MCP settings in `~/.claude/settings.json`
+- Validates the setup
+
+**Restart Claude Code and you're done!**
+
+### Option 2: Manual Installation
+
+If you prefer manual control:
+
+**Step 1: Install Binary**
+
+Choose one:
+
+```bash
+# Homebrew
+brew install fyrsmithlabs/tap/contextd
+
+# Binary Download
+# Download from: https://github.com/fyrsmithlabs/contextd/releases/latest
 tar -xzf contextd_*.tar.gz
 chmod +x contextd ctxd
-mv contextd ctxd ~/.local/bin/  # or /usr/local/bin/
-```
+mv contextd ctxd ~/.local/bin/
 
-### Option 3: Docker
-
-```bash
+# Docker
 docker pull ghcr.io/fyrsmithlabs/contextd:latest
 ```
 
-## Configure Claude Code
+**Step 2: Configure with CLI**
 
-Add to `~/.claude/settings.json`:
+```bash
+ctxd mcp install    # Auto-configure MCP settings
+ctxd mcp status     # Verify configuration
+```
 
-### For Homebrew/Binary:
+**Or configure manually** by adding to `~/.claude/settings.json`:
 
 ```json
 {
@@ -47,8 +78,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### For Docker:
-
+**For Docker:**
 ```json
 {
   "mcpServers": {
@@ -61,7 +91,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-## Restart Claude Code
+**Restart Claude Code**
 
 After adding the config, restart Claude Code. These MCP tools become available:
 

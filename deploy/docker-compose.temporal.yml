@@ -1,0 +1,98 @@
+# Docker Compose for Temporal-based plugin validation system
+#
+# This stack runs:
+# - Temporal Server (workflow engine)
+# - PostgreSQL (Temporal's state store)
+# - Plugin Validator Worker (executes workflows)
+# - GitHub Webhook Server (triggers workflows)
+#
+# Usage:
+#   export GITHUB_TOKEN=ghp_xxx
+#   export GITHUB_WEBHOOK_SECRET=your_secret
+#   docker-compose -f deploy/docker-compose.temporal.yml up
+
+version: '3.8'
+
+services:
+  # PostgreSQL for Temporal
+  postgresql:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: temporal
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - temporal-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Temporal Server
+  temporal:
+    image: temporalio/auto-setup:1.22.4
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      - POSTGRES_SEEDS=postgresql
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"  # gRPC
+      - "8233:8233"  # HTTP API
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "workflow", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:2.21.3
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    ports:
+      - "8080:8080"
+
+  # Plugin Validation Worker
+  plugin-validator-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.plugin-validator
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_HOST=temporal:7233
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    restart: unless-stopped
+
+  # GitHub Webhook Server
+  github-webhook:
+    build:
+      context: ..
+      dockerfile: Dockerfile.github-webhook
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_HOST=temporal:7233
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  temporal-postgres:

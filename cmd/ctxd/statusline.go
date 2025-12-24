@@ -464,8 +464,11 @@ func runStatuslineInstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Replacing existing ctxd statusline configuration.\n")
 	}
 
-	// Update statusline setting
-	settings["statusLine"] = statuslineScript
+	// Update statusline setting with object format (required by Claude Code)
+	settings["statusLine"] = map[string]interface{}{
+		"type":    "command",
+		"command": statuslineScript,
+	}
 
 	// Write settings back
 	data, err := json.MarshalIndent(settings, "", "  ")
