@@ -126,7 +126,7 @@ func downloadONNXRuntimeTo(ctx context.Context, version, destDir string) error {
 	url := buildDownloadURL(version, platform)
 
 	// Create destination directory
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(destDir, 0700); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
 

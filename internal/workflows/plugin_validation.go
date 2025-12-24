@@ -8,27 +8,33 @@ import (
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/fyrsmithlabs/contextd/internal/config"
 )
 
 // PluginUpdateValidationConfig configures the plugin validation workflow.
 type PluginUpdateValidationConfig struct {
-	Owner      string // GitHub repository owner
-	Repo       string // GitHub repository name
-	PRNumber   int    // Pull request number
-	BaseBranch string // Base branch (usually "main")
-	HeadBranch string // PR branch
-	HeadSHA    string // PR commit SHA
+	Owner              string        // GitHub repository owner
+	Repo               string        // GitHub repository name
+	PRNumber           int           // Pull request number
+	BaseBranch         string        // Base branch (usually "main")
+	HeadBranch         string        // PR branch
+	HeadSHA            string        // PR commit SHA
+	GitHubToken        config.Secret // GitHub API token for activities
+	UseAgentValidation bool          // Whether to use AI agent for documentation validation
 }
 
 // PluginUpdateValidationResult contains validation results.
 type PluginUpdateValidationResult struct {
-	CodeFilesChanged   []string // Files that affect plugin behavior
-	PluginFilesChanged []string // Files in .claude-plugin/
-	NeedsUpdate        bool     // Whether plugin needs updating
-	SchemaValid        bool     // Whether schemas are valid JSON
-	CommentPosted      bool     // Whether we posted a comment
-	CommentURL         string   // URL of posted comment
-	Errors             []string // Any errors encountered
+	CodeFilesChanged      []string                       // Files that affect plugin behavior
+	PluginFilesChanged    []string                       // Files in .claude-plugin/
+	NeedsUpdate           bool                           // Whether plugin needs updating
+	SchemaValid           bool                           // Whether schemas are valid JSON
+	AgentValidation       *DocumentationValidationResult // Agent validation results (if enabled)
+	AgentValidationRan    bool                           // Whether agent validation was executed
+	CommentPosted         bool                           // Whether we posted a comment
+	CommentURL            string                         // URL of posted comment
+	Errors                []string                       // Any errors encountered
 }
 
 // FileChange represents a changed file in the PR.
@@ -69,9 +75,10 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 	logger.Info("Fetching PR file changes")
 	var fileChanges []FileChange
 	err := workflow.ExecuteActivity(ctx, FetchPRFilesActivity, FetchPRFilesInput{
-		Owner:    config.Owner,
-		Repo:     config.Repo,
-		PRNumber: config.PRNumber,
+		Owner:       config.Owner,
+		Repo:        config.Repo,
+		PRNumber:    config.PRNumber,
+		GitHubToken: config.GitHubToken,
 	}).Get(ctx, &fileChanges)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("failed to fetch PR files: %v", err))
@@ -105,15 +112,32 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 			}
 		}
 
+		// Create map of file statuses to filter deleted files
+		fileStatusMap := make(map[string]string)
+		for _, fc := range fileChanges {
+			fileStatusMap[fc.Path] = fc.Status
+		}
+
+		// Filter out deleted JSON files before validation
+		for i := 0; i < len(jsonFiles); {
+			if fileStatusMap[jsonFiles[i]] == "removed" {
+				// Skip deleted files - remove from slice
+				jsonFiles = append(jsonFiles[:i], jsonFiles[i+1:]...)
+			} else {
+				i++
+			}
+		}
+
 		// Validate each JSON file
 		result.SchemaValid = true
 		for _, jsonFile := range jsonFiles {
 			var schemaResult SchemaValidationResult
 			err = workflow.ExecuteActivity(ctx, ValidatePluginSchemasActivity, ValidateSchemasInput{
-				Owner:    config.Owner,
-				Repo:     config.Repo,
-				HeadSHA:  config.HeadSHA,
-				FilePath: jsonFile,
+				Owner:       config.Owner,
+				Repo:        config.Repo,
+				HeadSHA:     config.HeadSHA,
+				FilePath:    jsonFile,
+				GitHubToken: config.GitHubToken,
 			}).Get(ctx, &schemaResult)
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("schema validation failed for %s: %v", jsonFile, err))
@@ -122,6 +146,40 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 				result.SchemaValid = false
 				result.Errors = append(result.Errors, schemaResult.Errors...)
 			}
+		}
+	}
+
+	// Step 3.5: Run agent-based documentation validation if enabled
+	if config.UseAgentValidation && result.NeedsUpdate && len(categorized.PluginFiles) > 0 && result.SchemaValid {
+		logger.Info("Running agent-based documentation validation")
+		
+		// Use longer timeout for AI agent validation (5 minutes instead of 2)
+		agentCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 2, // Fewer retries for expensive AI calls
+			},
+		})
+		
+		var agentResult DocumentationValidationResult
+		err = workflow.ExecuteActivity(agentCtx, ValidateDocumentationActivity, DocumentationValidationInput{
+			Owner:       config.Owner,
+			Repo:        config.Repo,
+			PRNumber:    config.PRNumber,
+			HeadSHA:     config.HeadSHA,
+			CodeFiles:   categorized.CodeFiles,
+			PluginFiles: categorized.PluginFiles,
+		}).Get(ctx, &agentResult)
+		if err != nil {
+			logger.Error("Agent validation failed", "error", err)
+			result.Errors = append(result.Errors, fmt.Sprintf("agent validation failed: %v", err))
+		} else {
+			result.AgentValidation = &agentResult
+			result.AgentValidationRan = true
+			logger.Info("Agent validation complete",
+				"valid", agentResult.Valid,
+				"critical_issues", len(agentResult.CriticalIssues),
+				"high_issues", len(agentResult.HighIssues))
 		}
 	}
 
@@ -136,6 +194,7 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 			PRNumber:    config.PRNumber,
 			CodeFiles:   categorized.CodeFiles,
 			PluginFiles: categorized.PluginFiles,
+			GitHubToken: config.GitHubToken,
 		}).Get(ctx, &commentResult)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("failed to post comment: %v", err))
@@ -148,11 +207,13 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 		logger.Info("Posting success message")
 		var commentResult PostCommentResult
 		err = workflow.ExecuteActivity(ctx, PostSuccessCommentActivity, PostCommentInput{
-			Owner:       config.Owner,
-			Repo:        config.Repo,
-			PRNumber:    config.PRNumber,
-			CodeFiles:   categorized.CodeFiles,
-			PluginFiles: categorized.PluginFiles,
+			Owner:           config.Owner,
+			Repo:            config.Repo,
+			PRNumber:        config.PRNumber,
+			CodeFiles:       categorized.CodeFiles,
+			PluginFiles:     categorized.PluginFiles,
+			GitHubToken:     config.GitHubToken,
+			AgentValidation: result.AgentValidation,
 		}).Get(ctx, &commentResult)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("failed to post comment: %v", err))
@@ -180,9 +241,10 @@ type CategorizedFiles struct {
 // Activity input/output types
 
 type FetchPRFilesInput struct {
-	Owner    string
-	Repo     string
-	PRNumber int
+	Owner       string
+	Repo        string
+	PRNumber    int
+	GitHubToken config.Secret
 }
 
 type CategorizeFilesInput struct {
@@ -190,10 +252,11 @@ type CategorizeFilesInput struct {
 }
 
 type ValidateSchemasInput struct {
-	Owner    string
-	Repo     string
-	HeadSHA  string
-	FilePath string
+	Owner       string
+	Repo        string
+	HeadSHA     string
+	FilePath    string
+	GitHubToken config.Secret
 }
 
 type SchemaValidationResult struct {
@@ -202,11 +265,13 @@ type SchemaValidationResult struct {
 }
 
 type PostCommentInput struct {
-	Owner       string
-	Repo        string
-	PRNumber    int
-	CodeFiles   []string
-	PluginFiles []string
+	Owner           string
+	Repo            string
+	PRNumber        int
+	CodeFiles       []string
+	PluginFiles     []string
+	GitHubToken     config.Secret
+	AgentValidation *DocumentationValidationResult // Optional agent validation results
 }
 
 type PostCommentResult struct {

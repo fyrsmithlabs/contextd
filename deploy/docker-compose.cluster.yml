@@ -1,0 +1,44 @@
+# Docker Compose for connecting to self-hosted Temporal cluster
+#
+# This stack runs only the workers, connecting to the Temporal cluster at temporal.fyrsmithlabs.ai
+#
+# Usage:
+#   export GITHUB_TOKEN=ghp_xxx
+#   export GITHUB_WEBHOOK_SECRET=your_secret
+#   docker-compose -f deploy/docker-compose.cluster.yml up
+
+version: '3.8'
+
+services:
+  # Plugin Validation Worker
+  plugin-validator-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile.plugin-validator
+    environment:
+      - TEMPORAL_HOST=temporal-frontend.temporal.svc:7233
+      - TEMPORAL_NAMESPACE=default
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    restart: unless-stopped
+    networks:
+      - default
+
+  # GitHub Webhook Server
+  github-webhook:
+    build:
+      context: ..
+      dockerfile: Dockerfile.github-webhook
+    environment:
+      - TEMPORAL_HOST=temporal-frontend.temporal.svc:7233
+      - TEMPORAL_NAMESPACE=default
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - default
+
+networks:
+  default:
+    driver: bridge

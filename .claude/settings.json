@@ -1,7 +1,4 @@
 {
-  "enabledPlugins": {
-    "contextd@contextd": true
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -35,5 +32,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "contextd@contextd": true
   }
 }

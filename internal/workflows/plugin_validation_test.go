@@ -141,7 +141,61 @@ func TestPluginUpdateValidationWorkflow(t *testing.T) {
 		assert.False(t, result.NeedsUpdate)
 		assert.False(t, result.CommentPosted)
 	})
+
+	t.Run("skips schema validation for deleted plugin files", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(PluginUpdateValidationWorkflow)
+
+		// Mock activities - includes a deleted JSON file
+		fileChanges := []FileChange{
+			{Path: "internal/mcp/tools.go", Status: "modified"},
+			{Path: ".claude-plugin/schemas/old-schema.json", Status: "removed"}, // Deleted file
+			{Path: ".claude-plugin/schemas/new-schema.json", Status: "added"},    // New file should be validated
+		}
+		env.OnActivity(FetchPRFilesActivity, mock.Anything, mock.Anything).Return(fileChanges, nil)
+
+		categorization := &CategorizedFiles{
+			CodeFiles:   []string{"internal/mcp/tools.go"},
+			PluginFiles: []string{".claude-plugin/schemas/old-schema.json", ".claude-plugin/schemas/new-schema.json"},
+		}
+		env.OnActivity(CategorizeFilesActivity, mock.Anything, mock.Anything).Return(categorization, nil)
+
+		// Schema validation should only be called for the new file, NOT the deleted one
+		env.OnActivity(ValidatePluginSchemasActivity, mock.Anything, ValidateSchemasInput{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			HeadSHA:  "jkl012",
+			FilePath: ".claude-plugin/schemas/new-schema.json",
+		}).Return(&SchemaValidationResult{Valid: true}, nil).Once()
+
+		// Post success comment
+		env.OnActivity(PostSuccessCommentActivity, mock.Anything, mock.Anything).Return(&PostCommentResult{URL: "https://github.com/test/test/pull/1#issuecomment-3"}, nil)
+
+		config := PluginUpdateValidationConfig{
+			Owner:      "test-owner",
+			Repo:       "test-repo",
+			PRNumber:   1,
+			BaseBranch: "main",
+			HeadBranch: "feature/update-schemas",
+			HeadSHA:    "jkl012",
+		}
+		env.ExecuteWorkflow(PluginUpdateValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result PluginUpdateValidationResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		assert.True(t, result.NeedsUpdate)
+		assert.True(t, result.SchemaValid)
+		assert.True(t, result.CommentPosted)
+		// Both files should be reported as changed, even though only one was validated
+		assert.Len(t, result.PluginFilesChanged, 2)
+	})
 }
+
 
 // TestCategorizeFilesActivity tests file categorization logic.
 func TestCategorizeFilesActivity(t *testing.T) {
