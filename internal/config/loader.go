@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
-	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 )
 
@@ -74,15 +75,33 @@ func LoadWithFile(configPath string) (*Config, error) {
 	if err := validateConfigPath(configPath); err != nil {
 		return nil, fmt.Errorf("config path validation failed: %w", err)
 	}
-
 	// Load from YAML file if it exists
 	if _, err := os.Stat(configPath); err == nil {
-		// Validate file properties before loading
-		if err := validateConfigFileProperties(configPath); err != nil {
+		// Open file once and validate using file descriptor to avoid TOCTOU race
+		f, err := os.Open(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open config file: %w", err)
+		}
+		defer f.Close()
+
+		// Validate file properties using already-opened file descriptor
+		info, err := f.Stat()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat config file: %w", err)
+		}
+
+		if err := validateConfigFileProperties(info); err != nil {
 			return nil, fmt.Errorf("config file validation failed: %w", err)
 		}
 
-		if err := k.Load(file.Provider(configPath), yaml.Parser()); err != nil {
+		// Read content from already-opened file
+		content, err := io.ReadAll(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+
+		// Use rawbytes provider to avoid re-opening the file
+		if err := k.Load(rawbytes.Provider(content), yaml.Parser()); err != nil {
 			return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 		}
 	}
@@ -191,11 +210,8 @@ func validateConfigPath(path string) error {
 
 // validateConfigFileProperties checks file permissions and size.
 // This validation only runs if the file exists.
-func validateConfigFileProperties(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("failed to stat config file: %w", err)
-	}
+// Takes FileInfo from an already-opened file descriptor to avoid TOCTOU race.
+func validateConfigFileProperties(info os.FileInfo) error {
 
 	// Check file permissions (must be 0600 or 0400)
 	// Skip on Windows (different permission model)
