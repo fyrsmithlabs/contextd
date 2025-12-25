@@ -111,6 +111,10 @@ func contains(s, substr string) bool {
 	return false
 }
 
+func sqrt32(x float32) float32 {
+	return float32(math.Sqrt(float64(x)))
+}
+
 // TestChromemStore_SemanticSimilarity_HighScoresForSimilarContent verifies that
 // semantically similar documents get high similarity scores (>0.7).
 func TestChromemStore_SemanticSimilarity_HighScoresForSimilarContent(t *testing.T) {
