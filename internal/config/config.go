@@ -15,6 +15,7 @@ import (
 
 // Config holds the complete contextd v2 configuration.
 type Config struct {
+	Production    ProductionConfig
 	Server        ServerConfig
 	Observability ObservabilityConfig
 	PreFetch      PreFetchConfig
@@ -213,6 +214,13 @@ type RuleConfig struct {
 //	fmt.Println("Qdrant host:", cfg.Qdrant.Host)
 func Load() *Config {
 	cfg := &Config{
+		Production: ProductionConfig{
+			Enabled:               getEnvBool("CONTEXTD_PRODUCTION_MODE", false),
+			LocalModeAcknowledged: getEnvBool("CONTEXTD_LOCAL_MODE", false),
+			RequireAuthentication: getEnvBool("CONTEXTD_REQUIRE_AUTH", false),
+			RequireTLS:            getEnvBool("CONTEXTD_REQUIRE_TLS", false),
+			AllowNoIsolation:      getEnvBool("CONTEXTD_ALLOW_NO_ISOLATION", false),
+		},
 		Server: ServerConfig{
 			Port:            getEnvInt("SERVER_PORT", 9090),
 			ShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 10*time.Second),
@@ -404,4 +412,55 @@ func splitAndTrim(s, sep string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+// ProductionConfig holds production deployment configuration.
+type ProductionConfig struct {
+	// Enabled indicates whether production mode is active.
+	// Set via CONTEXTD_PRODUCTION_MODE=1 environment variable.
+	Enabled bool `koanf:"enabled"`
+
+	// LocalModeAcknowledged allows development features in production mode.
+	// Set via CONTEXTD_LOCAL_MODE=1 environment variable.
+	// Use only for local development/testing.
+	LocalModeAcknowledged bool `koanf:"local_mode_acknowledged"`
+
+	// RequireAuthentication enforces authentication in production.
+	RequireAuthentication bool `koanf:"require_authentication"`
+
+	// AuthenticationConfigured indicates if auth is properly set up.
+	AuthenticationConfigured bool `koanf:"authentication_configured"`
+
+	// RequireTLS enforces TLS for external services (Qdrant, OTEL).
+	RequireTLS bool `koanf:"require_tls"`
+
+	// AllowNoIsolation permits NoIsolation mode (testing only).
+	// Always false in production mode.
+	AllowNoIsolation bool `koanf:"allow_no_isolation"`
+}
+
+// IsProduction returns true if running in production mode.
+func (c *ProductionConfig) IsProduction() bool {
+	return c.Enabled
+}
+
+// IsLocal returns true if local mode is acknowledged.
+func (c *ProductionConfig) IsLocal() bool {
+	return c.LocalModeAcknowledged
+}
+
+// Validate checks production configuration for security issues.
+func (c *ProductionConfig) Validate() error {
+	if !c.Enabled {
+		return nil // Not in production, skip validation
+	}
+
+	if c.AllowNoIsolation {
+		return fmt.Errorf("SECURITY: NoIsolation mode cannot be enabled in production")
+	}
+
+	if c.RequireAuthentication && !c.AuthenticationConfigured {
+		return fmt.Errorf("SECURITY: RequireAuthentication enabled but authentication not configured")
+	}
+
+	return nil
 }

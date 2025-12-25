@@ -221,6 +221,9 @@ func applyDefaults(cfg *Config) {
 		cfg.Server.Port = 9090
 	}
 	if cfg.Server.ShutdownTimeout == 0 {
+
+	// Production defaults (loaded from environment)
+	cfg.Production = loadProductionConfig()
 		cfg.Server.ShutdownTimeout = 10 * time.Second
 	}
 
@@ -275,5 +278,19 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Embeddings.Model == "" {
 		cfg.Embeddings.Model = "BAAI/bge-small-en-v1.5"
+	}
+}
+
+// loadProductionConfig loads production configuration from environment variables.
+func loadProductionConfig() ProductionConfig {
+	prodMode := os.Getenv("CONTEXTD_PRODUCTION_MODE") == "1"
+	localMode := os.Getenv("CONTEXTD_LOCAL_MODE") == "1"
+	
+	return ProductionConfig{
+		Enabled:               prodMode,
+		LocalModeAcknowledged: localMode,
+		RequireAuthentication: prodMode && !localMode, // Require auth in prod unless local override
+		RequireTLS:            prodMode && !localMode, // Require TLS in prod unless local override
+		AllowNoIsolation:      false,                  // Never allow NoIsolation in production
 	}
 }
