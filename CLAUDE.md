@@ -207,6 +207,9 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `repository_index` | Repository | Index repo for semantic search |
 | `repository_search` | Repository | Semantic search over indexed code |
 | `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
+| `branch_create` | Context-Folding | Create isolated context branch with token budget |
+| `branch_return` | Context-Folding | Return from branch with scrubbed results |
+| `branch_status` | Context-Folding | Get branch status and budget usage |
 
 ---
 
