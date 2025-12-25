@@ -1,0 +1,121 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_call:  # Allow other workflows to call this
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24', '1.25']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Install ONNX Runtime
+        env:
+          ONNX_VERSION: "1.23.2"
+        run: |
+          cd /tmp
+          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          tar xzf "onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          sudo cp onnxruntime-linux-x64-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
+          sudo ldconfig
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Verify Go modules
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: "1"
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.txt
+          fail_ci_if_error: false
+          flags: unittests
+          name: codecov-umbrella
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install ONNX Runtime
+        env:
+          ONNX_VERSION: "1.23.2"
+        run: |
+          cd /tmp
+          wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          tar xzf "onnxruntime-linux-x64-${ONNX_VERSION}.tgz"
+          sudo cp onnxruntime-linux-x64-${ONNX_VERSION}/lib/*.so* /usr/local/lib/
+          sudo ldconfig
+
+      - name: Build contextd
+        env:
+          CGO_ENABLED: "1"
+        run: go build -v -o /tmp/contextd ./cmd/contextd
+
+      - name: Build ctxd
+        env:
+          CGO_ENABLED: "1"
+        run: go build -v -o /tmp/ctxd ./cmd/ctxd
+
+      - name: Verify binaries
+        run: |
+          /tmp/contextd --version || echo "contextd binary created"
+          /tmp/ctxd --version || echo "ctxd binary created"
