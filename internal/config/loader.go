@@ -176,10 +176,18 @@ func EnsureConfigDir() error {
 // validateConfigPath checks if path is in allowed directories.
 // This validation runs even if the file doesn't exist yet.
 func validateConfigPath(path string) error {
-	// Resolve to absolute path
+	// Resolve to absolute path and follow symlinks to prevent path traversal
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path: %w", err)
+	}
+
+	// Resolve symlinks to prevent attackers from using symlinks to escape allowed directories
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// If symlink evaluation fails, continue with absPath
+		// This allows validation of paths that dont exist yet
+		resolvedPath = absPath
 	}
 
 	// Check if path is in allowed directories
@@ -195,7 +203,7 @@ func validateConfigPath(path string) error {
 
 	allowed := false
 	for _, dir := range allowedDirs {
-		if strings.HasPrefix(absPath, dir) {
+		if strings.HasPrefix(resolvedPath, dir) {
 			allowed = true
 			break
 		}
