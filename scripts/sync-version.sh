@@ -29,6 +29,13 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
+# Validate version format (semantic versioning)
+if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'; then
+    echo -e "${RED}ERROR: Invalid version format: $VERSION${NC}"
+    echo -e "${YELLOW}Expected: semantic version (e.g., 1.2.3, 1.2.3-rc.1, 1.2.3+build.123)${NC}"
+    exit 1
+fi
+
 echo -e "${GREEN}Syncing version: $VERSION${NC}"
 
 # Files to update
