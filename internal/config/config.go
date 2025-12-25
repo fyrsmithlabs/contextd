@@ -348,6 +348,11 @@ func (c *Config) Validate() error {
 		return errors.New("service name required when telemetry is enabled")
 	}
 
+
+	// Validate production configuration
+	if err := c.Production.Validate(); err != nil {
+		return fmt.Errorf("production config validation failed: %w", err)
+	}
 	return nil
 }
 
