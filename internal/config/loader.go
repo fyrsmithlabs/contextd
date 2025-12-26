@@ -201,9 +201,14 @@ func validateConfigPath(path string) error {
 		"/etc/contextd",
 	}
 
+	// Clean the resolved path to normalize it (remove .. and . components)
+	cleanPath := filepath.Clean(resolvedPath)
+	
 	allowed := false
 	for _, dir := range allowedDirs {
-		if strings.HasPrefix(resolvedPath, dir) {
+		// Check if path is exactly the allowed directory or is a subdirectory
+		// This prevents bypass attacks like /etc/contextd../etc/passwd
+		if cleanPath == dir || strings.HasPrefix(cleanPath, dir+string(filepath.Separator)) {
 			allowed = true
 			break
 		}
@@ -244,12 +249,21 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 9090
 	}
-
-	// Production defaults (loaded from environment)
-	cfg.Production = loadProductionConfig()
-
 	if cfg.Server.ShutdownTimeout == 0 {
 		cfg.Server.ShutdownTimeout = 10 * time.Second
+	}
+
+	// Production defaults - only load from environment if not configured
+	// This preserves YAML configuration while still supporting env-only setup
+	// Note: Boolean fields where false is a valid value make this check conservative
+	// We only override if ALL fields appear unconfigured
+	if !cfg.Production.Enabled && !cfg.Production.LocalModeAcknowledged &&
+		!cfg.Production.RequireAuthentication && !cfg.Production.RequireTLS {
+		// Check if production mode is enabled via environment variables
+		prodConfig := loadProductionConfig()
+		if prodConfig.Enabled {
+			cfg.Production = prodConfig
+		}
 	}
 
 	// Observability defaults
