@@ -10,6 +10,19 @@ ContextD helps AI coding assistants remember what works, learn from mistakes, an
 
 ---
 
+## ⚠️ Alpha Status
+
+**This project is in active alpha development.** Features and APIs change frequently as we refine the product based on user feedback.
+
+- ✅ Core functionality is stable and tested
+- ⚠️ Breaking changes are generally avoided but can still occur
+- 📝 We document all changes in release notes
+- 🚀 Expect rapid iteration and improvements
+
+If you encounter issues, please [report them on GitHub](https://github.com/fyrsmithlabs/contextd/issues).
+
+---
+
 ## Prerequisites
 
 **You need [Claude Code](https://claude.ai/claude-code) installed first.**
