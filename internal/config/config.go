@@ -5,6 +5,7 @@
 package config
 
 import (
+	"path/filepath"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 // Config holds the complete contextd v2 configuration.
 type Config struct {
+	Production    ProductionConfig
 	Server        ServerConfig
 	Observability ObservabilityConfig
 	PreFetch      PreFetchConfig
@@ -213,6 +215,13 @@ type RuleConfig struct {
 //	fmt.Println("Qdrant host:", cfg.Qdrant.Host)
 func Load() *Config {
 	cfg := &Config{
+		Production: ProductionConfig{
+			Enabled:               getEnvBool("CONTEXTD_PRODUCTION_MODE", false),
+			LocalModeAcknowledged: getEnvBool("CONTEXTD_LOCAL_MODE", false),
+			RequireAuthentication: getEnvBool("CONTEXTD_REQUIRE_AUTH", false),
+			RequireTLS:            getEnvBool("CONTEXTD_REQUIRE_TLS", false),
+			AllowNoIsolation:      getEnvBool("CONTEXTD_ALLOW_NO_ISOLATION", false),
+		},
 		Server: ServerConfig{
 			Port:            getEnvInt("SERVER_PORT", 9090),
 			ShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 10*time.Second),
@@ -340,6 +349,36 @@ func (c *Config) Validate() error {
 		return errors.New("service name required when telemetry is enabled")
 	}
 
+
+	// Validate environment variable inputs
+	if err := validateHostname(c.Qdrant.Host); err != nil {
+		return fmt.Errorf("invalid QDRANT_HOST: %w", err)
+	}
+	
+	if err := validatePath(c.Qdrant.DataPath); err != nil {
+		return fmt.Errorf("invalid CONTEXTD_DATA_PATH: %w", err)
+	}
+	
+	if err := validatePath(c.VectorStore.Chromem.Path); err != nil {
+		return fmt.Errorf("invalid CONTEXTD_VECTORSTORE_CHROMEM_PATH: %w", err)
+	}
+	
+	if c.Embeddings.CacheDir != "" {
+		if err := validatePath(c.Embeddings.CacheDir); err != nil {
+			return fmt.Errorf("invalid EMBEDDINGS_CACHE_DIR: %w", err)
+		}
+	}
+	
+	if c.Embeddings.BaseURL != "" {
+		if err := validateURL(c.Embeddings.BaseURL); err != nil {
+			return fmt.Errorf("invalid EMBEDDING_BASE_URL: %w", err)
+		}
+	}
+
+	// Validate production configuration
+	if err := c.Production.Validate(); err != nil {
+		return fmt.Errorf("production config validation failed: %w", err)
+	}
 	return nil
 }
 
@@ -404,4 +443,99 @@ func splitAndTrim(s, sep string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+// ProductionConfig holds production deployment configuration.
+type ProductionConfig struct {
+	// Enabled indicates whether production mode is active.
+	// Set via CONTEXTD_PRODUCTION_MODE=1 environment variable.
+	Enabled bool `koanf:"enabled"`
+
+	// LocalModeAcknowledged allows development features in production mode.
+	// Set via CONTEXTD_LOCAL_MODE=1 environment variable.
+	// Use only for local development/testing.
+	LocalModeAcknowledged bool `koanf:"local_mode_acknowledged"`
+
+	// RequireAuthentication enforces authentication in production.
+	RequireAuthentication bool `koanf:"require_authentication"`
+
+	// AuthenticationConfigured indicates if auth is properly set up.
+	AuthenticationConfigured bool `koanf:"authentication_configured"`
+
+	// RequireTLS enforces TLS for external services (Qdrant, OTEL).
+	RequireTLS bool `koanf:"require_tls"`
+
+	// AllowNoIsolation permits NoIsolation mode (testing only).
+	// Always false in production mode.
+	AllowNoIsolation bool `koanf:"allow_no_isolation"`
+}
+
+// IsProduction returns true if running in production mode.
+func (c *ProductionConfig) IsProduction() bool {
+	return c.Enabled
+}
+
+// IsLocal returns true if local mode is acknowledged.
+func (c *ProductionConfig) IsLocal() bool {
+	return c.LocalModeAcknowledged
+}
+
+// Validate checks production configuration for security issues.
+func (c *ProductionConfig) Validate() error {
+	if !c.Enabled {
+		return nil // Not in production, skip validation
+	}
+
+	if c.AllowNoIsolation {
+		return fmt.Errorf("SECURITY: NoIsolation mode cannot be enabled in production")
+	}
+
+	if c.RequireAuthentication && !c.AuthenticationConfigured {
+		return fmt.Errorf("SECURITY: RequireAuthentication enabled but authentication not configured")
+	}
+
+	return nil
+}
+
+// validateHostname checks if a hostname is safe (no command injection attempts)
+func validateHostname(host string) error {
+	// Reject hostnames with shell metacharacters
+	invalidChars := []string{";", "\n", "\r", "$", "`", "|", "&", "<", ">", "(", ")"}
+	for _, char := range invalidChars {
+		if strings.Contains(host, char) {
+			return fmt.Errorf("invalid hostname: contains forbidden character %q", char)
+		}
+	}
+	return nil
+}
+
+// validatePath checks if a path is safe (no path traversal)
+func validatePath(path string) error {
+	// Check for path traversal sequences
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path contains traversal sequence: %s", path)
+	}
+	
+	// For absolute paths, verify the cleaned path doesn't escape
+	if filepath.IsAbs(path) {
+		clean := filepath.Clean(path)
+		// Count directory depth - compare original vs cleaned
+		// If cleaned has fewer separators, upward traversal occurred
+		origDepth := strings.Count(path, string(filepath.Separator))
+		cleanDepth := strings.Count(clean, string(filepath.Separator))
+		
+		if cleanDepth < origDepth-1 {
+			return fmt.Errorf("path traversal detected: %s (resolves to %s)", path, clean)
+		}
+	}
+	
+	return nil
+}
+
+// validateURL checks if a URL uses allowed schemes (http/https only)
+func validateURL(urlStr string) error {
+	// Only allow http and https schemes
+	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
+		return fmt.Errorf("URL must use http:// or https:// scheme, got: %s", urlStr)
+	}
+	return nil
 }
