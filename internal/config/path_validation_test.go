@@ -27,9 +27,11 @@ func TestValidateConfigPath_RejectsPathTraversal(t *testing.T) {
 }
 
 func TestValidateConfigPath_AllowsValidPaths(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("Failed to get home directory: %v", err)
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp"
+		os.Setenv("HOME", home)
+		defer os.Unsetenv("HOME")
 	}
 
 	validPaths := []string{
@@ -67,14 +69,16 @@ func TestValidateConfigPath_RejectsOutsideAllowedDirs(t *testing.T) {
 }
 
 func TestValidateConfigPath_HandlesNonExistentFiles(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("Failed to get home directory: %v", err)
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp"
+		os.Setenv("HOME", home)
+		defer os.Unsetenv("HOME")
 	}
 
 	// Non-existent file in allowed directory should pass validation
 	nonExistent := filepath.Join(home, ".config", "contextd", "nonexistent.yaml")
-	err = validateConfigPath(nonExistent)
+	err := validateConfigPath(nonExistent)
 	if err != nil {
 		t.Errorf("Non-existent file in allowed directory should pass validation: %v", err)
 	}

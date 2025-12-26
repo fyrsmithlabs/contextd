@@ -112,8 +112,13 @@ func TestProductionConfig_LoadWithFile_PreservesYAMLConfig(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
 	
-	// Create temporary YAML config
-	home, _ := os.UserHomeDir()
+	// Set HOME for test
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp"
+		os.Setenv("HOME", home)
+		defer os.Unsetenv("HOME")
+	}
 	tmpDir := home + "/.config/contextd"
 	os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config.yaml"
@@ -150,8 +155,13 @@ func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
 	
-	// Create temporary YAML config with production disabled
-	home, _ := os.UserHomeDir()
+	// Set HOME for test
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp"
+		os.Setenv("HOME", home)
+		defer os.Unsetenv("HOME")
+	}
 	tmpDir := home + "/.config/contextd"
 	os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config2.yaml"
@@ -166,7 +176,9 @@ func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 	}
 
 	// But enable via environment variable
-	os.Setenv("PRODUCTION_ENABLED", "true")
+	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
+	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
+	os.Setenv("CONTEXTD_LOCAL_MODE", "1")
 	
 	cfg, err := LoadWithFile(configPath)
 	if err != nil {

@@ -369,8 +369,10 @@ func (c *Config) Validate() error {
 		}
 	}
 	
-	if err := validateURL(c.Embeddings.BaseURL); err != nil {
-		return fmt.Errorf("invalid EMBEDDING_BASE_URL: %w", err)
+	if c.Embeddings.BaseURL != "" {
+		if err := validateURL(c.Embeddings.BaseURL); err != nil {
+			return fmt.Errorf("invalid EMBEDDING_BASE_URL: %w", err)
+		}
 	}
 
 	// Validate production configuration
@@ -508,22 +510,20 @@ func validateHostname(host string) error {
 
 // validatePath checks if a path is safe (no path traversal)
 func validatePath(path string) error {
-	// Check for path traversal sequences before cleaning
+	// Check for path traversal sequences
 	if strings.Contains(path, "..") {
 		return fmt.Errorf("path contains traversal sequence: %s", path)
 	}
 	
-	// Also check if the cleaned path differs significantly from original
-	// This catches cases like /data/../../../etc/passwd -> /etc/passwd
-	clean := filepath.Clean(path)
-	if filepath.IsAbs(path) && filepath.IsAbs(clean) {
-		// For absolute paths, verify they don't escape expected directories
-		// Count directory levels - if cleaned path has fewer, it traversed up
-		origParts := strings.Split(filepath.Clean(path), string(filepath.Separator))
-		cleanParts := strings.Split(clean, string(filepath.Separator))
+	// For absolute paths, verify the cleaned path doesn't escape
+	if filepath.IsAbs(path) {
+		clean := filepath.Clean(path)
+		// Count directory depth - compare original vs cleaned
+		// If cleaned has fewer separators, upward traversal occurred
+		origDepth := strings.Count(path, string(filepath.Separator))
+		cleanDepth := strings.Count(clean, string(filepath.Separator))
 		
-		// If original had more parts but cleaned has fewer, traversal occurred
-		if len(origParts) > len(cleanParts) {
+		if cleanDepth < origDepth-1 {
 			return fmt.Errorf("path traversal detected: %s (resolves to %s)", path, clean)
 		}
 	}
