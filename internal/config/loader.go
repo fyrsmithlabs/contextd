@@ -244,10 +244,11 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 9090
 	}
-	if cfg.Server.ShutdownTimeout == 0 {
 
 	// Production defaults (loaded from environment)
 	cfg.Production = loadProductionConfig()
+
+	if cfg.Server.ShutdownTimeout == 0 {
 		cfg.Server.ShutdownTimeout = 10 * time.Second
 	}
 
