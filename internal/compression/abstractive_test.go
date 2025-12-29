@@ -201,7 +201,7 @@ func TestCallClaudeAPI_MockServer(t *testing.T) {
 				assert.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
 
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{
+				_, _ = w.Write([]byte(`{
 					"id": "msg_test123",
 					"type": "message",
 					"role": "assistant",
@@ -219,7 +219,7 @@ func TestCallClaudeAPI_MockServer(t *testing.T) {
 			name: "api_error_response",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte(`{
+				_, _ = w.Write([]byte(`{
 					"error": {
 						"type": "invalid_request_error",
 						"message": "Invalid API key provided"
@@ -233,7 +233,7 @@ func TestCallClaudeAPI_MockServer(t *testing.T) {
 			name: "malformed_json_response",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{invalid json`))
+				_, _ = w.Write([]byte(`{invalid json`))
 			},
 			expectError:   true,
 			errorContains: "failed to parse response",
@@ -242,7 +242,7 @@ func TestCallClaudeAPI_MockServer(t *testing.T) {
 			name: "empty_content_response",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{
+				_, _ = w.Write([]byte(`{
 					"id": "msg_test123",
 					"type": "message",
 					"role": "assistant",
@@ -514,7 +514,7 @@ func TestAbstractiveCompressor_ContextRespect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"content":[{"text":"delayed"}]}`))
+		_, _ = w.Write([]byte(`{"content":[{"text":"delayed"}]}`))
 	}))
 	defer server.Close()
 

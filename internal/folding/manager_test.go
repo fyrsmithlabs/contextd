@@ -129,10 +129,10 @@ func TestBranchManager_CreateMaxConcurrentExceeded(t *testing.T) {
 
 	// Create 2 branches (complete first to allow second at depth 0)
 	resp1, _ := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d1", Prompt: "p1"})
-	manager.Return(ctx, ReturnRequest{BranchID: resp1.BranchID, Message: "done"})
+	_, _ = manager.Return(ctx, ReturnRequest{BranchID: resp1.BranchID, Message: "done"})
 
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d2", Prompt: "p2"})
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d3", Prompt: "p3"})
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d2", Prompt: "p2"})
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d3", Prompt: "p3"})
 
 	// Third active should fail
 	_, err := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d4", Prompt: "p4"})
@@ -303,7 +303,7 @@ func TestBranchManager_ReturnNotActive(t *testing.T) {
 
 	// Create and complete branch
 	createResp, _ := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
-	manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "done"})
+	_, _ = manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "done"})
 
 	// Try to return again
 	_, err := manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "again"})
@@ -361,7 +361,7 @@ func TestBranchManager_ForceReturnIdempotent(t *testing.T) {
 
 	// Create and complete branch
 	createResp, _ := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
-	manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "done"})
+	_, _ = manager.Return(ctx, ReturnRequest{BranchID: createResp.BranchID, Message: "done"})
 
 	// Force return on completed branch (should be no-op)
 	err := manager.ForceReturn(ctx, createResp.BranchID, "test")
@@ -387,9 +387,9 @@ func TestBranchManager_CleanupSession(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple branches at different depths
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d0", Prompt: "p0"}) // depth 0
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d1", Prompt: "p1"}) // depth 1
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d2", Prompt: "p2"}) // depth 2
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d0", Prompt: "p0"}) // depth 0
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d1", Prompt: "p1"}) // depth 1
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d2", Prompt: "p2"}) // depth 2
 
 	// Cleanup session
 	err := manager.CleanupSession(ctx, "sess_001")
@@ -424,7 +424,7 @@ func TestBranchManager_BudgetExhaustedEvent(t *testing.T) {
 	})
 
 	// Consume more than budget (triggers event)
-	manager.ConsumeTokens(ctx, createResp.BranchID, 150)
+	_ = manager.ConsumeTokens(ctx, createResp.BranchID, 150)
 
 	// Give event handler time to process
 	time.Sleep(100 * time.Millisecond)
@@ -477,7 +477,7 @@ func TestBranchManager_GetActive(t *testing.T) {
 	}
 
 	// Create branch
-	manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
+	_, _ = manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "test", Prompt: "test"})
 
 	// Now there should be an active branch
 	active, err = manager.GetActive(ctx, "sess_001")

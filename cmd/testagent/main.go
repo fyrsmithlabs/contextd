@@ -61,7 +61,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error creating logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Default scenario path
 	if *scenarioPath == "" {

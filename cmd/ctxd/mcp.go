@@ -125,7 +125,7 @@ func runMCPInstall(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Print("   Overwrite? (y/N): ")
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response)
 		if strings.ToLower(response) != "y" {
 			fmt.Println("\n✅ Keeping existing configuration")
 			return nil

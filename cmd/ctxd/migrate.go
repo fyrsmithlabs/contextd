@@ -38,7 +38,7 @@ func init() {
 	migrateCmd.Flags().IntVar(&batchSize, "batch-size", 100, "Number of documents per batch")
 	migrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be migrated without actually migrating")
 
-	migrateCmd.MarkFlagRequired("qdrant-collection")
+	_ = migrateCmd.MarkFlagRequired("qdrant-collection")
 
 	rootCmd.AddCommand(migrateCmd)
 }

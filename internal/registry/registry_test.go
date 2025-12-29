@@ -302,9 +302,9 @@ func TestRegistry_ListTenants(t *testing.T) {
 	}
 
 	// Register some tenants
-	r.RegisterTenant("acme")
-	r.RegisterTenant("globex")
-	r.RegisterTenant("initech")
+	_, _ = r.RegisterTenant("acme")
+	_, _ = r.RegisterTenant("globex")
+	_, _ = r.RegisterTenant("initech")
 
 	tenants := r.ListTenants()
 	if len(tenants) != 3 {
@@ -332,13 +332,13 @@ func TestRegistry_ListProjects(t *testing.T) {
 	}
 
 	// Register tenant and projects
-	r.RegisterTenant("acme")
-	r.RegisterProject("acme", "", "project1")
-	r.RegisterProject("acme", "", "project2")
+	_, _ = r.RegisterTenant("acme")
+	_, _ = r.RegisterProject("acme", "", "project1")
+	_, _ = r.RegisterProject("acme", "", "project2")
 
 	// Register another tenant with project
-	r.RegisterTenant("other")
-	r.RegisterProject("other", "", "otherproject")
+	_, _ = r.RegisterTenant("other")
+	_, _ = r.RegisterProject("other", "", "otherproject")
 
 	// List projects for acme
 	projects := r.ListProjects("acme")

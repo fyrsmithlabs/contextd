@@ -212,8 +212,8 @@ func TestSignalStore_RollupOldSignals(t *testing.T) {
 		Timestamp: newTime,
 	}
 
-	store.StoreSignal(ctx, oldSignal)
-	store.StoreSignal(ctx, newSignal)
+	_ = store.StoreSignal(ctx, oldSignal)
+	_ = store.StoreSignal(ctx, newSignal)
 
 	// Initialize aggregate
 	agg := NewSignalAggregate("mem_abc123", "proj_123")

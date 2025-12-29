@@ -28,7 +28,7 @@ func ExampleServer() {
 
 	// Create logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Configure the server
 	cfg := &httpserver.Config{

@@ -50,7 +50,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initializing logger: %w", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Load configuration
 	cfg := loadConfig()
