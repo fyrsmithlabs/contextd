@@ -2,6 +2,7 @@ package vectorstore_test
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,24 +46,12 @@ func (e *chromemTestEmbedder) makeEmbedding(text string) []float32 {
 	}
 	// Normalize to unit vector (chromem requires normalized vectors)
 	if sumSq > 0 {
-		norm := float32(1.0) / sqrt32(sumSq)
+		norm := float32(1.0) / float32(math.Sqrt(float64(sumSq)))
 		for i := range embedding {
 			embedding[i] *= norm
 		}
 	}
 	return embedding
-}
-
-func sqrt32(x float32) float32 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method for square root
-	z := x / 2
-	for i := 0; i < 10; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
 }
 
 func newTestChromemStore(t *testing.T) (*vectorstore.ChromemStore, string) {
