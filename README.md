@@ -50,6 +50,7 @@ claude --version
 |---------|-------------|
 | **Cross-session Memory** | Record and retrieve learnings across sessions with semantic search |
 | **Checkpoints** | Save and resume context snapshots before hitting limits |
+| **Context-Folding** | Isolate complex sub-tasks with dedicated token budgets |
 | **Error Remediation** | Track error patterns and fixes - never solve the same bug twice |
 | **Repository Search** | Semantic code search over your indexed codebase |
 | **Self-Reflection** | Analyze behavior patterns and improve documentation |
@@ -329,6 +330,14 @@ ContextD exposes these tools to Claude Code:
 |------|---------|
 | `repository_index` | Index a codebase for semantic search |
 | `repository_search` | Semantic search over indexed code |
+
+### Context-Folding
+
+| Tool | Purpose |
+|------|---------|
+| `branch_create` | Create isolated context branch with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Get branch status and budget usage |
 
 ---
 
