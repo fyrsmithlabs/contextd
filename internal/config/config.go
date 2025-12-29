@@ -5,6 +5,7 @@
 package config
 
 import (
+	"path/filepath"
 	"errors"
 	"fmt"
 	"os"
@@ -348,6 +349,36 @@ func (c *Config) Validate() error {
 		return errors.New("service name required when telemetry is enabled")
 	}
 
+
+	// Validate environment variable inputs
+	if err := validateHostname(c.Qdrant.Host); err != nil {
+		return fmt.Errorf("invalid QDRANT_HOST: %w", err)
+	}
+	
+	if err := validatePath(c.Qdrant.DataPath); err != nil {
+		return fmt.Errorf("invalid CONTEXTD_DATA_PATH: %w", err)
+	}
+	
+	if err := validatePath(c.VectorStore.Chromem.Path); err != nil {
+		return fmt.Errorf("invalid CONTEXTD_VECTORSTORE_CHROMEM_PATH: %w", err)
+	}
+	
+	if c.Embeddings.CacheDir != "" {
+		if err := validatePath(c.Embeddings.CacheDir); err != nil {
+			return fmt.Errorf("invalid EMBEDDINGS_CACHE_DIR: %w", err)
+		}
+	}
+	
+	if c.Embeddings.BaseURL != "" {
+		if err := validateURL(c.Embeddings.BaseURL); err != nil {
+			return fmt.Errorf("invalid EMBEDDING_BASE_URL: %w", err)
+		}
+	}
+
+	// Validate production configuration
+	if err := c.Production.Validate(); err != nil {
+		return fmt.Errorf("production config validation failed: %w", err)
+	}
 	return nil
 }
 
@@ -462,5 +493,49 @@ func (c *ProductionConfig) Validate() error {
 		return fmt.Errorf("SECURITY: RequireAuthentication enabled but authentication not configured")
 	}
 
+	return nil
+}
+
+// validateHostname checks if a hostname is safe (no command injection attempts)
+func validateHostname(host string) error {
+	// Reject hostnames with shell metacharacters
+	invalidChars := []string{";", "\n", "\r", "$", "`", "|", "&", "<", ">", "(", ")"}
+	for _, char := range invalidChars {
+		if strings.Contains(host, char) {
+			return fmt.Errorf("invalid hostname: contains forbidden character %q", char)
+		}
+	}
+	return nil
+}
+
+// validatePath checks if a path is safe (no path traversal)
+func validatePath(path string) error {
+	// Check for path traversal sequences
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path contains traversal sequence: %s", path)
+	}
+	
+	// For absolute paths, verify the cleaned path doesn't escape
+	if filepath.IsAbs(path) {
+		clean := filepath.Clean(path)
+		// Count directory depth - compare original vs cleaned
+		// If cleaned has fewer separators, upward traversal occurred
+		origDepth := strings.Count(path, string(filepath.Separator))
+		cleanDepth := strings.Count(clean, string(filepath.Separator))
+		
+		if cleanDepth < origDepth-1 {
+			return fmt.Errorf("path traversal detected: %s (resolves to %s)", path, clean)
+		}
+	}
+	
+	return nil
+}
+
+// validateURL checks if a URL uses allowed schemes (http/https only)
+func validateURL(urlStr string) error {
+	// Only allow http and https schemes
+	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
+		return fmt.Errorf("URL must use http:// or https:// scheme, got: %s", urlStr)
+	}
 	return nil
 }

@@ -10,6 +10,19 @@ ContextD helps AI coding assistants remember what works, learn from mistakes, an
 
 ---
 
+## ⚠️ Alpha Status
+
+**This project is in active alpha development.** Features and APIs change frequently as we refine the product based on user feedback.
+
+- ✅ Core functionality is stable and tested
+- ⚠️ Breaking changes are generally avoided but can still occur
+- 📝 We document all changes in release notes
+- 🚀 Expect rapid iteration and improvements
+
+If you encounter issues, please [report them on GitHub](https://github.com/fyrsmithlabs/contextd/issues).
+
+---
+
 ## Prerequisites
 
 **You need [Claude Code](https://claude.ai/claude-code) installed first.**
@@ -37,6 +50,7 @@ claude --version
 |---------|-------------|
 | **Cross-session Memory** | Record and retrieve learnings across sessions with semantic search |
 | **Checkpoints** | Save and resume context snapshots before hitting limits |
+| **Context-Folding** | Isolate complex sub-tasks with dedicated token budgets |
 | **Error Remediation** | Track error patterns and fixes - never solve the same bug twice |
 | **Repository Search** | Semantic code search over your indexed codebase |
 | **Self-Reflection** | Analyze behavior patterns and improve documentation |
@@ -316,6 +330,14 @@ ContextD exposes these tools to Claude Code:
 |------|---------|
 | `repository_index` | Index a codebase for semantic search |
 | `repository_search` | Semantic search over indexed code |
+
+### Context-Folding
+
+| Tool | Purpose |
+|------|---------|
+| `branch_create` | Create isolated context branch with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Get branch status and budget usage |
 
 ---
 
