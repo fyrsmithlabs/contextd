@@ -79,11 +79,31 @@ echo "0.4.0-rc2" > VERSION
 # ... repeat commit/tag/push
 ```
 
-## Automation (Future)
+## Automation
 
-The sync script can be automated via:
+### Temporal-Based Version Validation
+
+Version consistency is automatically enforced via Temporal workflows on all pull requests:
+
+**What it does:**
+- Fetches `VERSION` file and `.claude-plugin/plugin.json` from PR
+- Compares versions to ensure they match
+- Posts helpful comment with fix instructions if mismatch detected
+- Comment auto-updates or removes when versions are synced
+
+**How to trigger:**
+- Automatically runs on PR open, synchronize, or reopened events
+- No manual intervention needed - just push your changes
+
+**Workflow location:**
+- `internal/workflows/version_validation.go` - Main workflow logic
+- `internal/workflows/version_validation_activities.go` - GitHub API interactions
+- `internal/workflows/version_validation_test.go` - Comprehensive test suite
+
+### Additional Automation (Future)
+
+The sync script can be further automated via:
 - **Pre-commit hook**: Sync version on every commit
-- **CI/CD**: Verify version matches VERSION file
 - **Release workflow**: Auto-tag on VERSION changes
 
 ## Troubleshooting
