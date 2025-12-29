@@ -120,7 +120,7 @@ func TestProductionConfig_LoadWithFile_PreservesYAMLConfig(t *testing.T) {
 		defer os.Unsetenv("HOME")
 	}
 	tmpDir := home + "/.config/contextd"
-	os.MkdirAll(tmpDir, 0700)
+	_ = os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config.yaml"
 	defer os.Remove(configPath)
 	
@@ -163,7 +163,7 @@ func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 		defer os.Unsetenv("HOME")
 	}
 	tmpDir := home + "/.config/contextd"
-	os.MkdirAll(tmpDir, 0700)
+	_ = os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config2.yaml"
 	defer os.Remove(configPath)
 	

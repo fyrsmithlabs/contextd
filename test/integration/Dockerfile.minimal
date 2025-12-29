@@ -1,0 +1,60 @@
+# Minimal container test - no jq, only bash and sed
+FROM alpine:3.19
+
+# Install only essential tools (no jq)
+RUN apk add --no-cache \
+    git \
+    bash \
+    sed \
+    grep
+
+# Create test user
+RUN adduser -D -s /bin/bash testuser
+
+USER testuser
+WORKDIR /home/testuser
+
+# Copy repository
+COPY --chown=testuser:testuser . /home/testuser/contextd
+
+WORKDIR /home/testuser/contextd
+
+# Configure git
+RUN git config --global user.email "test@test.com" && \
+    git config --global user.name "Test User"
+
+# Verify jq is NOT available (to force sed fallback)
+RUN echo "=== Verifying jq is not installed ===" && \
+    if command -v jq &> /dev/null; then \
+        echo "FAIL: jq should not be installed for this test" && exit 1; \
+    else \
+        echo "SUCCESS: jq not found, will use sed fallback"; \
+    fi
+
+# Test sync script (should use sed fallback)
+RUN echo "=== Testing sed fallback ===" && \
+    ./scripts/sync-version.sh && \
+    echo "SUCCESS: Script executed with sed fallback"
+
+# Verify versions match
+RUN VERSION=$(cat VERSION | tr -d '[:space:]') && \
+    PLUGIN_VERSION=$(grep -o '"version": "[^"]*"' .claude-plugin/plugin.json | cut -d'"' -f4) && \
+    if [ "$VERSION" = "$PLUGIN_VERSION" ]; then \
+        echo "SUCCESS: Versions synced correctly with sed"; \
+    else \
+        echo "FAIL: Version mismatch (VERSION=$VERSION, plugin=$PLUGIN_VERSION)" && exit 1; \
+    fi
+
+# Test version with special characters that could cause sed injection
+RUN echo "1.2.3-alpha.1+build.456" > VERSION && \
+    ./scripts/sync-version.sh && \
+    PLUGIN_VERSION=$(grep -o '"version": "[^"]*"' .claude-plugin/plugin.json | cut -d'"' -f4) && \
+    if [ "$PLUGIN_VERSION" = "1.2.3-alpha.1+build.456" ]; then \
+        echo "SUCCESS: Complex version handled correctly"; \
+    else \
+        echo "FAIL: Complex version not handled (expected 1.2.3-alpha.1+build.456, got $PLUGIN_VERSION)" && exit 1; \
+    fi
+
+RUN echo "=== All minimal container tests passed! ==="
+
+CMD ["echo", "Minimal container (sed fallback) tests completed successfully"]

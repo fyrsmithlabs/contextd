@@ -301,7 +301,7 @@ func TestGenerateComparisonReport(t *testing.T) {
 		{SessionID: "s10", Algorithm: AlgorithmAbstractive, CompressionRatio: 3.4, QualityScore: 0.93, ProcessingTimeMs: 540, Success: true, UserAccepted: true, Timestamp: time.Now()},
 	}
 	for _, outcome := range outcomes {
-		exp.RecordOutcome(outcome)
+		_ = exp.RecordOutcome(outcome)
 	}
 
 	report := exp.GenerateComparisonReport()

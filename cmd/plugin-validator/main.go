@@ -50,7 +50,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initializing logger: %w", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Load configuration
 	cfg := loadConfig()
@@ -64,8 +64,7 @@ func run() error {
 		return fmt.Errorf("GITHUB_TOKEN not set")
 	}
 
-	// Set GitHub token for workflow activities
-	workflows.SetGitHubToken(cfg.GitHubToken)
+	// Note: GitHub token is passed to workflows via config, not set globally
 
 	// Create Temporal client
 	c, err := client.Dial(client.Options{

@@ -148,3 +148,94 @@ To customize comments:
 - Issue #56: Claude plugin update validation automation
 - CLAUDE.md: Priority #3 - Update Claude Plugin on Changes
 - PR Template: `.github/pull_request_template.md`
+
+## Version Validation Workflow
+
+Automated workflow that ensures `VERSION` file consistency across the codebase.
+
+### Overview
+
+The `VersionValidationWorkflow` validates that the `VERSION` file matches the version in `.claude-plugin/plugin.json` for all pull requests. This prevents version mismatches that could cause confusion about which version is deployed.
+
+When versions don't match, the workflow:
+1. Detects the mismatch
+2. Posts a detailed comment explaining the issue
+3. Provides exact commands to fix the problem
+4. Auto-updates the comment if versions are later synced
+
+### Architecture
+
+```
+GitHub PR Event (VERSION or plugin.json changed)
+      ↓
+GitHub Webhook Server
+      ↓
+Temporal Workflow Engine
+      ↓
+Version Validation Workflow
+      ├── FetchFileContentActivity (VERSION)
+      ├── FetchFileContentActivity (plugin.json)
+      ├── Compare versions
+      └── PostVersionMismatchCommentActivity (if needed)
+```
+
+### Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| Workflow | Orchestrates version validation | `version_validation.go` |
+| Activities | Fetches files, posts comments | `version_validation_activities.go` |
+| Tests | Comprehensive test coverage | `version_validation_test.go` |
+
+### Validation Logic
+
+**Version matching:**
+- Fetches `VERSION` file content from PR HEAD
+- Fetches `.claude-plugin/plugin.json` from PR HEAD
+- Parses JSON to extract version field
+- Compares versions (after trimming whitespace)
+- Posts comment only if versions don't match
+
+**Supported version formats:**
+- Standard semantic versions: `1.2.3`
+- Pre-release versions: `1.0.0-rc.1`
+- Build metadata: `1.0.0+build.123`
+- Complex versions: `2.0.0-beta.1+exp.sha.5114f85`
+
+### Comment Behavior
+
+| Scenario | Action |
+|----------|--------|
+| Versions match | No comment posted |
+| Versions don't match (first time) | Post new mismatch comment |
+| Versions don't match (updated PR) | Update existing mismatch comment |
+| Versions fixed after comment | Comment remains (manual removal or future enhancement) |
+
+### Testing
+
+```bash
+# Run workflow tests
+go test ./internal/workflows/... -run TestVersionValidationWorkflow -v
+
+# Run all version validation tests
+go test ./internal/workflows/... -run Version -v
+
+# Test the sync script itself
+./scripts/sync-version_test.sh
+```
+
+### Configuration
+
+The workflow is triggered automatically by the webhook server when:
+- Pull request is opened
+- Pull request is synchronized (new commits pushed)
+- Pull request is reopened
+
+No manual configuration required beyond standard webhook setup.
+
+### Related
+
+- `scripts/sync-version.sh` - Script to sync versions across files
+- `scripts/sync-version_test.sh` - Test suite for sync script
+- `VERSIONING.md` - Complete version management documentation
+- `VERSION` - Single source of truth for version

@@ -1,45 +1,36 @@
 # Version Management
 
-contextd uses semantic versioning with a single source of truth approach.
+**Single Source of Truth**: The `VERSION` file in the repository root.
 
-## Version File
+## Quick Reference
 
-The `VERSION` file at the project root is the **single source of truth** for the current version.
+| File/Location | Purpose | Updated How |
+|---------------|---------|-------------|
+| `VERSION` | **Source of truth** - all versions derive from this | Manual edit |
+| `.claude-plugin/plugin.json` | Claude plugin version | `scripts/sync-version.sh` |
+| Git tags (`v*`) | Release markers | `git tag` after sync |
 
-## Semantic Versioning
-
-Versions follow the format: `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`
-
-Examples:
-- `0.3.0` - Release version
-- `0.3.1-rc.1` - Release candidate
-- `0.3.0+20230115` - Build metadata
-
-### When to Increment
-
-- **MAJOR**: Breaking changes, incompatible API changes
-- **MINOR**: New features, backwards-compatible
-- **PATCH**: Bug fixes, backwards-compatible
-
-## Workflow
+## Versioning Workflow
 
 ### 1. Update Version
 
 Edit the `VERSION` file:
+
 ```bash
 echo "0.4.0" > VERSION
 ```
 
-### 2. Sync Version Across Files
+### 2. Sync to All Files
 
-Run the sync script to update all version references:
+Run the sync script:
+
 ```bash
 ./scripts/sync-version.sh
 ```
 
 This updates:
 - `.claude-plugin/plugin.json`
-- Any other version references
+- (Future: package.json, go.mod, etc.)
 
 ### 3. Commit Changes
 
@@ -48,66 +39,103 @@ git add VERSION .claude-plugin/plugin.json
 git commit -m "chore: bump version to 0.4.0"
 ```
 
-### 4. Create Tag
+### 4. Tag Release
 
 ```bash
 git tag -a v0.4.0 -m "Release v0.4.0"
-git push origin v0.4.0
+git push && git push --tags
 ```
 
-### 5. Release Workflow
+## Version Format
 
-When a tag is pushed, the GitHub Actions release workflow:
-1. Validates the version format
-2. Builds release binaries
-3. Creates GitHub release
-4. Updates Homebrew formula
+We follow [Semantic Versioning 2.0.0](https://semver.org/):
+
+```
+MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]
+```
+
+**Examples**:
+- `0.3.0` - Stable release
+- `0.3.0-rc1` - Release candidate 1
+- `0.3.0-beta.1` - Beta prerelease
+- `0.4.0-alpha` - Alpha prerelease
 
 ## Pre-Release Workflow
 
-For release candidates and testing:
+For release candidates and pre-releases:
 
 ```bash
-echo "0.4.0-rc.1" > VERSION
+# Create RC
+echo "0.4.0-rc1" > VERSION
 ./scripts/sync-version.sh
-git commit -am "chore: prepare 0.4.0-rc.1"
-git tag -a v0.4.0-rc.1 -m "Release candidate 0.4.0-rc.1"
-git push origin v0.4.0-rc.1
+git add VERSION .claude-plugin/plugin.json
+git commit -m "chore: bump version to 0.4.0-rc1"
+git tag -a v0.4.0-rc1 -m "Release candidate 1 for v0.4.0"
+git push && git push --tags
+
+# Iterate
+echo "0.4.0-rc2" > VERSION
+./scripts/sync-version.sh
+# ... repeat commit/tag/push
 ```
 
-## CI/CD Integration
+## Automation
 
-The release workflow (`.github/workflows/release.yml`):
-- Extracts version from git tag (`v0.3.0` → `0.3.0`)
-- Validates version format (semantic versioning regex)
-- Uses version for artifact naming and release notes
+### Temporal-Based Version Validation
 
-## Version Validation
+Version consistency is automatically enforced via Temporal workflows on all pull requests:
 
-Version format is validated in CI/CD:
-```bash
-^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$
-```
+**What it does:**
+- Fetches `VERSION` file and `.claude-plugin/plugin.json` from PR
+- Compares versions to ensure they match
+- Posts helpful comment with fix instructions if mismatch detected
+- Comment auto-updates or removes when versions are synced
 
-This ensures:
-- Three numeric components (MAJOR.MINOR.PATCH)
-- Optional pre-release identifier after `-`
-- Optional build metadata after `+`
+**How to trigger:**
+- Automatically runs on PR open, synchronize, or reopened events
+- No manual intervention needed - just push your changes
+
+**Workflow location:**
+- `internal/workflows/version_validation.go` - Main workflow logic
+- `internal/workflows/version_validation_activities.go` - GitHub API interactions
+- `internal/workflows/version_validation_test.go` - Comprehensive test suite
+
+### Additional Automation (Future)
+
+The sync script can be further automated via:
+- **Pre-commit hook**: Sync version on every commit
+- **Release workflow**: Auto-tag on VERSION changes
 
 ## Troubleshooting
 
-### Version Mismatch Between Components
+### Version Mismatch Detected
 
-If plugin version and VERSION file don't match:
+If `plugin.json` version doesn't match `VERSION`:
+
 ```bash
+./scripts/sync-version.sh
+git diff  # Review changes
+```
+
+### Missing Git Tag
+
+If you forgot to tag a release:
+
+```bash
+VERSION=$(cat VERSION)
+git tag -a "v$VERSION" -m "Release v$VERSION"
+git push --tags
+```
+
+### Rollback Version
+
+```bash
+git checkout VERSION
 ./scripts/sync-version.sh
 ```
 
-### Invalid Version Format
+## See Also
 
-Version must match semantic versioning:
-- ✅ `1.2.3`
-- ✅ `1.2.3-rc.1`
-- ✅ `1.2.3+build.123`
-- ❌ `v1.2.3` (no 'v' prefix in VERSION file)
-- ❌ `1.2` (must have three components)
+- Semantic Versioning: https://semver.org/
+- Git tagging: `git help tag`
+- Release process: `docs/release-process.md` (if exists)

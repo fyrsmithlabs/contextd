@@ -1,4 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# sync-version.sh - Sync version from VERSION file to all version-dependent files
+#
+# Usage: ./scripts/sync-version.sh
+
 set -euo pipefail
 
 # Colors for output
@@ -7,18 +11,31 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Get the repository root
+# Try to find git repo root first, fall back to current directory
+# This allows the script to work both in the actual repo and in test directories
+if REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    # We're in a git repository
+    :
+else
+    # Not in a git repo, use current directory (for testing)
+    REPO_ROOT="$(pwd)"
+fi
+VERSION_FILE="$REPO_ROOT/VERSION"
 
-# Read VERSION file
-VERSION_FILE="$PROJECT_ROOT/VERSION"
-if [ ! -f "$VERSION_FILE" ]; then
+# Check if VERSION file exists
+if [[ ! -f "$VERSION_FILE" ]]; then
     echo -e "${RED}ERROR: VERSION file not found at $VERSION_FILE${NC}"
     exit 1
 fi
 
-VERSION=$(cat "$VERSION_FILE" | tr -d '\n' | tr -d ' ')
+# Read version from VERSION file
+VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+
+if [[ -z "$VERSION" ]]; then
+    echo -e "${RED}ERROR: VERSION file is empty${NC}"
+    exit 1
+fi
 
 # Validate version format (semantic versioning)
 if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'; then
@@ -27,25 +44,54 @@ if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-
     exit 1
 fi
 
-echo -e "${GREEN}Syncing version $VERSION across project files...${NC}"
+echo -e "${GREEN}Syncing version: $VERSION${NC}"
 
-# Update .claude-plugin/plugin.json
-PLUGIN_JSON="$PROJECT_ROOT/.claude-plugin/plugin.json"
-if [ -f "$PLUGIN_JSON" ]; then
-    # Use sed to update the version field in plugin.json
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS requires -i '' for in-place edit
-        sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$PLUGIN_JSON"
+# Files to update
+FILES_UPDATED=0
+
+# 1. Update plugin.json
+PLUGIN_JSON="$REPO_ROOT/.claude-plugin/plugin.json"
+if [[ -f "$PLUGIN_JSON" ]]; then
+    echo "  Updating $PLUGIN_JSON..."
+    # Use jq if available, otherwise sed
+    if command -v jq &> /dev/null; then
+        TMP_FILE=$(mktemp)
+        jq --arg version "$VERSION" '.version = $version' "$PLUGIN_JSON" > "$TMP_FILE"
+        mv "$TMP_FILE" "$PLUGIN_JSON"
     else
-        # Linux
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$PLUGIN_JSON"
+        # Fallback to sed (escape special characters to prevent injection)
+        # Escape forward slashes, backslashes, and ampersands for sed
+        ESCAPED_VERSION=$(printf '%s\n' "$VERSION" | sed 's/[\/&]/\\&/g')
+        sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$ESCAPED_VERSION\"/" "$PLUGIN_JSON"
+        rm -f "$PLUGIN_JSON.bak"
     fi
-    echo -e "${GREEN}✓ Updated .claude-plugin/plugin.json${NC}"
+    FILES_UPDATED=$((FILES_UPDATED + 1))
+    echo -e "${GREEN}  ✓ Updated plugin.json${NC}"
 else
-    echo -e "${YELLOW}⚠ .claude-plugin/plugin.json not found, skipping${NC}"
+    echo -e "${YELLOW}  ! plugin.json not found, skipping${NC}"
 fi
 
-echo -e "${GREEN}Version sync complete: $VERSION${NC}"
-echo -e "${YELLOW}Don't forget to commit these changes:${NC}"
-echo -e "  git add VERSION .claude-plugin/plugin.json"
-echo -e "  git commit -m \"chore: bump version to $VERSION\""
+# 2. Check git tags (informational only)
+echo ""
+echo "Git tag status:"
+LATEST_TAG=$(git tag -l "v$VERSION" 2>/dev/null || echo "")
+if [[ -n "$LATEST_TAG" ]]; then
+    echo -e "${GREEN}  ✓ Git tag v$VERSION exists${NC}"
+else
+    echo -e "${YELLOW}  ! Git tag v$VERSION does not exist yet${NC}"
+    echo "    Run: git tag -a v$VERSION -m \"Release v$VERSION\""
+fi
+
+# Summary
+echo ""
+echo -e "${GREEN}Version sync complete!${NC}"
+echo "  Version: $VERSION"
+echo "  Files updated: $FILES_UPDATED"
+echo ""
+echo "Next steps:"
+echo "  1. Review changes: git diff"
+echo "  2. Commit: git add VERSION .claude-plugin/plugin.json && git commit -m \"chore: bump version to $VERSION\""
+if [[ -z "$LATEST_TAG" ]]; then
+    echo "  3. Tag release: git tag -a v$VERSION -m \"Release v$VERSION\""
+    echo "  4. Push: git push && git push --tags"
+fi
