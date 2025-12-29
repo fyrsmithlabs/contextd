@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
-	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 )
 
@@ -74,15 +75,33 @@ func LoadWithFile(configPath string) (*Config, error) {
 	if err := validateConfigPath(configPath); err != nil {
 		return nil, fmt.Errorf("config path validation failed: %w", err)
 	}
-
 	// Load from YAML file if it exists
 	if _, err := os.Stat(configPath); err == nil {
-		// Validate file properties before loading
-		if err := validateConfigFileProperties(configPath); err != nil {
+		// Open file once and validate using file descriptor to avoid TOCTOU race
+		f, err := os.Open(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open config file: %w", err)
+		}
+		defer f.Close()
+
+		// Validate file properties using already-opened file descriptor
+		info, err := f.Stat()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat config file: %w", err)
+		}
+
+		if err := validateConfigFileProperties(info); err != nil {
 			return nil, fmt.Errorf("config file validation failed: %w", err)
 		}
 
-		if err := k.Load(file.Provider(configPath), yaml.Parser()); err != nil {
+		// Read content from already-opened file
+		content, err := io.ReadAll(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+
+		// Use rawbytes provider to avoid re-opening the file
+		if err := k.Load(rawbytes.Provider(content), yaml.Parser()); err != nil {
 			return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 		}
 	}
@@ -157,10 +176,18 @@ func EnsureConfigDir() error {
 // validateConfigPath checks if path is in allowed directories.
 // This validation runs even if the file doesn't exist yet.
 func validateConfigPath(path string) error {
-	// Resolve to absolute path
+	// Resolve to absolute path and follow symlinks to prevent path traversal
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path: %w", err)
+	}
+
+	// Resolve symlinks to prevent attackers from using symlinks to escape allowed directories
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// If symlink evaluation fails, continue with absPath
+		// This allows validation of paths that dont exist yet
+		resolvedPath = absPath
 	}
 
 	// Check if path is in allowed directories
@@ -174,9 +201,14 @@ func validateConfigPath(path string) error {
 		"/etc/contextd",
 	}
 
+	// Clean the resolved path to normalize it (remove .. and . components)
+	cleanPath := filepath.Clean(resolvedPath)
+	
 	allowed := false
 	for _, dir := range allowedDirs {
-		if strings.HasPrefix(absPath, dir) {
+		// Check if path is exactly the allowed directory or is a subdirectory
+		// This prevents bypass attacks like /etc/contextd../etc/passwd
+		if cleanPath == dir || strings.HasPrefix(cleanPath, dir+string(filepath.Separator)) {
 			allowed = true
 			break
 		}
@@ -191,11 +223,8 @@ func validateConfigPath(path string) error {
 
 // validateConfigFileProperties checks file permissions and size.
 // This validation only runs if the file exists.
-func validateConfigFileProperties(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("failed to stat config file: %w", err)
-	}
+// Takes FileInfo from an already-opened file descriptor to avoid TOCTOU race.
+func validateConfigFileProperties(info os.FileInfo) error {
 
 	// Check file permissions (must be 0600 or 0400)
 	// Skip on Windows (different permission model)
@@ -222,6 +251,19 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.ShutdownTimeout == 0 {
 		cfg.Server.ShutdownTimeout = 10 * time.Second
+	}
+
+	// Production defaults - only load from environment if not configured
+	// This preserves YAML configuration while still supporting env-only setup
+	// Note: Boolean fields where false is a valid value make this check conservative
+	// We only override if ALL fields appear unconfigured
+	if !cfg.Production.Enabled && !cfg.Production.LocalModeAcknowledged &&
+		!cfg.Production.RequireAuthentication && !cfg.Production.RequireTLS {
+		// Check if production mode is enabled via environment variables
+		prodConfig := loadProductionConfig()
+		if prodConfig.Enabled {
+			cfg.Production = prodConfig
+		}
 	}
 
 	// Observability defaults
@@ -275,5 +317,19 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Embeddings.Model == "" {
 		cfg.Embeddings.Model = "BAAI/bge-small-en-v1.5"
+	}
+}
+
+// loadProductionConfig loads production configuration from environment variables.
+func loadProductionConfig() ProductionConfig {
+	prodMode := os.Getenv("CONTEXTD_PRODUCTION_MODE") == "1"
+	localMode := os.Getenv("CONTEXTD_LOCAL_MODE") == "1"
+	
+	return ProductionConfig{
+		Enabled:               prodMode,
+		LocalModeAcknowledged: localMode,
+		RequireAuthentication: prodMode && !localMode, // Require auth in prod unless local override
+		RequireTLS:            prodMode && !localMode, // Require TLS in prod unless local override
+		AllowNoIsolation:      false,                  // Never allow NoIsolation in production
 	}
 }

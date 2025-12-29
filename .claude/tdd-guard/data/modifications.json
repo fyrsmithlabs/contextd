@@ -4,8 +4,8 @@
   "hook_event_name": "PreToolUse",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/home/dahendel/projects/contextd/internal/embeddings/onnx_setup.go",
-    "old_string": "\t// Create destination directory\n\tif err := os.MkdirAll(destDir, 0755); err != nil {\n\t\treturn fmt.Errorf(\"creating directory: %w\", err)\n\t}",
-    "new_string": "\t// Create destination directory with secure permissions (owner-only)\n\tif err := os.MkdirAll(destDir, 0700); err != nil {\n\t\treturn fmt.Errorf(\"creating directory: %w\", err)\n\t}"
+    "file_path": "/home/dahendel/projects/contextd/internal/config/path_validation_test.go",
+    "old_string": "\t// Non-existent file in allowed directory should pass validation\n\tnonExistent := filepath.Join(home, \".config\", \"contextd\", \"nonexistent.yaml\")\n\terr = validateConfigPath(nonExistent)",
+    "new_string": "\t// Non-existent file in allowed directory should pass validation\n\tnonExistent := filepath.Join(home, \".config\", \"contextd\", \"nonexistent.yaml\")\n\terr := validateConfigPath(nonExistent)"
   }
 }
