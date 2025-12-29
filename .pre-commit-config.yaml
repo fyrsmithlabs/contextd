@@ -1,6 +1,57 @@
+# Pre-commit hooks for contextd
+# See https://pre-commit.com for more information
+
 repos:
+  # Go formatting and imports
+  - repo: https://github.com/tekwizely/pre-commit-golang
+    rev: v1.0.0-rc.1
+    hooks:
+      - id: go-fmt
+        args: [-w]
+      - id: go-imports
+        args: [-w]
+      - id: go-vet
+      - id: go-mod-tidy
+
+  # golangci-lint for comprehensive linting
   - repo: https://github.com/golangci/golangci-lint
-    rev: v1.62.2
+    rev: v1.62.2  # Use a version compatible with Go 1.25
     hooks:
       - id: golangci-lint
-        args: [--enable, errcheck]
+        args: [--timeout=5m]
+
+  # Go test runner
+  - repo: local
+    hooks:
+      - id: go-test-short
+        name: go test (short)
+        entry: go test -short ./...
+        language: system
+        pass_filenames: false
+        files: \.go$
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.(md|markdown)$
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Bash script checks
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [-x]  # Follow sourced files
+
+  # Secret scanning
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
