@@ -1,0 +1,66 @@
+# Test Dockerfile to verify sync-version.sh works in a clean container environment
+FROM debian:bookworm-slim
+
+# Install minimal dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    bash \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user (simulates typical deployment)
+RUN useradd -m -s /bin/bash testuser
+
+# Switch to test user
+USER testuser
+WORKDIR /home/testuser
+
+# Clone the repository (simulates fresh install)
+COPY --chown=testuser:testuser . /home/testuser/contextd
+
+# Test scenarios
+WORKDIR /home/testuser/contextd
+
+# Verify git works
+RUN git config --global user.email "test@test.com" && \
+    git config --global user.name "Test User"
+
+# Test 1: Run sync script from repo root
+RUN echo "=== Test 1: Run from repo root ===" && \
+    ./scripts/sync-version.sh && \
+    echo "SUCCESS: Script executed from repo root"
+
+# Test 2: Verify versions match
+RUN echo "=== Test 2: Verify version sync ===" && \
+    VERSION=$(cat VERSION | tr -d '[:space:]') && \
+    PLUGIN_VERSION=$(grep -o '"version": "[^"]*"' .claude-plugin/plugin.json | cut -d'"' -f4) && \
+    if [ "$VERSION" = "$PLUGIN_VERSION" ]; then \
+        echo "SUCCESS: Versions match (VERSION=$VERSION, plugin=$PLUGIN_VERSION)"; \
+    else \
+        echo "FAIL: Version mismatch (VERSION=$VERSION, plugin=$PLUGIN_VERSION)" && exit 1; \
+    fi
+
+# Test 3: Test from scripts directory
+RUN echo "=== Test 3: Run from scripts/ directory ===" && \
+    cd scripts && \
+    ./sync-version.sh && \
+    echo "SUCCESS: Script executed from scripts/"
+
+# Test 4: Test with modified version
+RUN echo "=== Test 4: Modify and sync ===" && \
+    echo "9.8.7" > VERSION && \
+    ./scripts/sync-version.sh && \
+    PLUGIN_VERSION=$(grep -o '"version": "[^"]*"' .claude-plugin/plugin.json | cut -d'"' -f4) && \
+    if [ "$PLUGIN_VERSION" = "9.8.7" ]; then \
+        echo "SUCCESS: Version synced correctly"; \
+    else \
+        echo "FAIL: Version not synced (expected 9.8.7, got $PLUGIN_VERSION)" && exit 1; \
+    fi
+
+# Test 5: Restore original version
+RUN git checkout VERSION .claude-plugin/plugin.json
+
+# Final message
+RUN echo "=== All Docker container tests passed! ==="
+
+CMD ["echo", "Container tests completed successfully"]

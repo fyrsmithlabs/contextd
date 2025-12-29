@@ -75,6 +75,12 @@ func VersionValidationWorkflow(ctx workflow.Context, config VersionValidationCon
 	// Clean version string (trim whitespace)
 	result.VersionFile = strings.TrimSpace(versionFileContent)
 
+	// Validate VERSION file is not empty
+	if result.VersionFile == "" {
+		result.Errors = append(result.Errors, "VERSION file is empty")
+		return result, fmt.Errorf("VERSION file is empty")
+	}
+
 	// Step 2: Fetch plugin.json
 	logger.Info("Fetching plugin.json")
 	var pluginContent string
@@ -100,6 +106,12 @@ func VersionValidationWorkflow(ctx workflow.Context, config VersionValidationCon
 	}
 	result.PluginVersion = pluginData.Version
 
+	// Validate plugin.json version is not empty
+	if result.PluginVersion == "" {
+		result.Errors = append(result.Errors, "plugin.json has empty or missing version field")
+		return result, fmt.Errorf("plugin.json version is empty")
+	}
+
 	// Step 4: Compare versions
 	result.VersionMatches = (result.VersionFile == result.PluginVersion)
 
@@ -108,7 +120,7 @@ func VersionValidationWorkflow(ctx workflow.Context, config VersionValidationCon
 		"plugin_version", result.PluginVersion,
 		"matches", result.VersionMatches)
 
-	// Step 5: Post comment if versions don't match
+	// Step 5: Post comment if versions don't match, or remove comment if they do
 	if !result.VersionMatches {
 		logger.Info("Posting version mismatch comment")
 		var commentResult PostCommentResult
@@ -125,6 +137,20 @@ func VersionValidationWorkflow(ctx workflow.Context, config VersionValidationCon
 		} else {
 			result.CommentPosted = true
 			result.CommentURL = commentResult.URL
+		}
+	} else {
+		// Versions match - remove any existing mismatch comment
+		logger.Info("Versions match, removing any existing mismatch comment")
+		err = workflow.ExecuteActivity(ctx, RemoveVersionMismatchCommentActivity, PostVersionCommentInput{
+			Owner:       config.Owner,
+			Repo:        config.Repo,
+			PRNumber:    config.PRNumber,
+			GitHubToken: config.GitHubToken,
+		}).Get(ctx, nil)
+		if err != nil {
+			// Don't fail the workflow if we can't remove the comment
+			logger.Warn("Failed to remove comment (non-fatal)", "error", err)
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to remove comment: %v", err))
 		}
 	}
 

@@ -12,7 +12,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Get the repository root
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Try to find git repo root first, fall back to current directory
+# This allows the script to work both in the actual repo and in test directories
+if REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    # We're in a git repository
+    :
+else
+    # Not in a git repo, use current directory (for testing)
+    REPO_ROOT="$(pwd)"
+fi
 VERSION_FILE="$REPO_ROOT/VERSION"
 
 # Check if VERSION file exists
@@ -51,8 +59,10 @@ if [[ -f "$PLUGIN_JSON" ]]; then
         jq --arg version "$VERSION" '.version = $version' "$PLUGIN_JSON" > "$TMP_FILE"
         mv "$TMP_FILE" "$PLUGIN_JSON"
     else
-        # Fallback to sed
-        sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$PLUGIN_JSON"
+        # Fallback to sed (escape special characters to prevent injection)
+        # Escape forward slashes, backslashes, and ampersands for sed
+        ESCAPED_VERSION=$(printf '%s\n' "$VERSION" | sed 's/[\/&]/\\&/g')
+        sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$ESCAPED_VERSION\"/" "$PLUGIN_JSON"
         rm -f "$PLUGIN_JSON.bak"
     fi
     FILES_UPDATED=$((FILES_UPDATED + 1))

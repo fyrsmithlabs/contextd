@@ -90,7 +90,8 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Ref:   "def456",
 		}).Return(pluginJSON, nil)
 
-		// No comment should be posted since versions match
+		// Mock removal activity (versions match, should remove old comment if exists)
+		env.OnActivity(RemoveVersionMismatchCommentActivity, mock.Anything, mock.Anything).Return(nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
@@ -180,6 +181,9 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Ref:   "jkl012",
 		}).Return(pluginJSON, nil)
 
+		// Mock removal activity (versions match)
+		env.OnActivity(RemoveVersionMismatchCommentActivity, mock.Anything, mock.Anything).Return(nil)
+
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
@@ -196,6 +200,214 @@ func TestVersionValidationWorkflow(t *testing.T) {
 		assert.True(t, result.VersionMatches)
 		assert.Equal(t, "1.0.0-rc.1", result.VersionFile)
 		assert.Equal(t, "1.0.0-rc.1", result.PluginVersion)
+	})
+
+	t.Run("handles VERSION file fetch error", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file fetch fails (404, network error, etc.)
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "missing",
+		}).Return("", assert.AnError)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 5,
+			HeadSHA:  "missing",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+		// Just verify workflow errored (error message is wrapped by Temporal)
+	})
+
+	t.Run("handles plugin.json fetch error", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file succeeds
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "missing-plugin",
+		}).Return("1.2.3", nil)
+
+		// plugin.json fetch fails
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "missing-plugin",
+		}).Return("", assert.AnError)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 6,
+			HeadSHA:  "missing-plugin",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+		// Just verify workflow errored (error message is wrapped by Temporal)
+	})
+
+	t.Run("handles invalid JSON in plugin.json", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "invalid-json",
+		}).Return("1.2.3", nil)
+
+		// Invalid JSON
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "invalid-json",
+		}).Return("{invalid json", nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 7,
+			HeadSHA:  "invalid-json",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+		// Just verify workflow errored (error message is wrapped by Temporal)
+	})
+
+	t.Run("handles empty VERSION file", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// Empty VERSION file (just whitespace)
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "empty-version",
+		}).Return("  \n\n  ", nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 8,
+			HeadSHA:  "empty-version",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+		// Just verify workflow errored (error message is wrapped by Temporal)
+	})
+
+	t.Run("handles empty plugin.json version", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "empty-plugin-version",
+		}).Return("1.2.3", nil)
+
+		// plugin.json with empty version field
+		pluginJSON := `{
+			"name": "contextd",
+			"version": "",
+			"description": "Test"
+		}`
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "empty-plugin-version",
+		}).Return(pluginJSON, nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 9,
+			HeadSHA:  "empty-plugin-version",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+		// Just verify workflow errored (error message is wrapped by Temporal)
+	})
+
+	t.Run("removes comment when versions match", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// Both versions match
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "fixed",
+		}).Return("2.0.0", nil)
+
+		pluginJSON := `{
+			"name": "contextd",
+			"version": "2.0.0",
+			"description": "Test"
+		}`
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "fixed",
+		}).Return(pluginJSON, nil)
+
+		// Expect RemoveVersionMismatchCommentActivity to be called
+		env.OnActivity(RemoveVersionMismatchCommentActivity, mock.Anything, mock.Anything).Return(nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 10,
+			HeadSHA:  "fixed",
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		assert.True(t, result.VersionMatches)
+		assert.False(t, result.CommentPosted)
 	})
 }
 
