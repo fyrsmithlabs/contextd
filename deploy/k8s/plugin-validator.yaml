@@ -1,0 +1,108 @@
+# Kubernetes Deployment for Plugin Validator Worker
+# 
+# Connects to temporal-frontend.temporal.svc:7233 in the cluster
+#
+# Usage:
+#   kubectl create secret generic github-token -n contextd --from-literal=token=ghp_xxx
+#   kubectl apply -f deploy/k8s/plugin-validator.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: contextd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin-validator-worker
+  namespace: contextd
+  labels:
+    app: plugin-validator-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: plugin-validator-worker
+  template:
+    metadata:
+      labels:
+        app: plugin-validator-worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/fyrsmithlabs/contextd-plugin-validator:latest
+        env:
+        - name: TEMPORAL_HOST
+          value: "temporal-frontend.temporal.svc:7233"
+        - name: TEMPORAL_NAMESPACE
+          value: "default"
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-token
+              key: token
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-webhook
+  namespace: contextd
+  labels:
+    app: github-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: github-webhook
+  template:
+    metadata:
+      labels:
+        app: github-webhook
+    spec:
+      containers:
+      - name: webhook
+        image: ghcr.io/fyrsmithlabs/contextd-github-webhook:latest
+        env:
+        - name: TEMPORAL_HOST
+          value: "temporal-frontend.temporal.svc:7233"
+        - name: TEMPORAL_NAMESPACE
+          value: "default"
+        - name: GITHUB_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: github-webhook-secret
+              key: secret
+        - name: PORT
+          value: "3000"
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-webhook
+  namespace: contextd
+spec:
+  selector:
+    app: github-webhook
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+  type: ClusterIP

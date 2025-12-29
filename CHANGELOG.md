@@ -34,11 +34,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents accidental deployment without security review
   - Override available via `LocalModeAcknowledged=true` or `CONTEXTD_LOCAL_MODE=1`
 
+
+### Security
+- **GitHub Webhook Hardening** - Production-ready security improvements for plugin validation workflow
+  - Input validation: validatePREvent() prevents injection attacks on webhook data
+  - XSS prevention: Markdown sanitization in PR comments (11 test cases)
+  - Rate limiting: 60 requests/min per IP with token bucket algorithm
+  - DoS prevention: Regex compilation moved to package level
+  - Thread safety: Refactored global gitHubToken to parameter-based approach
+  - Proper timeout handling: 5-minute timeout for AI agent validation vs 2-minute for API calls
+  - Deleted files handling: Filter removed files before schema validation to prevent 404 errors
+  - Fixed X-Forwarded-For parsing for proper IP extraction from proxies
+- **Installation Security Hardening** (from persona testing)
+  - Fixed ONNX library directory permissions: Changed from 0755 to 0700 for user-only access
+  - Config directory already secure: Uses 0700 permissions (owner read/write/execute only)
+  - Vectorstore provider validation: Clear error messages for invalid provider values
+
 ### Changed
 - **Enhanced Pressure Testing** (Issue #39) - Updated reflect.md with manual pressure testing process
   - v2 roadmap note for automated testing
   - Step-by-step scenario generation guide
   - Pass/fail criteria for instruction validation
+
+### User Experience
+- **Improved Error Messages** (from persona testing with 4 developer personas)
+  - Enhanced ctxd health error messages with actionable hints
+  - Better guidance when HTTP server is not running
+  - Clear distinction between HTTP mode and MCP mode operations
+  - Persona testing results: 75% approval rate (3 of 4 personas approved)
+  - Detailed testing report: PERSONA_TEST_RESULTS.md
 
 ### Documentation
 - **Multi-Tenancy Documentation** (Issue #45) - Added comprehensive documentation for unified payload filtering

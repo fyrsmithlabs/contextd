@@ -10,6 +10,19 @@ ContextD helps AI coding assistants remember what works, learn from mistakes, an
 
 ---
 
+## ⚠️ Alpha Status
+
+**This project is in active alpha development.** Features and APIs change frequently as we refine the product based on user feedback.
+
+- ✅ Core functionality is stable and tested
+- ⚠️ Breaking changes are generally avoided but can still occur
+- 📝 We document all changes in release notes
+- 🚀 Expect rapid iteration and improvements
+
+If you encounter issues, please [report them on GitHub](https://github.com/fyrsmithlabs/contextd/issues).
+
+---
+
 ## Prerequisites
 
 **You need [Claude Code](https://claude.ai/claude-code) installed first.**
@@ -37,6 +50,7 @@ claude --version
 |---------|-------------|
 | **Cross-session Memory** | Record and retrieve learnings across sessions with semantic search |
 | **Checkpoints** | Save and resume context snapshots before hitting limits |
+| **Context-Folding** | Isolate complex sub-tasks with dedicated token budgets |
 | **Error Remediation** | Track error patterns and fixes - never solve the same bug twice |
 | **Repository Search** | Semantic code search over your indexed codebase |
 | **Self-Reflection** | Analyze behavior patterns and improve documentation |
@@ -60,29 +74,40 @@ claude --version
 
 Choose **one** of the following installation methods:
 
-### Option 1: Claude Code Plugin (Easiest)
+### Option 1: Automated Plugin Setup (Easiest)
 
 If you already have Claude Code installed:
 
 ```bash
-# Install the plugin (adds skills, commands, agents)
+# 1. Install the plugin (adds skills, commands, agents)
 claude plugins add fyrsmithlabs/contextd
 
-# Run the install command (downloads binary, configures MCP)
+# 2. Run auto-setup in Claude Code
 /contextd:install
 ```
 
-**Verify it works:**
+This automatically:
+- ✅ Downloads contextd binary (or uses Docker if unavailable)
+- ✅ Configures MCP settings in `~/.claude/settings.json`
+- ✅ Validates the connection
+
+**Restart Claude Code and verify:**
 ```bash
 # In Claude Code, type:
 /mcp
-# Should show "contextd" as connected
+# Should show "✓ contextd - connected"
 ```
+
+**That's it!** See [ONBOARDING.md](ONBOARDING.md) for a guided tutorial.
 
 ### Option 2: Homebrew (macOS/Linux)
 
 ```bash
-brew install fyrsmithlabs/tap/contextd
+# Add the tap
+brew tap fyrsmithlabs/tap
+
+# Install contextd
+brew install contextd
 ```
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
@@ -114,9 +139,21 @@ Then add the MCP configuration (see [Configuration](#configuration) below).
 
 ## Configuration
 
-### Claude Code CLI (Recommended)
+### Automated (Recommended)
 
-Add to `~/.claude/settings.json`:
+Use the CLI tool for automatic configuration:
+
+```bash
+ctxd mcp install    # Auto-configure MCP settings
+ctxd mcp status     # Verify configuration
+ctxd mcp uninstall  # Remove configuration
+```
+
+Or use the plugin install command in Claude Code: `/contextd:install`
+
+### Manual Configuration
+
+If you prefer manual setup, add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -293,6 +330,14 @@ ContextD exposes these tools to Claude Code:
 |------|---------|
 | `repository_index` | Index a codebase for semantic search |
 | `repository_search` | Semantic search over indexed code |
+
+### Context-Folding
+
+| Tool | Purpose |
+|------|---------|
+| `branch_create` | Create isolated context branch with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Get branch status and budget usage |
 
 ---
 
@@ -491,6 +536,16 @@ ContextD includes two binaries:
 ### ctxd Commands
 
 ```bash
+# MCP Configuration (NEW)
+ctxd mcp install         # Auto-configure MCP server settings
+ctxd mcp status          # Verify MCP configuration
+ctxd mcp uninstall       # Remove MCP configuration
+
+# Statusline
+ctxd statusline install  # Configure Claude Code statusline
+ctxd statusline run      # Run statusline (used by Claude Code)
+
+# Utilities
 ctxd health              # Check server health
 ctxd scrub <file>        # Scrub secrets from a file
 ctxd init                # Initialize dependencies (ONNX runtime)

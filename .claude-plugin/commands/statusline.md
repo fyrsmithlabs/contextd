@@ -70,9 +70,14 @@ If automatic installation doesn't work, manually add to Claude Code settings:
 
 ```json
 {
-  "statusLine": "/path/to/ctxd statusline run --server http://localhost:9090"
+  "statusLine": {
+    "type": "command",
+    "command": "/path/to/ctxd statusline run --server http://localhost:9090"
+  }
 }
 ```
+
+Replace `/path/to/ctxd` with the actual path to your `ctxd` binary (find it with `which ctxd`).
 
 ## Troubleshooting
 
