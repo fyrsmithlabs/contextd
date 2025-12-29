@@ -132,6 +132,13 @@ func TestService_EmbedIntegration(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Check if embedding service is reachable before running tests
+	// Try a simple embed operation to verify service availability
+	_, err = service.Embed(ctx, []string{"health check"})
+	if err != nil {
+		t.Skipf("embedding service not available at %s: %v", baseURL, err)
+	}
+
 	t.Run("single text embedding", func(t *testing.T) {
 		vectors, err := service.Embed(ctx, []string{"test document"})
 		require.NoError(t, err)
