@@ -80,6 +80,7 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
+          install-mode: goinstall  # Build from source to match Go 1.25
 
   build:
     name: Build
