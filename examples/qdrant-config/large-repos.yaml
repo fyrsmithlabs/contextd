@@ -1,0 +1,85 @@
+# Large Repository Configuration for Qdrant gRPC Store
+#
+# This configuration is specifically tuned for indexing very large
+# codebases with files >10MB and batch operations with high throughput.
+#
+# Key features:
+# - 200MB MaxMessageSize for huge files
+# - Higher circuit breaker threshold for bulk operations
+# - Optimized retry settings
+#
+# Use case: Indexing monorepos, large documentation sets, or
+# repositories with generated code/assets.
+#
+# Usage:
+#   contextd --config examples/qdrant-config/large-repos.yaml
+
+vectorstore:
+  provider: qdrant
+
+qdrant:
+  # Connection settings
+  host: ${QDRANT_HOST:localhost}
+  port: ${QDRANT_PORT:6334}
+  use_tls: ${QDRANT_USE_TLS:false}
+
+  # Collection settings
+  collection_name: ${QDRANT_COLLECTION:contextd_large_repos}
+  vector_size: ${VECTOR_SIZE:384}
+
+  # CRITICAL: Large message size for huge files
+  # This allows indexing files up to 200MB (default is 50MB)
+  max_message_size: 209715200  # 200MB
+
+  # Retry settings optimized for large payloads
+  max_retries: 3
+  retry_backoff: 5s  # Longer backoff for large uploads
+
+  # Higher circuit breaker threshold for bulk operations
+  # Large batch uploads may have transient failures, so we
+  # tolerate more failures before opening the circuit
+  circuit_breaker_threshold: 15
+
+# Repository indexing options
+repository:
+  # Exclude large binary files that shouldn't be indexed
+  ignore_files:
+    - .gitignore
+    - .dockerignore
+    - .contextdignore
+
+  # Larger max file size for indexing
+  max_file_size: 10485760  # 10MB (default is 1MB)
+
+# Embeddings configuration
+embeddings:
+  provider: ${EMBEDDINGS_PROVIDER:fastembed}
+  model: ${EMBEDDINGS_MODEL:BAAI/bge-small-en-v1.5}
+  cache_dir: ${EMBEDDINGS_CACHE:~/.cache/fastembed}
+
+  # Batch size for embedding generation
+  # Larger batches = faster indexing but more memory
+  batch_size: ${EMBEDDINGS_BATCH_SIZE:100}
+
+# Logging
+logging:
+  level: ${LOG_LEVEL:info}
+  format: ${LOG_FORMAT:console}
+
+# Performance notes:
+#
+# 1. MaxMessageSize: Set to 200MB to handle very large files
+#    - Adjust based on your largest expected file size
+#    - Keep below Qdrant's configured limit (default 256MB)
+#
+# 2. CircuitBreakerThreshold: Set to 15 for bulk operations
+#    - Higher threshold tolerates transient failures during large uploads
+#    - Prevents premature circuit opening on slow networks
+#
+# 3. RetryBackoff: Set to 5s for large payloads
+#    - Longer backoff gives server time to process large requests
+#    - Reduces thundering herd on retry
+#
+# 4. MaxFileSize: Set to 10MB for repository indexing
+#    - Files larger than this are skipped during indexing
+#    - Prevents OOM on extremely large generated files

@@ -1,0 +1,51 @@
+# Production Configuration for Qdrant gRPC Store
+#
+# This configuration is optimized for production deployments with:
+# - TLS encryption enabled
+# - Higher message size limits for large repositories
+# - Increased retry attempts for resilience
+# - Structured JSON logging
+#
+# Usage:
+#   export QDRANT_HOST=qdrant.prod.example.com
+#   contextd --config examples/qdrant-config/prod.yaml
+
+vectorstore:
+  provider: qdrant
+
+qdrant:
+  # Connection settings (use environment variables)
+  host: ${QDRANT_HOST:localhost}
+  port: ${QDRANT_PORT:6334}
+  use_tls: ${QDRANT_USE_TLS:true}  # Enable TLS for production
+
+  # Collection settings
+  collection_name: ${QDRANT_COLLECTION:contextd_prod}
+  vector_size: ${VECTOR_SIZE:384}
+
+  # Performance settings for production
+  max_message_size: 104857600  # 100MB for large repositories
+  max_retries: 5  # Higher retry count for transient failures
+  retry_backoff: 2s  # Longer backoff for production
+
+  # Circuit breaker with higher threshold
+  circuit_breaker_threshold: 10
+
+# Embeddings configuration
+embeddings:
+  provider: ${EMBEDDINGS_PROVIDER:fastembed}
+  model: ${EMBEDDINGS_MODEL:BAAI/bge-small-en-v1.5}
+  cache_dir: ${EMBEDDINGS_CACHE:/var/cache/contextd/embeddings}
+
+# Logging
+logging:
+  level: ${LOG_LEVEL:info}
+  format: json  # Structured logging for production
+  output: ${LOG_OUTPUT:stdout}
+
+# Telemetry
+telemetry:
+  enabled: ${OTEL_ENABLED:true}
+  endpoint: ${OTEL_ENDPOINT:localhost:4317}
+  service_name: contextd
+  environment: ${ENVIRONMENT:production}

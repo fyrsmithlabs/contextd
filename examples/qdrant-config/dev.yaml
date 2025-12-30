@@ -1,0 +1,40 @@
+# Development Configuration for Qdrant gRPC Store
+#
+# This configuration is optimized for local development with Qdrant
+# running in Docker or locally on the default gRPC port.
+#
+# Usage:
+#   docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+#   contextd --config examples/qdrant-config/dev.yaml
+
+vectorstore:
+  provider: qdrant  # Use Qdrant instead of chromem
+
+qdrant:
+  # Connection settings
+  host: localhost
+  port: 6334  # gRPC port (NOT 6333 HTTP)
+  use_tls: false  # No TLS for local development
+
+  # Collection settings
+  collection_name: contextd_dev
+  vector_size: 384  # BAAI/bge-small-en-v1.5 dimensions
+
+  # Performance settings
+  max_message_size: 52428800  # 50MB (default)
+  max_retries: 3
+  retry_backoff: 1s
+
+  # Circuit breaker
+  circuit_breaker_threshold: 5
+
+# Embeddings configuration
+embeddings:
+  provider: fastembed  # Local ONNX embeddings
+  model: BAAI/bge-small-en-v1.5
+  cache_dir: ~/.cache/fastembed
+
+# Logging
+logging:
+  level: debug  # Verbose logging for development
+  format: console
