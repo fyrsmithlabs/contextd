@@ -6,41 +6,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
 )
 
-// DocumentationValidationInput defines parameters for ValidateDocumentationActivity.
-type DocumentationValidationInput struct {
-	Owner       string
-	Repo        string
-	PRNumber    int
-	HeadSHA     string
-	CodeFiles   []string
-	PluginFiles []string
-}
-
-// DocumentationValidationResult represents validation findings.
-type DocumentationValidationResult struct {
-	Valid          bool              `json:"valid"`
-	Summary        string            `json:"summary"`
-	FilesReviewed  int               `json:"files_reviewed,omitempty"`
-	CriticalIssues []ValidationIssue `json:"critical_issues"`
-	HighIssues     []ValidationIssue `json:"high_issues"`
-	MediumIssues   []ValidationIssue `json:"medium_issues"`
-	LowIssues      []ValidationIssue `json:"low_issues"`
-}
-
-// ValidationIssue represents a single validation finding.
-type ValidationIssue struct {
-	File     string `json:"file"`
-	Line     int    `json:"line,omitempty"`
-	Severity string `json:"severity,omitempty"`
-	Issue    string `json:"issue"`
-	Current  string `json:"current,omitempty"`
-	ShouldBe string `json:"should_be,omitempty"`
-	Fix      string `json:"fix"`
-	Impact   string `json:"impact,omitempty"`
-}
+// Type definitions moved to types.go
 
 // ValidateDocumentationActivity validates that plugin docs match code changes.
 // TODO: Implement Claude API integration

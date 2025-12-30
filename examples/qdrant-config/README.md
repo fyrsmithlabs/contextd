@@ -178,6 +178,22 @@ docker port <container-id>
 # 6334/tcp -> 0.0.0.0:6334
 ```
 
+### Error: "rpc error: code = Unauthenticated"
+
+**Cause**: Missing or invalid API key for Qdrant Cloud
+
+**Solution**:
+```bash
+# Set API key environment variable
+export QDRANT_API_KEY=your_api_key_here
+
+# Or add to prod.yaml
+qdrant:
+  api_key: ${QDRANT_API_KEY:}
+```
+
+**Note**: API keys are required for Qdrant Cloud but not for self-hosted instances.
+
 ### Error: "413 Payload Too Large"
 
 **Cause**: Using HTTP REST API instead of gRPC
@@ -210,6 +226,58 @@ embeddings:
 qdrant:
   max_message_size: 104857600  # Allow larger batches
 ```
+
+### Error: "rpc error: code = AlreadyExists"
+
+**Cause**: Collection name conflict during migration or reindexing
+
+**Solution**:
+```bash
+# Option 1: Delete existing collection (loses data)
+ctxd collection delete <collection_name>
+
+# Option 2: Use a different collection name
+qdrant:
+  collection_name: contextd_v2  # New name
+```
+
+**Note**: AlreadyExists is safe to ignore if you're resuming an interrupted indexing operation.
+
+### Error: "tls: handshake failure" or "certificate verify failed"
+
+**Cause**: TLS configuration mismatch or invalid certificate
+
+**Solution**:
+```yaml
+# For Qdrant Cloud (TLS required)
+qdrant:
+  use_tls: true
+  host: xyz-example.qdrant.io
+
+# For self-hosted without TLS (development only)
+qdrant:
+  use_tls: false
+  host: localhost
+```
+
+**Note**: Self-signed certificates may require additional CA configuration. For production, use valid TLS certificates.
+
+### Error: "rpc error: code = DeadlineExceeded" or "context deadline exceeded"
+
+**Cause**: Operation timeout (network latency, large payloads, or slow Qdrant instance)
+
+**Solution**:
+```yaml
+# Increase timeout for large operations
+qdrant:
+  timeout: 60s  # Default is 30s
+
+# Or reduce batch size to avoid timeouts
+embeddings:
+  batch_size: 50  # Smaller batches (default: 100)
+```
+
+**Note**: Persistent DeadlineExceeded errors may indicate insufficient Qdrant resources (CPU/memory).
 
 ## Migration from chromem
 

@@ -2,13 +2,26 @@ package vectorstore_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const (
+	KB = 1024
+	MB = 1024 * KB
+)
+
+// generateTestContent creates test content of exact target size
+func generateTestContent(targetBytes int) string {
+	const baseText = "x"
+	return strings.Repeat(baseText, targetBytes)
+}
 
 // TestQdrantStore_LargePayload tests the gRPC implementation handles files >256kB
 // without the 413 Payload Too Large errors that occur with HTTP REST API.
@@ -39,20 +52,12 @@ func TestQdrantStore_LargePayload(t *testing.T) {
 	}
 	defer store.Close()
 
-	collectionName := "test_large"
-
-	// Setup
-	exists, _ := store.CollectionExists(ctx, collectionName)
-	if exists {
-		_ = store.DeleteCollection(ctx, collectionName)
-	}
-	err = store.CreateCollection(ctx, collectionName, 384)
-	require.NoError(t, err)
-	defer store.DeleteCollection(ctx, collectionName)
+	collectionName := fmt.Sprintf("test_large_%d", time.Now().UnixNano())
+	setupQdrantCollection(t, ctx, store, collectionName, 384)
 
 	t.Run("500KB document (above HTTP 256KB limit)", func(t *testing.T) {
 		// Create 500KB document (well above 256KB HTTP limit)
-		largeContent := strings.Repeat("This is test content for large payload testing. ", 10000) // ~500KB
+		largeContent := generateTestContent(500 * KB)
 
 		docs := []vectorstore.Document{
 			{
@@ -84,7 +89,7 @@ func TestQdrantStore_LargePayload(t *testing.T) {
 
 	t.Run("5MB document (realistic large file)", func(t *testing.T) {
 		// Create 5MB document (realistic large code file)
-		largeContent := strings.Repeat("Large file content with detailed documentation and code. ", 100000) // ~5MB
+		largeContent := generateTestContent(5 * MB)
 
 		docs := []vectorstore.Document{
 			{
@@ -114,7 +119,7 @@ func TestQdrantStore_LargePayload(t *testing.T) {
 
 	t.Run("batch of 100 medium files (10MB total)", func(t *testing.T) {
 		// Create batch of 100 x 100KB documents (10MB total payload)
-		mediumContent := strings.Repeat("Medium file content for batch testing. ", 2500) // ~100KB
+		mediumContent := generateTestContent(100 * KB)
 
 		docs := make([]vectorstore.Document, 100)
 		for i := 0; i < 100; i++ {
@@ -155,7 +160,7 @@ func TestQdrantStore_LargePayload(t *testing.T) {
 
 	t.Run("25MB document (near default 50MB limit)", func(t *testing.T) {
 		// Create 25MB document (half of default 50MB MaxMessageSize)
-		hugeContent := strings.Repeat("Huge file content exceeding typical limits. ", 500000) // ~25MB
+		hugeContent := generateTestContent(25 * MB)
 
 		docs := []vectorstore.Document{
 			{

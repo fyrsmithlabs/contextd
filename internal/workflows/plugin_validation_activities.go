@@ -8,13 +8,22 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v57/github"
+	"go.temporal.io/sdk/activity"
 )
 
 // FetchPRFilesActivity fetches the list of files changed in a PR.
+//
+// Error Handling:
+//   - Returns error if GitHub client creation fails
+//   - Returns error if listing PR files fails (404, network errors, etc.)
 func FetchPRFilesActivity(ctx context.Context, input FetchPRFilesInput) ([]FileChange, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Fetching PR files", "pr", input.PRNumber)
+
 	// Create GitHub client
 	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
+		// CRITICAL: Can't proceed without GitHub client
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
@@ -24,6 +33,8 @@ func FetchPRFilesActivity(ctx context.Context, input FetchPRFilesInput) ([]FileC
 	for {
 		files, resp, err := client.PullRequests.ListFiles(ctx, input.Owner, input.Repo, input.PRNumber, opts)
 		if err != nil {
+			// CRITICAL: Can't categorize files without PR file list
+			logger.Error("Failed to list PR files", "pr", input.PRNumber, "error", err)
 			return nil, fmt.Errorf("failed to list PR files: %w", err)
 		}
 		allFiles = append(allFiles, files...)
@@ -44,11 +55,19 @@ func FetchPRFilesActivity(ctx context.Context, input FetchPRFilesInput) ([]FileC
 		})
 	}
 
+	logger.Info("Successfully fetched PR files", "count", len(result))
 	return result, nil
 }
 
 // CategorizeFilesActivity categorizes files by whether they affect the plugin.
+//
+// Error Handling:
+//   - This activity performs pure logic and doesn't fail under normal circumstances
+//   - No external dependencies, so no network or I/O errors
 func CategorizeFilesActivity(ctx context.Context, input CategorizeFilesInput) (*CategorizedFiles, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Categorizing files", "count", len(input.Files))
+
 	result := &CategorizedFiles{
 		CodeFiles:   make([]string, 0),
 		PluginFiles: make([]string, 0),
@@ -91,11 +110,24 @@ func CategorizeFilesActivity(ctx context.Context, input CategorizeFilesInput) (*
 		}
 	}
 
+	logger.Info("File categorization complete",
+		"code_files", len(result.CodeFiles),
+		"plugin_files", len(result.PluginFiles),
+		"other_files", len(result.OtherFiles))
 	return result, nil
 }
 
 // ValidatePluginSchemasActivity validates JSON schemas in plugin files.
+//
+// Error Handling:
+//   - Returns error if GitHub client creation fails
+//   - Returns error if file fetch fails
+//   - Returns error if file content decoding fails
+//   - Returns result with Valid=false for invalid JSON (doesn't error)
 func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInput) (*SchemaValidationResult, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Validating plugin schema", "file", input.FilePath)
+
 	result := &SchemaValidationResult{
 		Valid:  true,
 		Errors: make([]string, 0),
@@ -104,6 +136,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 	// Create GitHub client
 	client, err := NewGitHubClient(ctx, input.GitHubToken)
 	if err != nil {
+		// CRITICAL: Can't fetch file without GitHub client
 		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
@@ -112,18 +145,24 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 		Ref: input.HeadSHA,
 	})
 	if err != nil {
+		// CRITICAL: File not found or network error
+		logger.Error("Failed to fetch schema file", "file", input.FilePath, "error", err)
 		return nil, fmt.Errorf("failed to get file content: %w", err)
 	}
 
 	// Decode content
 	content, err := fileContent.GetContent()
 	if err != nil {
+		// CRITICAL: File content decoding failed
+		logger.Error("Failed to decode schema file", "file", input.FilePath, "error", err)
 		return nil, fmt.Errorf("failed to decode file content: %w", err)
 	}
 
 	// Validate JSON
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(content), &jsonData); err != nil {
+		// Invalid JSON - return result with errors, don't fail the activity
+		logger.Warn("Invalid JSON in schema file", "file", input.FilePath, "error", err)
 		result.Valid = false
 		result.Errors = append(result.Errors, fmt.Sprintf("Invalid JSON in %s: %v", input.FilePath, err))
 		return result, nil // Early return - don't process invalid JSON
@@ -133,6 +172,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 	if input.FilePath == ".claude-plugin/schemas/contextd-mcp-tools.schema.json" {
 		schemaMap, ok := jsonData.(map[string]interface{})
 		if !ok {
+			logger.Warn("Schema is not a JSON object", "file", input.FilePath)
 			result.Valid = false
 			result.Errors = append(result.Errors, "Schema is not a JSON object")
 		} else {
@@ -140,6 +180,7 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 			requiredFields := []string{"tools"}
 			for _, field := range requiredFields {
 				if _, exists := schemaMap[field]; !exists {
+					logger.Warn("Missing required field in schema", "file", input.FilePath, "field", field)
 					result.Valid = false
 					result.Errors = append(result.Errors, fmt.Sprintf("Missing required field: %s", field))
 				}
@@ -147,6 +188,11 @@ func ValidatePluginSchemasActivity(ctx context.Context, input ValidateSchemasInp
 		}
 	}
 
+	if result.Valid {
+		logger.Info("Schema validation passed", "file", input.FilePath)
+	} else {
+		logger.Warn("Schema validation failed", "file", input.FilePath, "error_count", len(result.Errors))
+	}
 	return result, nil
 }
 

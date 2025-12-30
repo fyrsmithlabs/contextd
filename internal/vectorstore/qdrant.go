@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"sync"
 	"time"
@@ -212,8 +213,10 @@ func NewQdrantStore(config QdrantConfig, embedder Embedder) (*QdrantStore, error
 		return nil, fmt.Errorf("validating collection name: %w", err)
 	}
 
-	// Note: If TLS is disabled (plaintext gRPC), production deployments should
-	// use TLS. Plaintext is acceptable only for local development.
+	// Warn if TLS is disabled (plaintext gRPC)
+	if !config.UseTLS {
+		fmt.Fprintf(os.Stderr, "WARNING: Qdrant gRPC using plaintext (TLS disabled). Insecure for production.\n")
+	}
 
 	// Create Qdrant client with gRPC options
 	qdrantConfig := &qdrant.Config{

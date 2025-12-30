@@ -9,41 +9,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/fyrsmithlabs/contextd/internal/config"
 )
 
-// PluginUpdateValidationConfig configures the plugin validation workflow.
-type PluginUpdateValidationConfig struct {
-	Owner              string        // GitHub repository owner
-	Repo               string        // GitHub repository name
-	PRNumber           int           // Pull request number
-	BaseBranch         string        // Base branch (usually "main")
-	HeadBranch         string        // PR branch
-	HeadSHA            string        // PR commit SHA
-	GitHubToken        config.Secret // GitHub API token for activities
-	UseAgentValidation bool          // Whether to use AI agent for documentation validation
-}
-
-// PluginUpdateValidationResult contains validation results.
-type PluginUpdateValidationResult struct {
-	CodeFilesChanged      []string                       // Files that affect plugin behavior
-	PluginFilesChanged    []string                       // Files in .claude-plugin/
-	NeedsUpdate           bool                           // Whether plugin needs updating
-	SchemaValid           bool                           // Whether schemas are valid JSON
-	AgentValidation       *DocumentationValidationResult // Agent validation results (if enabled)
-	AgentValidationRan    bool                           // Whether agent validation was executed
-	CommentPosted         bool                           // Whether we posted a comment
-	CommentURL            string                         // URL of posted comment
-	Errors                []string                       // Any errors encountered
-}
-
-// FileChange represents a changed file in the PR.
-type FileChange struct {
-	Path      string
-	Status    string // "added", "modified", "removed"
-	Additions int
-	Deletions int
-}
+// Type definitions moved to types.go
 
 // PluginUpdateValidationWorkflow validates plugin updates in a PR.
 //
@@ -81,8 +49,9 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 		GitHubToken: config.GitHubToken,
 	}).Get(ctx, &fileChanges)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("failed to fetch PR files: %v", err))
-		return result, err
+		// CRITICAL: Can't proceed without PR file list
+		result.Errors = append(result.Errors, FormatErrorForResult("failed to fetch PR files", err))
+		return result, WrapActivityError("failed to fetch PR files", err)
 	}
 
 	// Step 2: Categorize changes
@@ -92,8 +61,9 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 		Files: fileChanges,
 	}).Get(ctx, &categorized)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("failed to categorize files: %v", err))
-		return result, err
+		// CRITICAL: Can't proceed without file categorization
+		result.Errors = append(result.Errors, FormatErrorForResult("failed to categorize files", err))
+		return result, WrapActivityError("failed to categorize files", err)
 	}
 
 	result.CodeFilesChanged = categorized.CodeFiles
@@ -140,9 +110,12 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 				GitHubToken: config.GitHubToken,
 			}).Get(ctx, &schemaResult)
 			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("schema validation failed for %s: %v", jsonFile, err))
+				// CRITICAL: Schema validation failed - invalid plugin files
+				logger.Error("Schema validation activity failed", "file", jsonFile, "error", err)
+				result.Errors = append(result.Errors, FormatErrorForResult(fmt.Sprintf("schema validation failed for %s", jsonFile), err))
 				result.SchemaValid = false
 			} else if !schemaResult.Valid {
+				// CRITICAL: Schema is invalid JSON
 				result.SchemaValid = false
 				result.Errors = append(result.Errors, schemaResult.Errors...)
 			}
@@ -171,8 +144,10 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 			PluginFiles: categorized.PluginFiles,
 		}).Get(ctx, &agentResult)
 		if err != nil {
+			// HIGH: Agent validation failed, but core validation succeeded - record but continue
 			logger.Error("Agent validation failed", "error", err)
-			result.Errors = append(result.Errors, fmt.Sprintf("agent validation failed: %v", err))
+			result.Errors = append(result.Errors, FormatErrorForResult("agent validation failed", err))
+			// Don't return error - this is an optional enhancement
 		} else {
 			result.AgentValidation = &agentResult
 			result.AgentValidationRan = true
@@ -197,7 +172,10 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 			GitHubToken: config.GitHubToken,
 		}).Get(ctx, &commentResult)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("failed to post comment: %v", err))
+			// HIGH: Validation succeeded, but notification failed - record but continue
+			logger.Error("Failed to post reminder comment", "error", err)
+			result.Errors = append(result.Errors, FormatErrorForResult("failed to post reminder comment", err))
+			// Don't return error - validation completed successfully
 		} else {
 			result.CommentPosted = true
 			result.CommentURL = commentResult.URL
@@ -216,7 +194,10 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 			AgentValidation: result.AgentValidation,
 		}).Get(ctx, &commentResult)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("failed to post comment: %v", err))
+			// HIGH: Validation succeeded, but notification failed - record but continue
+			logger.Error("Failed to post success comment", "error", err)
+			result.Errors = append(result.Errors, FormatErrorForResult("failed to post success comment", err))
+			// Don't return error - validation completed successfully
 		} else {
 			result.CommentPosted = true
 			result.CommentURL = commentResult.URL
@@ -231,49 +212,4 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 	return result, nil
 }
 
-// CategorizedFiles contains files categorized by type.
-type CategorizedFiles struct {
-	CodeFiles   []string // Files that affect plugin behavior
-	PluginFiles []string // Files in .claude-plugin/
-	OtherFiles  []string // Other files (tests, docs, etc.)
-}
-
-// Activity input/output types
-
-type FetchPRFilesInput struct {
-	Owner       string
-	Repo        string
-	PRNumber    int
-	GitHubToken config.Secret
-}
-
-type CategorizeFilesInput struct {
-	Files []FileChange
-}
-
-type ValidateSchemasInput struct {
-	Owner       string
-	Repo        string
-	HeadSHA     string
-	FilePath    string
-	GitHubToken config.Secret
-}
-
-type SchemaValidationResult struct {
-	Valid  bool
-	Errors []string
-}
-
-type PostCommentInput struct {
-	Owner           string
-	Repo            string
-	PRNumber        int
-	CodeFiles       []string
-	PluginFiles     []string
-	GitHubToken     config.Secret
-	AgentValidation *DocumentationValidationResult // Optional agent validation results
-}
-
-type PostCommentResult struct {
-	URL string
-}
+// Type definitions moved to types.go
