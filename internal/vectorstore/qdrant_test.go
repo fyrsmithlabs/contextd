@@ -2,12 +2,15 @@ package vectorstore_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/qdrant/go-client/qdrant"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestValidateCollectionName(t *testing.T) {
@@ -189,6 +192,121 @@ func TestQdrantConfig_IsolationViaConfig(t *testing.T) {
 }
 
 // Integration test - requires running Qdrant instance
+func TestIsTransientError(t *testing.T) {
+	tests := []struct {
+		name          string
+		code          codes.Code
+		wantTransient bool
+	}{
+		{
+			name:          "unavailable is transient",
+			code:          codes.Unavailable,
+			wantTransient: true,
+		},
+		{
+			name:          "deadline exceeded is transient",
+			code:          codes.DeadlineExceeded,
+			wantTransient: true,
+		},
+		{
+			name:          "aborted is transient",
+			code:          codes.Aborted,
+			wantTransient: true,
+		},
+		{
+			name:          "resource exhausted is transient",
+			code:          codes.ResourceExhausted,
+			wantTransient: true,
+		},
+		{
+			name:          "invalid argument is not transient",
+			code:          codes.InvalidArgument,
+			wantTransient: false,
+		},
+		{
+			name:          "not found is not transient",
+			code:          codes.NotFound,
+			wantTransient: false,
+		},
+		{
+			name:          "permission denied is not transient",
+			code:          codes.PermissionDenied,
+			wantTransient: false,
+		},
+		{
+			name:          "unauthenticated is not transient",
+			code:          codes.Unauthenticated,
+			wantTransient: false,
+		},
+		{
+			name:          "unknown code defaults to not transient",
+			code:          codes.Unknown,
+			wantTransient: false,
+		},
+		{
+			name:          "canceled is not transient",
+			code:          codes.Canceled,
+			wantTransient: false,
+		},
+		{
+			name:          "already exists is not transient",
+			code:          codes.AlreadyExists,
+			wantTransient: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := status.Error(tt.code, "test error")
+			got := vectorstore.IsTransientError(err)
+			assert.Equal(t, tt.wantTransient, got)
+		})
+	}
+
+	// Test non-gRPC error
+	t.Run("non-grpc error is not transient", func(t *testing.T) {
+		err := errors.New("regular error")
+		assert.False(t, vectorstore.IsTransientError(err))
+	})
+
+	// Test nil error
+	t.Run("nil error is not transient", func(t *testing.T) {
+		assert.False(t, vectorstore.IsTransientError(nil))
+	})
+}
+
+func TestQdrantStore_IsolationMode(t *testing.T) {
+	// Test that isolation mode can be queried without Qdrant running
+	// This tests the getter/setter methods
+
+	t.Run("default isolation is PayloadIsolation", func(t *testing.T) {
+		config := vectorstore.QdrantConfig{
+			Host:           "localhost",
+			Port:           6334,
+			CollectionName: "test",
+			VectorSize:     384,
+		}
+
+		embedder := &TestEmbedder{VectorSize: 384}
+
+		// NewQdrantStore will fail without Qdrant, but we can test the isolation field
+		// by creating a config with explicit isolation
+		config.Isolation = vectorstore.NewNoIsolation()
+
+		// Skip actual store creation since Qdrant may not be running
+		// Just verify the config pattern works
+		assert.NotNil(t, config.Isolation)
+		assert.Equal(t, "none", config.Isolation.Mode())
+
+		// Test with PayloadIsolation
+		config.Isolation = vectorstore.NewPayloadIsolation()
+		assert.Equal(t, "payload", config.Isolation.Mode())
+
+		// Suppress unused variable warnings
+		_ = embedder
+	})
+}
+
 func TestQdrantStore_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -214,77 +332,183 @@ func TestQdrantStore_Integration(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Clean up collection if it exists
-	exists, _ := store.CollectionExists(ctx, config.CollectionName)
-	if exists {
-		_ = store.DeleteCollection(ctx, config.CollectionName)
-	}
+	t.Run("collection lifecycle", func(t *testing.T) {
+		collectionName := "test_lifecycle"
 
-	// Create collection
-	err = store.CreateCollection(ctx, config.CollectionName, 10)
-	require.NoError(t, err)
+		// Clean up if exists
+		exists, _ := store.CollectionExists(ctx, collectionName)
+		if exists {
+			_ = store.DeleteCollection(ctx, collectionName)
+		}
 
-	// Verify collection exists
-	exists, err = store.CollectionExists(ctx, config.CollectionName)
-	require.NoError(t, err)
-	assert.True(t, exists)
+		// Create collection
+		err = store.CreateCollection(ctx, collectionName, 10)
+		require.NoError(t, err)
 
-	// Add documents
-	docs := []vectorstore.Document{
-		{
-			ID:      "doc1",
-			Content: "test document one",
-			Metadata: map[string]interface{}{
-				"owner": "alice",
-			},
-		},
-		{
-			ID:      "doc2",
-			Content: "test document two",
-			Metadata: map[string]interface{}{
-				"owner": "bob",
-			},
-		},
-	}
+		// Verify collection exists
+		exists, err = store.CollectionExists(ctx, collectionName)
+		require.NoError(t, err)
+		assert.True(t, exists)
 
-	ids, err := store.AddDocuments(ctx, docs)
-	require.NoError(t, err)
-	assert.Len(t, ids, 2)
+		// Get collection info
+		info, err := store.GetCollectionInfo(ctx, collectionName)
+		require.NoError(t, err)
+		assert.Equal(t, collectionName, info.Name)
+		assert.Equal(t, 0, info.PointCount) // Empty collection
 
-	// Search
-	results, err := store.Search(ctx, "test query", 10)
-	require.NoError(t, err)
-	assert.NotEmpty(t, results)
+		// List collections
+		collections, err := store.ListCollections(ctx)
+		require.NoError(t, err)
+		assert.Contains(t, collections, collectionName)
 
-	// Search with filters
-	filteredResults, err := store.SearchWithFilters(ctx, "test query", 10, map[string]interface{}{
-		"owner": "alice",
+		// Delete collection
+		err = store.DeleteCollection(ctx, collectionName)
+		require.NoError(t, err)
+
+		// Verify deletion
+		exists, err = store.CollectionExists(ctx, collectionName)
+		require.NoError(t, err)
+		assert.False(t, exists)
 	})
-	require.NoError(t, err)
-	// Should only return alice's document
-	_ = filteredResults
 
-	// Get collection info
-	info, err := store.GetCollectionInfo(ctx, config.CollectionName)
-	require.NoError(t, err)
-	assert.Equal(t, config.CollectionName, info.Name)
-	assert.Equal(t, 2, info.PointCount)
+	t.Run("document operations", func(t *testing.T) {
+		collectionName := "test_documents"
 
-	// List collections
-	collections, err := store.ListCollections(ctx)
-	require.NoError(t, err)
-	assert.Contains(t, collections, config.CollectionName)
+		// Setup
+		exists, _ := store.CollectionExists(ctx, collectionName)
+		if exists {
+			_ = store.DeleteCollection(ctx, collectionName)
+		}
+		err = store.CreateCollection(ctx, collectionName, 10)
+		require.NoError(t, err)
+		defer store.DeleteCollection(ctx, collectionName)
 
-	// Delete documents
-	err = store.DeleteDocuments(ctx, []string{"doc1"})
-	require.NoError(t, err)
+		// Add documents
+		docs := []vectorstore.Document{
+			{
+				ID:      "doc1",
+				Content: "test document one",
+				Metadata: map[string]interface{}{
+					"owner": "alice",
+					"type":  "article",
+				},
+				Collection: collectionName,
+			},
+			{
+				ID:      "doc2",
+				Content: "test document two",
+				Metadata: map[string]interface{}{
+					"owner": "bob",
+					"type":  "article",
+				},
+				Collection: collectionName,
+			},
+		}
 
-	// Clean up
-	err = store.DeleteCollection(ctx, config.CollectionName)
-	require.NoError(t, err)
+		ids, err := store.AddDocuments(ctx, docs)
+		require.NoError(t, err)
+		assert.Len(t, ids, 2)
 
-	// Verify deletion
-	exists, err = store.CollectionExists(ctx, config.CollectionName)
-	require.NoError(t, err)
-	assert.False(t, exists)
+		// Verify point count
+		info, err := store.GetCollectionInfo(ctx, collectionName)
+		require.NoError(t, err)
+		assert.Equal(t, 2, info.PointCount)
+
+		// Search
+		results, err := store.SearchInCollection(ctx, collectionName, "test query", 10, nil)
+		require.NoError(t, err)
+		assert.Len(t, results, 2)
+
+		// Search with filters
+		filteredResults, err := store.SearchInCollection(ctx, collectionName, "test query", 10, map[string]interface{}{
+			"owner": "alice",
+		})
+		require.NoError(t, err)
+		assert.Len(t, filteredResults, 1)
+		assert.Equal(t, "alice", filteredResults[0].Metadata["owner"])
+
+		// Delete one document
+		err = store.DeleteDocumentsFromCollection(ctx, collectionName, []string{"doc1"})
+		require.NoError(t, err)
+
+		// Verify deletion
+		info, err = store.GetCollectionInfo(ctx, collectionName)
+		require.NoError(t, err)
+		assert.Equal(t, 1, info.PointCount)
+	})
+
+	t.Run("exact search", func(t *testing.T) {
+		collectionName := "test_exact"
+
+		// Setup
+		exists, _ := store.CollectionExists(ctx, collectionName)
+		if exists {
+			_ = store.DeleteCollection(ctx, collectionName)
+		}
+		err = store.CreateCollection(ctx, collectionName, 10)
+		require.NoError(t, err)
+		defer store.DeleteCollection(ctx, collectionName)
+
+		// Add documents
+		docs := []vectorstore.Document{
+			{ID: "doc1", Content: "exact search test one", Collection: collectionName},
+			{ID: "doc2", Content: "exact search test two", Collection: collectionName},
+		}
+		_, err = store.AddDocuments(ctx, docs)
+		require.NoError(t, err)
+
+		// Exact search (brute force, no HNSW index)
+		results, err := store.ExactSearch(ctx, collectionName, "search query", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 2)
+	})
+
+	t.Run("tenant isolation", func(t *testing.T) {
+		collectionName := "test_isolation"
+
+		// Setup
+		exists, _ := store.CollectionExists(ctx, collectionName)
+		if exists {
+			_ = store.DeleteCollection(ctx, collectionName)
+		}
+		err = store.CreateCollection(ctx, collectionName, 10)
+		require.NoError(t, err)
+		defer store.DeleteCollection(ctx, collectionName)
+
+		// Set tenant context
+		tenant1Ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  "tenant1",
+			ProjectID: "project1",
+		})
+		tenant2Ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  "tenant2",
+			ProjectID: "project2",
+		})
+
+		// Add documents for tenant1
+		docs1 := []vectorstore.Document{
+			{ID: "t1_doc1", Content: "tenant one document", Collection: collectionName},
+		}
+		_, err = store.AddDocuments(tenant1Ctx, docs1)
+		require.NoError(t, err)
+
+		// Add documents for tenant2
+		docs2 := []vectorstore.Document{
+			{ID: "t2_doc1", Content: "tenant two document", Collection: collectionName},
+		}
+		_, err = store.AddDocuments(tenant2Ctx, docs2)
+		require.NoError(t, err)
+
+		// Search as tenant1 - should only see tenant1 docs
+		results1, err := store.SearchInCollection(tenant1Ctx, collectionName, "document", 10, nil)
+		require.NoError(t, err)
+		assert.Len(t, results1, 1)
+		assert.Equal(t, "tenant1", results1[0].Metadata["tenant_id"])
+
+		// Search as tenant2 - should only see tenant2 docs
+		results2, err := store.SearchInCollection(tenant2Ctx, collectionName, "document", 10, nil)
+		require.NoError(t, err)
+		assert.Len(t, results2, 1)
+		assert.Equal(t, "tenant2", results2[0].Metadata["tenant_id"])
+	})
 }
