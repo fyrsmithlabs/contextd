@@ -3,7 +3,9 @@ package vectorstore_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/qdrant/go-client/qdrant"
@@ -253,6 +255,31 @@ func TestIsTransientError(t *testing.T) {
 			code:          codes.AlreadyExists,
 			wantTransient: false,
 		},
+		{
+			name:          "internal is not transient",
+			code:          codes.Internal,
+			wantTransient: false,
+		},
+		{
+			name:          "failed precondition is not transient",
+			code:          codes.FailedPrecondition,
+			wantTransient: false,
+		},
+		{
+			name:          "out of range is not transient",
+			code:          codes.OutOfRange,
+			wantTransient: false,
+		},
+		{
+			name:          "unimplemented is not transient",
+			code:          codes.Unimplemented,
+			wantTransient: false,
+		},
+		{
+			name:          "data loss is not transient",
+			code:          codes.DataLoss,
+			wantTransient: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -333,7 +360,7 @@ func TestQdrantStore_Integration(t *testing.T) {
 	defer store.Close()
 
 	t.Run("collection lifecycle", func(t *testing.T) {
-		collectionName := "test_lifecycle"
+		collectionName := fmt.Sprintf("test_lifecycle_%d", time.Now().UnixNano())
 
 		// Clean up if exists
 		exists, _ := store.CollectionExists(ctx, collectionName)
@@ -372,16 +399,8 @@ func TestQdrantStore_Integration(t *testing.T) {
 	})
 
 	t.Run("document operations", func(t *testing.T) {
-		collectionName := "test_documents"
-
-		// Setup
-		exists, _ := store.CollectionExists(ctx, collectionName)
-		if exists {
-			_ = store.DeleteCollection(ctx, collectionName)
-		}
-		err = store.CreateCollection(ctx, collectionName, 10)
-		require.NoError(t, err)
-		defer store.DeleteCollection(ctx, collectionName)
+		collectionName := fmt.Sprintf("test_documents_%d", time.Now().UnixNano())
+		setupQdrantCollection(t, ctx, store, collectionName, 10)
 
 		// Add documents
 		docs := []vectorstore.Document{
@@ -438,16 +457,8 @@ func TestQdrantStore_Integration(t *testing.T) {
 	})
 
 	t.Run("exact search", func(t *testing.T) {
-		collectionName := "test_exact"
-
-		// Setup
-		exists, _ := store.CollectionExists(ctx, collectionName)
-		if exists {
-			_ = store.DeleteCollection(ctx, collectionName)
-		}
-		err = store.CreateCollection(ctx, collectionName, 10)
-		require.NoError(t, err)
-		defer store.DeleteCollection(ctx, collectionName)
+		collectionName := fmt.Sprintf("test_exact_%d", time.Now().UnixNano())
+		setupQdrantCollection(t, ctx, store, collectionName, 10)
 
 		// Add documents
 		docs := []vectorstore.Document{
@@ -464,16 +475,8 @@ func TestQdrantStore_Integration(t *testing.T) {
 	})
 
 	t.Run("tenant isolation", func(t *testing.T) {
-		collectionName := "test_isolation"
-
-		// Setup
-		exists, _ := store.CollectionExists(ctx, collectionName)
-		if exists {
-			_ = store.DeleteCollection(ctx, collectionName)
-		}
-		err = store.CreateCollection(ctx, collectionName, 10)
-		require.NoError(t, err)
-		defer store.DeleteCollection(ctx, collectionName)
+		collectionName := fmt.Sprintf("test_isolation_%d", time.Now().UnixNano())
+		setupQdrantCollection(t, ctx, store, collectionName, 10)
 
 		// Set tenant context
 		tenant1Ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{

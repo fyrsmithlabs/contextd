@@ -1195,7 +1195,66 @@ kubectl logs deployment/contextd-worker -n temporal | grep "plugin-validation-fy
 
 ### Metrics
 
-**Temporal Server Metrics:**
+contextd workflows emit comprehensive OpenTelemetry metrics for monitoring and alerting.
+
+#### contextd Workflow Metrics
+
+**Version Validation Workflow:**
+
+```
+# Workflow Execution Counters
+contextd.workflows.version_validation.executions
+  - Description: Total number of version validation workflow executions
+  - Unit: {execution}
+  - Labels: status (success/failure)
+  - Use: Track workflow execution rate and success rate
+
+# Workflow Duration
+contextd.workflows.version_validation.duration
+  - Description: Duration of version validation workflow executions
+  - Unit: seconds
+  - Type: Histogram
+  - Use: Monitor workflow latency, set SLOs
+
+# Version Match/Mismatch Counters
+contextd.workflows.version_validation.matches
+  - Description: Number of version matches detected
+  - Unit: {match}
+  - Use: Track successful version synchronization
+
+contextd.workflows.version_validation.mismatches
+  - Description: Number of version mismatches detected
+  - Unit: {mismatch}
+  - Use: Alert on version inconsistencies
+
+# Activity Metrics
+contextd.workflows.activity.duration
+  - Description: Duration of workflow activity executions
+  - Unit: seconds
+  - Type: Histogram
+  - Labels: activity (FetchFileContent, PostVersionMismatchComment, etc.)
+  - Use: Identify slow activities, optimize performance
+
+contextd.workflows.activity.errors
+  - Description: Number of activity execution errors
+  - Unit: {error}
+  - Labels: activity, error_type (invalid_path, rate_limit, api_error, etc.)
+  - Use: Alert on specific error patterns, troubleshoot issues
+```
+
+**Plugin Validation Workflow:**
+
+```
+# Similar pattern for plugin validation
+contextd.workflows.plugin_validation.executions
+contextd.workflows.plugin_validation.duration
+contextd.workflows.plugin_validation.plugin_updates_required
+contextd.workflows.plugin_validation.schema_validation_failures
+```
+
+#### Temporal Server Metrics
+
+**Built-in Temporal Metrics:**
 
 ```
 Workflow Metrics:
@@ -1216,7 +1275,39 @@ Worker Metrics:
   - temporal_worker_registered_activities
 ```
 
-**Example Prometheus Query:**
+#### Example Prometheus Queries
+
+**Version Validation Monitoring:**
+
+```promql
+# Version mismatch rate (per hour)
+rate(contextd_workflows_version_validation_mismatches_total[1h])
+
+# Workflow success rate
+sum(rate(contextd_workflows_version_validation_executions_total{status="success"}[5m]))
+/
+sum(rate(contextd_workflows_version_validation_executions_total[5m]))
+
+# Average workflow duration
+rate(contextd_workflows_version_validation_duration_sum[5m])
+/
+rate(contextd_workflows_version_validation_duration_count[5m])
+
+# P95 workflow latency
+histogram_quantile(0.95,
+  sum(rate(contextd_workflows_version_validation_duration_bucket[5m])) by (le))
+
+# Activity error rate by type
+sum(rate(contextd_workflows_activity_errors_total[5m])) by (error_type)
+
+# Top 5 slowest activities
+topk(5,
+  rate(contextd_workflows_activity_duration_sum[5m])
+  /
+  rate(contextd_workflows_activity_duration_count[5m]))
+```
+
+**Temporal Server Monitoring:**
 
 ```promql
 # Activity failure rate
@@ -1225,7 +1316,157 @@ rate(temporal_activity_failed_total{activity_type="FetchPRFilesActivity"}[5m])
 # Workflow completion latency p95
 histogram_quantile(0.95,
   rate(temporal_workflow_endtoend_latency_bucket{workflow_type="PluginUpdateValidationWorkflow"}[5m]))
+
+# Worker task slot utilization
+(temporal_worker_task_slots_total - temporal_worker_task_slots_available)
+/
+temporal_worker_task_slots_total
 ```
+
+#### Alerting Rules
+
+**Recommended Prometheus Alerts:**
+
+```yaml
+groups:
+  - name: contextd_workflows
+    interval: 30s
+    rules:
+      # Alert on high version mismatch rate
+      - alert: HighVersionMismatchRate
+        expr: |
+          rate(contextd_workflows_version_validation_mismatches_total[1h]) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High version mismatch rate detected"
+          description: "More than 0.5 version mismatches per hour over the last 15 minutes"
+
+      # Alert on workflow failures
+      - alert: WorkflowFailureRate
+        expr: |
+          sum(rate(contextd_workflows_version_validation_executions_total{status="failure"}[5m]))
+          /
+          sum(rate(contextd_workflows_version_validation_executions_total[5m]))
+          > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High workflow failure rate"
+          description: "More than 10% of workflows are failing"
+
+      # Alert on high activity error rate
+      - alert: HighActivityErrorRate
+        expr: |
+          sum(rate(contextd_workflows_activity_errors_total[5m])) by (error_type) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High activity error rate for {{ $labels.error_type }}"
+          description: "More than 1 error per second for {{ $labels.error_type }}"
+
+      # Alert on slow workflows
+      - alert: SlowWorkflowExecution
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(contextd_workflows_version_validation_duration_bucket[5m])) by (le))
+          > 120
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow workflow execution detected"
+          description: "P95 workflow duration is over 2 minutes"
+
+      # Alert on GitHub rate limiting
+      - alert: GitHubRateLimitHit
+        expr: |
+          sum(rate(contextd_workflows_activity_errors_total{error_type="rate_limit"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GitHub API rate limit exceeded"
+          description: "Workflows are being rate limited by GitHub API"
+```
+
+#### Grafana Dashboard
+
+**Example Dashboard JSON:**
+
+```json
+{
+  "dashboard": {
+    "title": "contextd Temporal Workflows",
+    "panels": [
+      {
+        "title": "Workflow Execution Rate",
+        "targets": [
+          {
+            "expr": "rate(contextd_workflows_version_validation_executions_total[5m])"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Workflow Duration (P50, P95, P99)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(contextd_workflows_version_validation_duration_bucket[5m])) by (le))",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(contextd_workflows_version_validation_duration_bucket[5m])) by (le))",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(contextd_workflows_version_validation_duration_bucket[5m])) by (le))",
+            "legendFormat": "P99"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Version Matches vs Mismatches",
+        "targets": [
+          {
+            "expr": "rate(contextd_workflows_version_validation_matches_total[5m])",
+            "legendFormat": "Matches"
+          },
+          {
+            "expr": "rate(contextd_workflows_version_validation_mismatches_total[5m])",
+            "legendFormat": "Mismatches"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Activity Errors by Type",
+        "targets": [
+          {
+            "expr": "sum(rate(contextd_workflows_activity_errors_total[5m])) by (error_type)"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Activity Duration Heatmap",
+        "targets": [
+          {
+            "expr": "sum(rate(contextd_workflows_activity_duration_bucket[5m])) by (le, activity)"
+          }
+        ],
+        "type": "heatmap"
+      }
+    ]
+  }
+}
+```
+
+See `internal/workflows/version_validation_metrics_test.go` for metric testing examples.
 
 ---
 

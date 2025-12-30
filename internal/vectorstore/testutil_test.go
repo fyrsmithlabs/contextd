@@ -2,6 +2,10 @@ package vectorstore_test
 
 import (
 	"context"
+	"testing"
+
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"github.com/stretchr/testify/require"
 )
 
 // TestEmbedder is a mock embedder for testing vectorstore implementations.
@@ -34,4 +38,25 @@ func (e *TestEmbedder) makeEmbedding(text string, index int) []float32 {
 		embedding[j] = float32((len(text)+j+index)%10) / 10.0
 	}
 	return embedding
+}
+
+// setupQdrantCollection creates a test collection, cleaning up any existing
+// collection first, and registers cleanup to delete it when the test completes.
+func setupQdrantCollection(t *testing.T, ctx context.Context, store *vectorstore.QdrantStore, name string, vectorSize int) {
+	t.Helper()
+
+	// Clean up if exists
+	exists, _ := store.CollectionExists(ctx, name)
+	if exists {
+		_ = store.DeleteCollection(ctx, name)
+	}
+
+	// Create collection
+	err := store.CreateCollection(ctx, name, vectorSize)
+	require.NoError(t, err)
+
+	// Register cleanup
+	t.Cleanup(func() {
+		_ = store.DeleteCollection(ctx, name)
+	})
 }

@@ -15,7 +15,7 @@ The contextd project includes a production-ready Qdrant gRPC vector store implem
 
 ### Primary Implementation
 
-1. **`internal/vectorstore/qdrant.go`** (~950 lines)
+1. **`internal/vectorstore/qdrant.go`** (~992 lines)
    - Complete QdrantStore implementation
    - All VectorStore interface methods implemented
    - Retry logic with exponential backoff
@@ -24,7 +24,7 @@ The contextd project includes a production-ready Qdrant gRPC vector store implem
    - Multi-tenant payload isolation support
    - TLS configuration for production
 
-2. **`internal/vectorstore/qdrant_test.go`** (~470 lines)
+2. **`internal/vectorstore/qdrant_test.go`** (~516 lines)
    - Comprehensive unit and integration tests
    - 100% coverage for config validation
    - 100% coverage for error classification
@@ -32,7 +32,7 @@ The contextd project includes a production-ready Qdrant gRPC vector store implem
    - Tenant isolation verification
    - Exact search testing
 
-3. **`internal/vectorstore/qdrant_large_payload_test.go`** (~170 lines)
+3. **`internal/vectorstore/qdrant_large_payload_test.go`** (~214 lines)
    - Large payload verification tests
    - 500KB documents (above 256KB HTTP limit)
    - 5MB documents (realistic large files)
@@ -42,7 +42,7 @@ The contextd project includes a production-ready Qdrant gRPC vector store implem
 
 ### Supporting Implementation
 
-4. **`internal/qdrant/grpc_client.go`** (726 lines)
+4. **`internal/qdrant/grpc_client.go`** (683 lines)
    - Lower-level Qdrant client wrapper
    - Used by checkpoint and remediation services
    - Separate from vectorstore abstraction

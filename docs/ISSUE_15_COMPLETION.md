@@ -28,50 +28,54 @@ Issue #15 requested implementation of a native Qdrant gRPC client to bypass the 
 
 ### Overall Package Coverage: 54.0%
 
-The 54% coverage is **acceptable and expected** for this implementation because:
+The vectorstore package has mixed coverage across different implementations:
 
-1. **Chromem (embedded)**: 60-100% coverage - No external dependencies
-2. **Qdrant (external)**: Config/validation at 100%, operations at 0% - Requires running Qdrant instance
-3. **Isolation/filtering**: 80-100% coverage - Pure logic, no dependencies
+1. **Chromem (embedded)**: 60-100% coverage - unit testable without external dependencies
+2. **Qdrant (external)**: Config/validation at 100%, operations at 0% - requires running Qdrant instance
+3. **Isolation/filtering**: 80-100% coverage - pure logic, unit testable
 
 ### Qdrant-specific Coverage
 
-| Component | Coverage | Notes |
-|-----------|----------|-------|
-| Config validation | 100% | ✅ Fully tested |
-| Error classification | 100% | ✅ All gRPC codes tested |
-| Collection name validation | 100% | ✅ Security patterns tested |
-| Constructor | 75% | ⚠️ Health check requires Qdrant |
-| CRUD operations | 0% | ❌ Requires live Qdrant (integration only) |
-| Retry logic | 0% | ❌ Requires live Qdrant (integration only) |
-| Circuit breaker | 0% | ❌ Requires live Qdrant (integration only) |
+| Component | Coverage | Testing Approach |
+|-----------|----------|------------------|
+| Config validation | 100% | Unit tests |
+| Error classification | 100% | Unit tests (all 16 gRPC codes) |
+| Collection name validation | 100% | Unit tests (security patterns) |
+| Constructor | 75% | Partial unit tests |
+| CRUD operations | 0% | Integration tests only |
+| Retry logic | 0% | Integration tests only |
+| Circuit breaker | 0% | Integration tests only |
 
-### Why 0% on Operations?
+### Unit vs Integration Test Coverage
 
-The Qdrant store operations (`AddDocuments`, `Search`, `Delete`, etc.) require a live Qdrant gRPC server. These are thoroughly tested in integration tests (when Qdrant is available) but don't count toward `-short` mode coverage.
+**Unit tests (counted in `-short` coverage)**:
+- Config validation
+- Error classification
+- Collection name validation
+- Partial constructor coverage
 
-**Integration test coverage (with Qdrant running)**:
-- Collection lifecycle: ✅ Create, exists, info, list, delete
-- Document operations: ✅ Add, search, filter, delete
-- Large payloads: ✅ 500KB, 5MB, 25MB, batch uploads
-- Tenant isolation: ✅ Multi-tenant filtering
-- Exact search: ✅ Brute-force search
+**Integration tests (not counted in `-short` coverage)**:
+- Collection lifecycle (create, exists, info, list, delete)
+- Document operations (add, search, filter, delete)
+- Large payloads (500KB, 5MB, 25MB, batch uploads)
+- Tenant isolation (multi-tenant filtering)
+- Exact search (brute-force search)
 
-### Path to 80%+
+### Coverage Trade-offs
 
-To reach 80% coverage **without requiring Qdrant**, we would need to:
+To increase unit test coverage to 80%+ would require:
 
-1. Mock the Qdrant gRPC client (complex, brittle)
-2. Extract business logic from gRPC calls (major refactor)
-3. Accept integration tests as coverage (requires CI Qdrant instance)
+1. **Mocking the Qdrant gRPC client** - adds complexity and test brittleness
+2. **Extracting business logic from gRPC calls** - requires significant refactoring
+3. **Running Qdrant in CI** - counts integration tests toward coverage metrics
 
-**Recommendation**: The current 54% coverage with 100% unit test coverage of testable components is **production-ready**. Integration tests provide full verification of Qdrant operations.
+Current approach prioritizes integration test coverage for external service interactions while maintaining 100% unit test coverage for business logic that can be tested in isolation.
 
 ## Improvements Delivered
 
 ### 1. Enhanced Tests ✅
 
-**File**: `internal/vectorstore/qdrant_test.go` (~470 lines)
+**File**: `internal/vectorstore/qdrant_test.go` (~516 lines)
 
 - ✅ 100% coverage of `IsTransientError()` - All gRPC error codes tested
 - ✅ 100% coverage of `ValidateCollectionName()` - Security validation
@@ -82,7 +86,7 @@ To reach 80% coverage **without requiring Qdrant**, we would need to:
   - Exact search
   - Tenant isolation (multi-tenant filtering)
 
-**File**: `internal/vectorstore/qdrant_large_payload_test.go` (NEW, ~170 lines)
+**File**: `internal/vectorstore/qdrant_large_payload_test.go` (NEW, ~214 lines)
 
 - ✅ 500KB document test (2x HTTP limit)
 - ✅ 5MB document test (20x HTTP limit)
