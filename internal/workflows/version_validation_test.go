@@ -3,6 +3,7 @@ package workflows
 import (
 	"testing"
 
+	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -511,14 +512,14 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "invalid-format",
+			Ref:   "abc1234",
 		}).Return("not-a-version", nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 99,
-			HeadSHA:  "invalid-format",
+			HeadSHA:  "abc1234",
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -541,7 +542,7 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "invalid-plugin-format",
+			Ref:   "def5678",
 		}).Return("1.2.3", nil)
 
 		// plugin.json has invalid version format
@@ -554,14 +555,14 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "invalid-plugin-format",
+			Ref:   "def5678",
 		}).Return(pluginJSON, nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 100,
-			HeadSHA:  "invalid-plugin-format",
+			HeadSHA:  "def5678",
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -584,7 +585,7 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "prerelease",
+			Ref:   "abc1234",
 		}).Return("2.0.0-rc.1+build.456", nil)
 
 		pluginJSON := `{
@@ -596,16 +597,17 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "prerelease",
+			Ref:   "abc1234",
 		}).Return(pluginJSON, nil)
 
 		env.OnActivity(RemoveVersionMismatchCommentActivity, mock.Anything, mock.Anything).Return(nil)
 
 		config := VersionValidationConfig{
-			Owner:    "test-owner",
-			Repo:     "test-repo",
-			PRNumber: 101,
-			HeadSHA:  "prerelease",
+			Owner:       "test-owner",
+			Repo:        "test-repo",
+			PRNumber:    101,
+			HeadSHA:     "abc1234",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -630,14 +632,14 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "v-prefix",
+			Ref:   "fed9abc",
 		}).Return("v1.2.3", nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 102,
-			HeadSHA:  "v-prefix",
+			HeadSHA:  "fed9abc",
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -660,14 +662,14 @@ func TestVersionValidationWithInvalidSemver(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "partial",
+			Ref:   "1234567",
 		}).Return("1.2", nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 103,
-			HeadSHA:  "partial",
+			HeadSHA:  "1234567",
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
