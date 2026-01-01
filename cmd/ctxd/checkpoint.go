@@ -23,6 +23,10 @@ var (
 	cpProjectID   string
 	cpProjectPath string
 	cpSessionID   string
+	cpName        string
+	cpDescription string
+	cpSummary     string
+	cpContext     string
 	cpAutoOnly    bool
 	cpLimit       int
 	cpLevel       string
@@ -31,6 +35,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(checkpointCmd)
+	checkpointCmd.AddCommand(checkpointSaveCmd)
 	checkpointCmd.AddCommand(checkpointListCmd)
 	checkpointCmd.AddCommand(checkpointResumeCmd)
 
@@ -40,6 +45,14 @@ func init() {
 	checkpointCmd.PersistentFlags().StringVar(&cpProjectID, "project-id", "", "Project identifier (defaults to project path basename)")
 	checkpointCmd.PersistentFlags().StringVar(&cpProjectPath, "project-path", "", "Project path (defaults to current directory)")
 	checkpointCmd.PersistentFlags().BoolVar(&cpOutputJSON, "json", false, "Output results as JSON")
+
+	// Save-specific flags
+	checkpointSaveCmd.Flags().StringVar(&cpSessionID, "session-id", "", "Session ID (optional)")
+	checkpointSaveCmd.Flags().StringVar(&cpName, "name", "", "Checkpoint name (required)")
+	checkpointSaveCmd.Flags().StringVar(&cpDescription, "description", "", "Checkpoint description")
+	checkpointSaveCmd.Flags().StringVar(&cpSummary, "summary", "", "Brief summary of checkpoint")
+	checkpointSaveCmd.Flags().StringVar(&cpContext, "context", "", "Context content")
+	checkpointSaveCmd.MarkFlagRequired("name")
 
 	// List-specific flags
 	checkpointListCmd.Flags().StringVar(&cpSessionID, "session-id", "", "Filter by session ID")
@@ -59,6 +72,9 @@ Checkpoints allow you to save the current session state and resume it later.
 This is useful for preserving context across sessions or recovering from interruptions.
 
 Examples:
+  # Save a checkpoint
+  ctxd checkpoint save --tenant-id dahendel --name "Before refactoring" --summary "Completed feature X"
+
   # List all checkpoints for a project
   ctxd checkpoint list --tenant-id dahendel --project-path /home/dahendel/projects/contextd
 
@@ -67,6 +83,33 @@ Examples:
 
   # Resume from a checkpoint
   ctxd checkpoint resume <checkpoint-id> --tenant-id dahendel --level context`,
+}
+
+var checkpointSaveCmd = &cobra.Command{
+	Use:   "save",
+	Short: "Save a new checkpoint",
+	Long: `Save a new checkpoint for the current session.
+
+Examples:
+  # Save a checkpoint with a name
+  ctxd checkpoint save --tenant-id dahendel --name "Before refactoring"
+
+  # Save with description and summary
+  ctxd checkpoint save \\
+    --tenant-id dahendel \\
+    --name "Checkpoint 1" \\
+    --description "Saved before major refactoring" \\
+    --summary "Completed feature X, about to refactor Y"
+
+  # Save with context content
+  ctxd checkpoint save \\
+    --tenant-id dahendel \\
+    --name "Context save" \\
+    --context "$(cat context.txt)"
+
+  # Output as JSON
+  ctxd checkpoint save --tenant-id dahendel --name "My checkpoint" --json`,
+	RunE: runCheckpointSave,
 }
 
 var checkpointListCmd = &cobra.Command{
@@ -110,6 +153,81 @@ Examples:
   ctxd checkpoint resume ckpt_123 --tenant-id dahendel --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCheckpointResume,
+}
+
+func runCheckpointSave(cmd *cobra.Command, args []string) error {
+	// Validate required flags
+	if cpTenantID == "" {
+		return fmt.Errorf("--tenant-id is required")
+	}
+	if cpName == "" {
+		return fmt.Errorf("--name is required")
+	}
+
+	// Set defaults
+	if cpTeamID == "" {
+		cpTeamID = cpTenantID
+	}
+	if cpProjectPath == "" {
+		var err error
+		cpProjectPath, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+	}
+	if cpProjectID == "" {
+		cpProjectID = getProjectIDFromPath(cpProjectPath)
+	}
+
+	// Initialize services
+	svc, err := initCheckpointService()
+	if err != nil {
+		return err
+	}
+	defer svc.Close()
+
+	// Create save request
+	req := &checkpoint.SaveRequest{
+		SessionID:   cpSessionID,
+		TenantID:    cpTenantID,
+		TeamID:      cpTeamID,
+		ProjectID:   cpProjectID,
+		ProjectPath: cpProjectPath,
+		Name:        cpName,
+		Description: cpDescription,
+		Summary:     cpSummary,
+		Context:     cpContext,
+		FullState:   "",
+		TokenCount:  0,
+		Threshold:   0,
+		AutoCreated: false,
+		Metadata:    nil,
+	}
+
+	// Call service
+	cp, err := svc.Save(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to save checkpoint: %w", err)
+	}
+
+	// Output results
+	if cpOutputJSON {
+		return outputJSON(cp)
+	}
+
+	// Human-readable output
+	fmt.Printf("Checkpoint saved successfully\n")
+	fmt.Printf("ID: %s\n", cp.ID)
+	fmt.Printf("Name: %s\n", cp.Name)
+	fmt.Printf("Created: %s\n", cp.CreatedAt.Format("2006-01-02 15:04:05"))
+	if cp.Description != "" {
+		fmt.Printf("Description: %s\n", cp.Description)
+	}
+	if cp.Summary != "" {
+		fmt.Printf("Summary: %s\n", cp.Summary)
+	}
+
+	return nil
 }
 
 func runCheckpointList(cmd *cobra.Command, args []string) error {

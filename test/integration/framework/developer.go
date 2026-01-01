@@ -480,8 +480,8 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 	}
 	d.vectorStore = store
 
-	// Create reasoning bank service
-	svc, err := reasoningbank.NewService(store, d.logger)
+	// Create reasoning bank service with tenant ID configured
+	svc, err := reasoningbank.NewService(store, d.logger, reasoningbank.WithDefaultTenant(d.tenantID))
 	if err != nil {
 		return fmt.Errorf("creating reasoning bank: %w", err)
 	}
@@ -555,6 +555,13 @@ func (d *Developer) RecordMemory(ctx context.Context, record MemoryRecord) (stri
 		return "", fmt.Errorf("contextd not running")
 	}
 
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
 	// Scrub content before storage (simulates MCP layer behavior)
 	scrubbedTitle := d.scrubber.Scrub(record.Title).Scrubbed
 	scrubbedContent := d.scrubber.Scrub(record.Content).Scrubbed
@@ -569,7 +576,7 @@ func (d *Developer) RecordMemory(ctx context.Context, record MemoryRecord) (stri
 		return "", fmt.Errorf("creating memory: %w", err)
 	}
 
-	if err := d.reasoningBank.Record(ctx, memory); err != nil {
+	if err := d.reasoningBank.Record(tenantCtx, memory); err != nil {
 		return "", fmt.Errorf("recording memory: %w", err)
 	}
 
@@ -589,7 +596,14 @@ func (d *Developer) SearchMemory(ctx context.Context, query string, limit int) (
 		return nil, fmt.Errorf("contextd not running")
 	}
 
-	results, err := d.reasoningBank.Search(ctx, d.projectID, query, limit)
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
+	results, err := d.reasoningBank.Search(tenantCtx, d.projectID, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
@@ -623,8 +637,15 @@ func (d *Developer) GiveFeedback(ctx context.Context, memoryID string, helpful b
 		return fmt.Errorf("contextd not running")
 	}
 
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
 	// Note: reasoning is not used by the current API but kept for future use
-	if err := d.reasoningBank.Feedback(ctx, memoryID, helpful); err != nil {
+	if err := d.reasoningBank.Feedback(tenantCtx, memoryID, helpful); err != nil {
 		return fmt.Errorf("giving feedback: %w", err)
 	}
 
@@ -661,7 +682,14 @@ func (d *Developer) SaveCheckpoint(ctx context.Context, req CheckpointSaveReques
 		return "", fmt.Errorf("contextd not running")
 	}
 
-	cp, err := d.checkpointService.Save(ctx, &checkpoint.SaveRequest{
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
+	cp, err := d.checkpointService.Save(tenantCtx, &checkpoint.SaveRequest{
 		SessionID:   d.sessionID,
 		TenantID:    d.tenantID,
 		TeamID:      d.teamID,
@@ -694,7 +722,14 @@ func (d *Developer) ListCheckpoints(ctx context.Context, limit int) ([]Checkpoin
 		limit = 10
 	}
 
-	cps, err := d.checkpointService.List(ctx, &checkpoint.ListRequest{
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
+	cps, err := d.checkpointService.List(tenantCtx, &checkpoint.ListRequest{
 		TenantID:  d.tenantID,
 		TeamID:    d.teamID,
 		ProjectID: d.projectID,
@@ -728,7 +763,14 @@ func (d *Developer) ResumeCheckpoint(ctx context.Context, checkpointID string) (
 		return nil, fmt.Errorf("contextd not running")
 	}
 
-	resp, err := d.checkpointService.Resume(ctx, &checkpoint.ResumeRequest{
+	// Inject tenant context before calling service
+	tenantCtx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  d.tenantID,
+		TeamID:    d.teamID,
+		ProjectID: d.projectID,
+	})
+
+	resp, err := d.checkpointService.Resume(tenantCtx, &checkpoint.ResumeRequest{
 		TenantID:     d.tenantID,
 		TeamID:       d.teamID,
 		ProjectID:    d.projectID,
