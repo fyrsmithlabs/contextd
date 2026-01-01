@@ -114,6 +114,9 @@ func (s *Server) registerRoutes() {
 	v1.POST("/scrub", s.handleScrub)
 	v1.POST("/threshold", s.handleThreshold)
 	v1.GET("/status", s.handleStatus)
+
+	// Note: Checkpoint management is available via MCP tools (checkpoint_save, checkpoint_list, checkpoint_resume)
+	// HTTP endpoints were removed due to security concerns (CVE-2025-CONTEXTD-001)
 }
 
 // ScrubRequest is the request body for POST /api/v1/scrub.
@@ -150,6 +153,9 @@ type HealthResponse struct {
 
 // StatusResponse, StatusCounts, ContextStatus, CompressionStatus, and MemoryStatus
 // are defined in types.go to enable reuse across packages.
+
+// Note: Checkpoint request/response types removed (CVE-2025-CONTEXTD-001 fix).
+// Use MCP tools for checkpoint operations: checkpoint_save, checkpoint_list, checkpoint_resume.
 
 // handleHealth returns a simple health check response.
 func (s *Server) handleHealth(c echo.Context) error {
@@ -398,6 +404,13 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		Message:      fmt.Sprintf("Auto-checkpoint created at %d%% context threshold", req.Percent),
 	})
 }
+
+// Note: handleCheckpointSave, handleCheckpointList, and handleCheckpointResume methods
+// were removed to address CVE-2025-CONTEXTD-001 (missing tenant context injection).
+// Checkpoint operations are available via MCP tools with proper security:
+//   - checkpoint_save
+//   - checkpoint_list
+//   - checkpoint_resume
 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
