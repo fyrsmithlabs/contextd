@@ -434,38 +434,6 @@ func (s *service) buildSearchFilters(req *SearchRequest) map[string]interface{} 
 	return filters
 }
 
-// getSearchCollections returns the collections to search based on scope and hierarchy.
-func (s *service) getSearchCollections(req *SearchRequest) []string {
-	var collections []string
-
-	switch req.Scope {
-	case ScopeProject:
-		collections = append(collections, s.collectionName(req.TenantID, ScopeProject, req.TeamID, req.ProjectPath))
-		if req.IncludeHierarchy {
-			collections = append(collections, s.collectionName(req.TenantID, ScopeTeam, req.TeamID, ""))
-			collections = append(collections, s.collectionName(req.TenantID, ScopeOrg, "", ""))
-		}
-	case ScopeTeam:
-		collections = append(collections, s.collectionName(req.TenantID, ScopeTeam, req.TeamID, ""))
-		if req.IncludeHierarchy {
-			collections = append(collections, s.collectionName(req.TenantID, ScopeOrg, "", ""))
-		}
-	case ScopeOrg:
-		collections = append(collections, s.collectionName(req.TenantID, ScopeOrg, "", ""))
-	default:
-		// Search all scopes if not specified
-		if req.ProjectPath != "" {
-			collections = append(collections, s.collectionName(req.TenantID, ScopeProject, req.TeamID, req.ProjectPath))
-		}
-		if req.TeamID != "" {
-			collections = append(collections, s.collectionName(req.TenantID, ScopeTeam, req.TeamID, ""))
-		}
-		collections = append(collections, s.collectionName(req.TenantID, ScopeOrg, "", ""))
-	}
-
-	return collections
-}
-
 // Record creates a new remediation.
 func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation, error) {
 	ctx, span := s.tracer.Start(ctx, "remediation.record")

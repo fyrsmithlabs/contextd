@@ -127,12 +127,6 @@ func TestSessionHandler_Start_ValidationError(t *testing.T) {
 
 // Mock types and implementations
 
-type memoryRecord struct {
-	ID         string
-	Title      string
-	Confidence float64
-}
-
 type checkpointRecord struct {
 	ID        string
 	Summary   string
@@ -141,9 +135,7 @@ type checkpointRecord struct {
 
 // mockRegistry implements services.Registry for testing
 type mockRegistry struct {
-	memories    []memoryRecord
 	checkpoints []checkpointRecord
-	distiller   *mockDistiller
 }
 
 func (m *mockRegistry) Checkpoint() checkpoint.Service {
@@ -227,23 +219,6 @@ func (m *mockCheckpointSvc) Delete(ctx context.Context, tenantID, teamID, projec
 
 func (m *mockCheckpointSvc) Close() error {
 	return nil
-}
-
-// mockMemorySvc is a wrapper to fake reasoningbank.Service
-type mockMemorySvc struct {
-	memories []memoryRecord
-}
-
-func (m *mockMemorySvc) Search(ctx context.Context, projectID, query string, limit int) ([]reasoningbank.Memory, error) {
-	result := make([]reasoningbank.Memory, len(m.memories))
-	for i, mem := range m.memories {
-		result[i] = reasoningbank.Memory{
-			ID:         mem.ID,
-			Title:      mem.Title,
-			Confidence: mem.Confidence,
-		}
-	}
-	return result, nil
 }
 
 func TestSessionHandler_ContextThreshold(t *testing.T) {
@@ -361,16 +336,4 @@ func TestSessionHandler_End_ValidationError(t *testing.T) {
 			}
 		})
 	}
-}
-
-// mockDistiller implements reasoningbank.Distiller for testing
-type mockDistiller struct {
-	distillCalled bool
-	lastSummary   *reasoningbank.SessionSummary
-}
-
-func (m *mockDistiller) DistillSession(ctx context.Context, summary reasoningbank.SessionSummary) error {
-	m.distillCalled = true
-	m.lastSummary = &summary
-	return nil
 }

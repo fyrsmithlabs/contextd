@@ -15,27 +15,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
-	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
-
-// injectTenantContext adds tenant information to context for payload-based isolation.
-// This enables vectorstore operations to automatically filter by tenant when using
-// PayloadIsolation mode. The tenant info is derived from:
-//   - tenantID: organization/user identifier (required)
-//   - teamID: team scope (optional, empty string if not applicable)
-//   - projectID: project scope (optional, empty string if not applicable)
-//
-// Returns the original context if tenantID is empty.
-func injectTenantContext(ctx context.Context, tenantID, teamID, projectID string) context.Context {
-	if tenantID == "" {
-		return ctx
-	}
-	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		TeamID:    teamID,
-		ProjectID: projectID,
-	})
-}
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
@@ -544,9 +524,8 @@ func (s *Server) registerRepositoryTools() {
 			source = "grep"
 
 			// Parse project's ignore files for grep
-			excludePatterns := []string{}
-			parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath)
-			if parseErr != nil {
+			var excludePatterns []string
+			if parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath); parseErr != nil {
 				s.logger.Warn("failed to parse ignore files for grep, using fallback",
 					zap.String("path", args.ProjectPath),
 					zap.Error(parseErr))

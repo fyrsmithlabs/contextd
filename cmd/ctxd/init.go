@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/fyrsmithlabs/contextd/internal/embeddings"
 	"github.com/spf13/cobra"
@@ -66,15 +65,4 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	cmd.Printf("Successfully installed ONNX runtime to: %s\n", path)
 	return nil
-}
-
-// checkONNXInstalled returns the path if ONNX runtime is installed, empty string otherwise
-func checkONNXInstalled() string {
-	// Check env var first
-	if envPath := os.Getenv("ONNX_PATH"); envPath != "" {
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath
-		}
-	}
-	return embeddings.GetONNXLibraryPath()
 }
