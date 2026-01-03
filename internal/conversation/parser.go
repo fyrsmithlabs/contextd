@@ -53,15 +53,41 @@ type toolUseBlock struct {
 	Input json.RawMessage `json:"input"`
 }
 
+// ParseResult contains messages and any errors encountered during parsing.
+type ParseResult struct {
+	Messages   []RawMessage
+	ErrorCount int
+	Errors     []ParseError
+}
+
+// ParseError represents a parsing error at a specific line.
+type ParseError struct {
+	Line  int
+	Error string
+}
+
 // Parse reads a JSONL file and extracts messages.
+// Returns partial results on parse errors rather than failing completely.
 func (p *Parser) Parse(path string) ([]RawMessage, error) {
+	result, err := p.ParseWithErrors(path)
+	if err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
+}
+
+// ParseWithErrors reads a JSONL file and returns messages along with any parse errors.
+func (p *Parser) ParseWithErrors(path string) (*ParseResult, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
 
-	var messages []RawMessage
+	result := &ParseResult{
+		Messages: make([]RawMessage, 0),
+		Errors:   make([]ParseError, 0),
+	}
 	scanner := bufio.NewScanner(file)
 
 	// Increase buffer size for large messages
@@ -79,7 +105,14 @@ func (p *Parser) Parse(path string) ([]RawMessage, error) {
 
 		var jm jsonlMessage
 		if err := json.Unmarshal([]byte(line), &jm); err != nil {
-			// Skip malformed lines but continue parsing
+			// Track error but continue parsing
+			result.ErrorCount++
+			if len(result.Errors) < 10 { // Limit stored errors
+				result.Errors = append(result.Errors, ParseError{
+					Line:  lineNum,
+					Error: fmt.Sprintf("JSON parse error: %v", err),
+				})
+			}
 			continue
 		}
 
@@ -90,12 +123,19 @@ func (p *Parser) Parse(path string) ([]RawMessage, error) {
 
 		msg, err := p.parseMessage(jm, path)
 		if err != nil {
-			// Skip messages that can't be parsed
+			// Track error but continue parsing
+			result.ErrorCount++
+			if len(result.Errors) < 10 {
+				result.Errors = append(result.Errors, ParseError{
+					Line:  lineNum,
+					Error: fmt.Sprintf("message parse error: %v", err),
+				})
+			}
 			continue
 		}
 
 		if msg != nil {
-			messages = append(messages, *msg)
+			result.Messages = append(result.Messages, *msg)
 		}
 	}
 
@@ -103,7 +143,7 @@ func (p *Parser) Parse(path string) ([]RawMessage, error) {
 		return nil, fmt.Errorf("scanning file: %w", err)
 	}
 
-	return messages, nil
+	return result, nil
 }
 
 // parseMessage converts a jsonlMessage to a RawMessage.

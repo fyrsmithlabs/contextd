@@ -9,7 +9,7 @@ import (
 // Currently a stub - full implementation requires langchain-go or direct API.
 type anthropicSummarizer struct {
 	model   string
-	apiKey  string
+	apiKey  string `json:"-"` // Never serialize API keys
 	baseURL string
 }
 
@@ -45,7 +45,7 @@ func (a *anthropicSummarizer) Available() bool {
 // Currently a stub - full implementation requires langchain-go or direct API.
 type openAISummarizer struct {
 	model   string
-	apiKey  string
+	apiKey  string `json:"-"` // Never serialize API keys
 	baseURL string
 }
 

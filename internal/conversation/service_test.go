@@ -319,27 +319,75 @@ func TestService_CollectionName(t *testing.T) {
 	service := NewService(store, &mockScrubber{}, logger, ServiceConfig{})
 
 	tests := []struct {
+		name        string
 		tenantID    string
 		projectPath string
 		want        string
 	}{
 		{
+			name:        "simple names",
 			tenantID:    "tenant1",
 			projectPath: "/path/to/my-project",
 			want:        "tenant1_my_project_conversations",
 		},
 		{
+			name:        "underscores and spaces",
 			tenantID:    "org_123",
 			projectPath: "/home/user/Test Project",
 			want:        "org_123_test_project_conversations",
 		},
+		{
+			name:        "special characters in tenant",
+			tenantID:    "org@domain.com",
+			projectPath: "/path/to/project",
+			want:        "orgdomain_com_project_conversations",
+		},
+		{
+			name:        "dots and hyphens",
+			tenantID:    "my.org",
+			projectPath: "/path/my.project-v2",
+			want:        "my_org_my_project_v2_conversations",
+		},
+		{
+			name:        "unicode characters stripped",
+			tenantID:    "租户",
+			projectPath: "/path/项目",
+			want:        "default_default_conversations",
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got := service.collectionName(tt.tenantID, tt.projectPath)
 			if got != tt.want {
 				t.Errorf("collectionName(%q, %q) = %q, want %q", tt.tenantID, tt.projectPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeForCollectionName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"simple", "simple"},
+		{"with-dash", "with_dash"},
+		{"with space", "with_space"},
+		{"with.dot", "with_dot"},
+		{"UPPERCASE", "uppercase"},
+		{"mix123", "mix123"},
+		{"special@#$chars", "specialchars"},
+		{"", "default"},
+		{"!@#$%", "default"},
+		{"test__double", "test__double"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := sanitizeForCollectionName(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeForCollectionName(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

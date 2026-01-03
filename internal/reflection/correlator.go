@@ -1,6 +1,7 @@
 package reflection
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
@@ -257,7 +258,7 @@ func formatDescription(format string, args ...interface{}) string {
 	if len(args) == 0 {
 		return format
 	}
-	return format // Simplified - no fmt.Sprintf to avoid import
+	return fmt.Sprintf(format, args...)
 }
 
 // Ensure DefaultCorrelator implements Correlator.

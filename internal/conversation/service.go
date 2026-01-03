@@ -68,13 +68,34 @@ func NewService(
 
 // collectionName returns the collection name for a tenant/project.
 func (s *Service) collectionName(tenantID, projectPath string) string {
-	// Sanitize project path for collection name
-	projectName := filepath.Base(projectPath)
-	projectName = strings.ReplaceAll(projectName, "-", "_")
-	projectName = strings.ReplaceAll(projectName, " ", "_")
-	projectName = strings.ToLower(projectName)
+	// Sanitize tenant ID and project path for collection name
+	tenantID = sanitizeForCollectionName(tenantID)
+	projectName := sanitizeForCollectionName(filepath.Base(projectPath))
 
 	return fmt.Sprintf("%s_%s_conversations", tenantID, projectName)
+}
+
+// sanitizeForCollectionName ensures a string is safe for use in collection names.
+// Only allows alphanumeric characters and underscores.
+func sanitizeForCollectionName(s string) string {
+	s = strings.ToLower(s)
+	var result strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			result.WriteRune(r)
+		case r >= '0' && r <= '9':
+			result.WriteRune(r)
+		case r == '-' || r == ' ' || r == '_' || r == '.':
+			result.WriteRune('_')
+		// Skip other characters
+		}
+	}
+	// Ensure non-empty result
+	if result.Len() == 0 {
+		return "default"
+	}
+	return result.String()
 }
 
 // Index processes and stores conversations for a project.

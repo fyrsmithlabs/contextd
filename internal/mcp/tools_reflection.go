@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -216,9 +217,15 @@ func StoreReflectionReport(report *reflection.ReflectionReport, projectPath stri
 		return "", fmt.Errorf("failed to marshal report: %w", err)
 	}
 
-	// Note: The caller should ensure the directory exists and write the file
-	// This function just prepares the data and path
-	_ = data // Would write to reportPath
+	// Create the reflections directory if it doesn't exist
+	if err := os.MkdirAll(reflectionsDir, 0750); err != nil {
+		return "", fmt.Errorf("failed to create reflections directory: %w", err)
+	}
+
+	// Write the report file with restrictive permissions
+	if err := os.WriteFile(reportPath, data, 0600); err != nil {
+		return "", fmt.Errorf("failed to write report: %w", err)
+	}
 
 	return reportPath, nil
 }
