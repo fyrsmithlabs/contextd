@@ -443,6 +443,163 @@
         }
       },
       "required": ["frontmatter"]
+    },
+
+    "conversation_index_input": {
+      "type": "object",
+      "description": "Input for conversation_index tool - indexes Claude Code conversation files",
+      "properties": {
+        "project_path": { "type": "string", "description": "Path to project to index conversations for" },
+        "tenant_id": { "type": "string", "description": "Tenant identifier (auto-derived from project_path via git remote if not provided)" },
+        "session_ids": { "type": "array", "items": { "type": "string" }, "description": "Specific session IDs to index (empty = all)" },
+        "enable_llm": { "type": "boolean", "default": false, "description": "Enable LLM-based decision extraction" },
+        "force": { "type": "boolean", "default": false, "description": "Force reindexing of existing sessions" }
+      },
+      "required": ["project_path"]
+    },
+
+    "conversation_index_output": {
+      "type": "object",
+      "description": "Output from conversation_index tool",
+      "properties": {
+        "sessions_indexed": { "type": "integer", "description": "Number of sessions indexed" },
+        "messages_indexed": { "type": "integer", "description": "Number of messages indexed" },
+        "decisions_extracted": { "type": "integer", "description": "Number of decisions extracted" },
+        "files_referenced": { "type": "array", "items": { "type": "string" }, "description": "Files referenced in conversations" },
+        "error_count": { "type": "integer", "description": "Number of errors during indexing" }
+      },
+      "required": ["sessions_indexed", "messages_indexed", "decisions_extracted", "files_referenced", "error_count"]
+    },
+
+    "conversation_search_input": {
+      "type": "object",
+      "description": "Input for conversation_search tool - searches indexed conversations",
+      "properties": {
+        "query": { "type": "string", "description": "Semantic search query" },
+        "project_path": { "type": "string", "description": "Project path to search within" },
+        "tenant_id": { "type": "string", "description": "Tenant identifier (auto-derived from project_path via git remote if not provided)" },
+        "types": { "type": "array", "items": { "type": "string", "enum": ["message", "decision", "summary"] }, "description": "Filter by document types" },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Filter by tags" },
+        "file_path": { "type": "string", "description": "Filter by file path discussed" },
+        "domain": { "type": "string", "description": "Filter by domain (e.g., 'kubernetes', 'frontend', 'database')" },
+        "limit": { "type": "integer", "default": 10, "description": "Maximum results to return" }
+      },
+      "required": ["query", "project_path"]
+    },
+
+    "conversation_search_output": {
+      "type": "object",
+      "description": "Output from conversation_search tool",
+      "properties": {
+        "query": { "type": "string", "description": "Search query used" },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "session_id": { "type": "string" },
+              "type": { "type": "string" },
+              "content": { "type": "string" },
+              "score": { "type": "number" },
+              "timestamp": { "type": "integer" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "domain": { "type": "string" }
+            }
+          },
+          "description": "Search results with score and content"
+        },
+        "total": { "type": "integer", "description": "Total number of results" },
+        "took_ms": { "type": "integer", "description": "Search duration in milliseconds" }
+      },
+      "required": ["query", "results", "total", "took_ms"]
+    },
+
+    "reflect_report_input": {
+      "type": "object",
+      "description": "Input for reflect_report tool - generates self-reflection report",
+      "properties": {
+        "project_id": { "type": "string", "description": "Project identifier" },
+        "project_path": { "type": "string", "description": "Project path for repository context" },
+        "period_days": { "type": "integer", "default": 30, "description": "Number of days to analyze" },
+        "include_patterns": { "type": "boolean", "default": true, "description": "Include pattern analysis" },
+        "include_correlations": { "type": "boolean", "default": true, "description": "Include correlation analysis" },
+        "include_insights": { "type": "boolean", "default": true, "description": "Include insights" },
+        "max_insights": { "type": "integer", "default": 10, "description": "Maximum insights to include" },
+        "format": { "type": "string", "enum": ["json", "text", "markdown"], "default": "json", "description": "Output format" }
+      },
+      "required": ["project_id"]
+    },
+
+    "reflect_report_output": {
+      "type": "object",
+      "description": "Output from reflect_report tool",
+      "properties": {
+        "report_id": { "type": "string", "description": "Report identifier" },
+        "project_id": { "type": "string", "description": "Project analyzed" },
+        "generated_at": { "type": "string", "format": "date-time", "description": "Report generation time" },
+        "period_days": { "type": "integer", "description": "Days analyzed" },
+        "summary": { "type": "string", "description": "High-level summary" },
+        "statistics": {
+          "type": "object",
+          "properties": {
+            "total_memories": { "type": "integer" },
+            "success_count": { "type": "integer" },
+            "failure_count": { "type": "integer" },
+            "avg_confidence": { "type": "number" },
+            "pattern_count": { "type": "integer" },
+            "correlation_count": { "type": "integer" }
+          },
+          "description": "Numerical statistics"
+        },
+        "pattern_count": { "type": "integer", "description": "Number of patterns identified" },
+        "insight_count": { "type": "integer", "description": "Number of insights generated" },
+        "format": { "type": "string", "description": "Output format used" },
+        "formatted_text": { "type": "string", "description": "Formatted report (for text/markdown)" },
+        "report_path": { "type": "string", "description": "Path where report was saved (if project_path provided)" }
+      },
+      "required": ["report_id", "project_id", "generated_at", "period_days", "summary", "statistics", "pattern_count", "insight_count", "format"]
+    },
+
+    "reflect_analyze_input": {
+      "type": "object",
+      "description": "Input for reflect_analyze tool - analyzes memories for behavioral patterns",
+      "properties": {
+        "project_id": { "type": "string", "description": "Project identifier" },
+        "min_confidence": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1, "description": "Minimum confidence threshold" },
+        "min_frequency": { "type": "integer", "default": 2, "description": "Minimum pattern frequency" },
+        "include_tags": { "type": "array", "items": { "type": "string" }, "description": "Filter to specific tags" },
+        "exclude_tags": { "type": "array", "items": { "type": "string" }, "description": "Exclude specific tags" },
+        "max_patterns": { "type": "integer", "default": 20, "description": "Maximum patterns to return" }
+      },
+      "required": ["project_id"]
+    },
+
+    "reflect_analyze_output": {
+      "type": "object",
+      "description": "Output from reflect_analyze tool",
+      "properties": {
+        "project_id": { "type": "string", "description": "Project analyzed" },
+        "pattern_count": { "type": "integer", "description": "Number of patterns found" },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "category": { "type": "string", "enum": ["success", "failure", "recurring", "improving", "declining"] },
+              "description": { "type": "string" },
+              "confidence": { "type": "number" },
+              "frequency": { "type": "integer" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "domains": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "description": "Identified patterns"
+        }
+      },
+      "required": ["project_id", "pattern_count", "patterns"]
     }
   },
 
@@ -534,6 +691,34 @@
           "properties": {
             "input": { "$ref": "#/$defs/troubleshoot_diagnose_input" },
             "output": { "$ref": "#/$defs/troubleshoot_diagnose_output" }
+          }
+        },
+        "conversation_index": {
+          "type": "object",
+          "properties": {
+            "input": { "$ref": "#/$defs/conversation_index_input" },
+            "output": { "$ref": "#/$defs/conversation_index_output" }
+          }
+        },
+        "conversation_search": {
+          "type": "object",
+          "properties": {
+            "input": { "$ref": "#/$defs/conversation_search_input" },
+            "output": { "$ref": "#/$defs/conversation_search_output" }
+          }
+        },
+        "reflect_report": {
+          "type": "object",
+          "properties": {
+            "input": { "$ref": "#/$defs/reflect_report_input" },
+            "output": { "$ref": "#/$defs/reflect_report_output" }
+          }
+        },
+        "reflect_analyze": {
+          "type": "object",
+          "properties": {
+            "input": { "$ref": "#/$defs/reflect_analyze_input" },
+            "output": { "$ref": "#/$defs/reflect_analyze_output" }
           }
         }
       }
