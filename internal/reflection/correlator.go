@@ -167,9 +167,10 @@ func calculateCoOccurrence(p1, p2 Pattern) float64 {
 
 // calculateOpposite checks if patterns are opposing (success vs failure).
 func calculateOpposite(p1, p2 Pattern) float64 {
-	// Must be opposite categories
-	if (p1.Category == PatternSuccess && p2.Category != PatternFailure) ||
-		(p1.Category == PatternFailure && p2.Category != PatternSuccess) {
+	// Must be exactly opposite categories: one success and one failure
+	isOpposite := (p1.Category == PatternSuccess && p2.Category == PatternFailure) ||
+		(p1.Category == PatternFailure && p2.Category == PatternSuccess)
+	if !isOpposite {
 		return 0
 	}
 

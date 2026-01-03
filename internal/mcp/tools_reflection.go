@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -74,19 +75,13 @@ func (s *Server) registerReflectionTools() {
 			periodDays = 30
 		}
 
+		// Determine what to include - if nothing specified, include everything
 		includePatterns := args.IncludePatterns
-		if !includePatterns && !args.IncludeCorrelations && !args.IncludeInsights {
-			// If nothing explicitly requested, include everything
-			includePatterns = true
-		}
-
 		includeCorrelations := args.IncludeCorrelations
-		if !args.IncludeCorrelations && !args.IncludePatterns && !args.IncludeInsights {
-			includeCorrelations = true
-		}
-
 		includeInsights := args.IncludeInsights
-		if !args.IncludeInsights && !args.IncludePatterns && !args.IncludeCorrelations {
+		if !includePatterns && !includeCorrelations && !includeInsights {
+			includePatterns = true
+			includeCorrelations = true
 			includeInsights = true
 		}
 
@@ -206,11 +201,35 @@ func (s *Server) registerReflectionTools() {
 
 // StoreReflectionReport stores a reflection report to disk for later retrieval.
 func StoreReflectionReport(report *reflection.ReflectionReport, projectPath string) (string, error) {
+	// Validate project path to prevent path traversal
+	if projectPath == "" {
+		return "", fmt.Errorf("project path is required")
+	}
+
+	// Clean the path and ensure it's absolute or relative without traversal
+	cleanPath := filepath.Clean(projectPath)
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("invalid project path: path traversal not allowed")
+	}
+
 	timestamp := report.GeneratedAt.Format("20060102-150405")
 	filename := fmt.Sprintf("reflection-%s.json", timestamp)
 
-	reflectionsDir := filepath.Join(projectPath, ".claude", "reflections")
+	reflectionsDir := filepath.Join(cleanPath, ".claude", "reflections")
 	reportPath := filepath.Join(reflectionsDir, filename)
+
+	// Final validation: ensure resolved path is under the project directory
+	absProjectPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve project path: %w", err)
+	}
+	absReportPath, err := filepath.Abs(reportPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve report path: %w", err)
+	}
+	if !strings.HasPrefix(absReportPath, absProjectPath) {
+		return "", fmt.Errorf("invalid path: report path must be under project directory")
+	}
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

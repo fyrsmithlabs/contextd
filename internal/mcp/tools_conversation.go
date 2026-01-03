@@ -32,10 +32,10 @@ type conversationSearchInput struct {
 	Query       string   `json:"query" jsonschema:"required,Semantic search query"`
 	ProjectPath string   `json:"project_path" jsonschema:"required,Project path to search within"`
 	TenantID    string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
-	Types       []string `json:"types,omitempty" jsonschema:"Filter by document types (message decision summary)"`
+	Types       []string `json:"types,omitempty" jsonschema:"Filter by document types: 'message', 'decision', or 'summary'"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Filter by tags"`
 	FilePath    string   `json:"file_path,omitempty" jsonschema:"Filter by file path discussed"`
-	Domain      string   `json:"domain,omitempty" jsonschema:"Filter by domain (e.g. kubernetes frontend)"`
+	Domain      string   `json:"domain,omitempty" jsonschema:"Filter by domain (e.g., 'kubernetes', 'frontend', 'database')"`
 	Limit       int      `json:"limit,omitempty" jsonschema:"Maximum results to return (default: 10)"`
 }
 
