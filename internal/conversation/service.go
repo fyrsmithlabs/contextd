@@ -81,10 +81,9 @@ func (s *Service) collectionName(tenantID, projectPath string) string {
 // Only allows alphanumeric characters and underscores.
 // Uses a hash prefix when sanitization produces no alphanumeric characters to avoid collisions.
 //
-// Hash collision note: When using hash fallback, we use first 8 bytes of SHA-256 (2^64 space).
-// This provides sufficient collision resistance for typical tenant/project naming scenarios.
-// For untrusted input with adversarial collision attempts, consider using full hash or
-// adding collision detection in CreateCollection.
+// Hash collision note: When using hash fallback, we use first 16 bytes of SHA-256 (2^128 space).
+// This provides strong collision resistance even for adversarial inputs (birthday paradox
+// requires ~2^64 attempts for 50% collision probability).
 func sanitizeForCollectionName(s string) string {
 	original := s
 	s = strings.ToLower(s)
@@ -104,7 +103,7 @@ func sanitizeForCollectionName(s string) string {
 	// different all-unicode strings that would otherwise all become "default"
 	if result.Len() == 0 {
 		hash := sha256.Sum256([]byte(original))
-		return "h_" + hex.EncodeToString(hash[:8]) // 16-char hex prefix
+		return "h_" + hex.EncodeToString(hash[:16]) // 32-char hex prefix (128 bits)
 	}
 	return result.String()
 }

@@ -73,9 +73,9 @@ func (s *Server) registerConversationTools() {
 			Force:       args.Force,
 		}
 
-		// Warn if LLM is requested but not implemented
+		// Reject LLM requests explicitly until implemented
 		if args.EnableLLM {
-			s.logger.Warn("enable_llm=true requested but LLM summarization is not yet implemented; using heuristic extraction only")
+			return nil, conversationIndexOutput{}, fmt.Errorf("enable_llm=true is not yet supported: LLM-based decision extraction is not implemented; set enable_llm=false or omit the parameter to use heuristic extraction")
 		}
 
 		result, err := s.conversationSvc.Index(ctx, opts)

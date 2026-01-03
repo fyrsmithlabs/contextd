@@ -401,8 +401,8 @@ func TestSanitizeForCollectionName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := sanitizeForCollectionName(tt.input)
 			if tt.wantHashPrefix {
-				if !strings.HasPrefix(got, "h_") || len(got) != 18 { // "h_" + 16 hex chars
-					t.Errorf("sanitizeForCollectionName(%q) = %q, want h_<16 hex chars>", tt.input, got)
+				if !strings.HasPrefix(got, "h_") || len(got) != 34 { // "h_" + 32 hex chars (16 bytes)
+					t.Errorf("sanitizeForCollectionName(%q) = %q, want h_<32 hex chars>", tt.input, got)
 				}
 			} else if got != tt.want {
 				t.Errorf("sanitizeForCollectionName(%q) = %q, want %q", tt.input, got, tt.want)
