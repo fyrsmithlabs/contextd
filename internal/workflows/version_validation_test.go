@@ -3,6 +3,7 @@ package workflows
 import (
 	"testing"
 
+	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "abc123",
+			Ref:   "1234567",
 		}).Return("1.2.3\n", nil)
 
 		// Step 2: Fetch plugin.json - returns JSON with version "0.0.0"
@@ -37,7 +38,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "abc123",
+			Ref:   "1234567",
 		}).Return(pluginJSON, nil)
 
 		// Step 3: Post mismatch comment
@@ -48,7 +49,8 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 1,
-			HeadSHA:  "abc123",
+			HeadSHA:  "1234567",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -75,7 +77,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "def456",
+			Ref:   "abcdef0",
 		}).Return("1.2.3", nil)
 
 		pluginJSON := `{
@@ -87,7 +89,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "def456",
+			Ref:   "abcdef0",
 		}).Return(pluginJSON, nil)
 
 		// Mock removal activity (versions match, should remove old comment if exists)
@@ -97,7 +99,8 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 2,
-			HeadSHA:  "def456",
+			HeadSHA:  "abcdef0",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -123,7 +126,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "ghi789",
+			Ref:   "fedcba9",
 		}).Return("  1.2.3\n\n", nil)
 
 		pluginJSON := `{
@@ -135,14 +138,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "ghi789",
+			Ref:   "fedcba9",
 		}).Return(pluginJSON, nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 3,
-			HeadSHA:  "ghi789",
+			HeadSHA:  "fedcba9",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -166,7 +170,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "jkl012",
+			Ref:   "9876543",
 		}).Return("1.0.0-rc.1", nil)
 
 		pluginJSON := `{
@@ -178,7 +182,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "jkl012",
+			Ref:   "9876543",
 		}).Return(pluginJSON, nil)
 
 		// Mock removal activity (versions match)
@@ -188,7 +192,8 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 4,
-			HeadSHA:  "jkl012",
+			HeadSHA:  "9876543",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -213,14 +218,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "missing",
+			Ref:   "1111111",
 		}).Return("", assert.AnError)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 5,
-			HeadSHA:  "missing",
+			HeadSHA:  "1111111",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -240,7 +246,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "missing-plugin",
+			Ref:   "2222222",
 		}).Return("1.2.3", nil)
 
 		// plugin.json fetch fails
@@ -248,14 +254,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "missing-plugin",
+			Ref:   "2222222",
 		}).Return("", assert.AnError)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 6,
-			HeadSHA:  "missing-plugin",
+			HeadSHA:  "2222222",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -274,7 +281,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "invalid-json",
+			Ref:   "3333333",
 		}).Return("1.2.3", nil)
 
 		// Invalid JSON
@@ -282,14 +289,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "invalid-json",
+			Ref:   "3333333",
 		}).Return("{invalid json", nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 7,
-			HeadSHA:  "invalid-json",
+			HeadSHA:  "3333333",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -309,14 +317,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "empty-version",
+			Ref:   "4444444",
 		}).Return("  \n\n  ", nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 8,
-			HeadSHA:  "empty-version",
+			HeadSHA:  "4444444",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -335,7 +344,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "empty-plugin-version",
+			Ref:   "5555555",
 		}).Return("1.2.3", nil)
 
 		// plugin.json with empty version field
@@ -348,14 +357,15 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "empty-plugin-version",
+			Ref:   "5555555",
 		}).Return(pluginJSON, nil)
 
 		config := VersionValidationConfig{
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 9,
-			HeadSHA:  "empty-plugin-version",
+			HeadSHA:  "5555555",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -375,7 +385,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  "VERSION",
-			Ref:   "fixed",
+			Ref:   "6666666",
 		}).Return("2.0.0", nil)
 
 		pluginJSON := `{
@@ -387,7 +397,7 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner: "test-owner",
 			Repo:  "test-repo",
 			Path:  ".claude-plugin/plugin.json",
-			Ref:   "fixed",
+			Ref:   "6666666",
 		}).Return(pluginJSON, nil)
 
 		// Expect RemoveVersionMismatchCommentActivity to be called
@@ -397,7 +407,8 @@ func TestVersionValidationWorkflow(t *testing.T) {
 			Owner:    "test-owner",
 			Repo:     "test-repo",
 			PRNumber: 10,
-			HeadSHA:  "fixed",
+			HeadSHA:  "6666666",
+			GitHubToken: config.Secret("test-token"),
 		}
 		env.ExecuteWorkflow(VersionValidationWorkflow, config)
 
@@ -422,4 +433,265 @@ func TestBuildVersionMismatchComment(t *testing.T) {
 	assert.Contains(t, comment, "./scripts/sync-version.sh")
 	assert.Contains(t, comment, "VERSIONING.md")
 	assert.Contains(t, comment, "Temporal workflows")
+}
+
+// TestValidateSemanticVersion tests semantic version validation.
+func TestValidateSemanticVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		wantErr bool
+	}{
+		// Valid versions - basic
+		{"valid basic version", "1.2.3", false},
+		{"valid single digit", "0.0.1", false},
+		{"valid large numbers", "10.20.30", false},
+		{"valid all zeros", "0.0.0", false},
+
+		// Valid versions - with pre-release
+		{"valid pre-release alpha", "1.2.3-alpha", false},
+		{"valid pre-release beta", "1.2.3-beta.1", false},
+		{"valid pre-release rc", "1.0.0-rc.1", false},
+		{"valid pre-release with dots", "1.2.3-alpha.beta.1", false},
+		{"valid pre-release complex", "1.2.3-0.3.7", false},
+		{"valid pre-release with hyphens", "1.2.3-alpha-1", false},
+
+		// Valid versions - with build metadata
+		{"valid build metadata", "1.2.3+20241223", false},
+		{"valid build with dots", "1.2.3+build.123", false},
+		{"valid build with hyphens", "1.2.3+sha-a1b2c3d", false},
+
+		// Valid versions - with both pre-release and build
+		{"valid pre-release and build", "1.2.3-alpha.1+build.123", false},
+		{"valid rc with build", "2.0.0-rc.1+20241223", false},
+		{"valid complex combo", "1.0.0-beta.2+exp.sha.5114f85", false},
+
+		// Invalid versions - wrong format
+		{"invalid empty string", "", true},
+		{"valid no patch (defaults to 0)", "1.2", false},      // semver library accepts this as 1.2.0
+		{"valid no minor (defaults to 0)", "1", false},        // semver library accepts this as 1.0.0
+		{"invalid four parts", "1.2.3.4", true},
+		{"invalid text only", "not-a-version", true},
+		{"invalid garbage", "garbage", true},
+		{"valid with v prefix", "v1.2.3", false},              // semver library accepts v prefix
+		{"valid leading zeros", "01.02.03", false},            // semver library accepts leading zeros
+
+		// Invalid versions - wrong characters
+		{"invalid with spaces", "1.2.3 beta", true},
+		{"invalid with letters in numbers", "1.2.a", true},
+		{"invalid special chars", "1.2.3@beta", true},
+		{"valid 1111111 dot (interpreted as 1.23.0)", "1.23", false}, // semver library accepts this
+
+		// Edge cases
+		{"invalid just dots", "...", true},
+		{"invalid trailing dot", "1.2.3.", true},
+		{"invalid leading dot", ".1.2.3", true},
+		{"invalid negative numbers", "-1.2.3", true},
+		{"invalid whitespace only", "   ", true},
+		{"invalid with newlines", "1.2.3\n", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSemanticVersion(tt.version)
+			if tt.wantErr {
+				assert.Error(t, err, "expected error for version: %q", tt.version)
+				// Verify error message contains helpful context (version or semantic)
+				if err != nil && tt.version != "" {
+					// Non-empty invalid versions should mention "semantic version"
+					assert.Contains(t, err.Error(), "semantic version",
+						"error message should mention semantic version")
+				}
+			} else {
+				assert.NoError(t, err, "expected no error for version: %q", tt.version)
+			}
+		})
+	}
+}
+
+// TestVersionValidationWithInvalidSemver tests workflow behavior with invalid semver.
+func TestVersionValidationWithInvalidSemver(t *testing.T) {
+	t.Run("rejects invalid VERSION format", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file has invalid format (not semver)
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "12345674",
+		}).Return("not-a-version", nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 99,
+			HeadSHA:  "12345674",
+			GitHubToken: config.Secret("test-token"),
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		err := env.GetWorkflowResult(&result)
+		require.Error(t, err) // Workflow should error
+	})
+
+	t.Run("rejects invalid plugin.json version format", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file is valid
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "def5678",
+		}).Return("1.2.3", nil)
+
+		// plugin.json has invalid version format
+		pluginJSON := `{
+			"name": "contextd",
+			"version": "v1.2.3",
+			"description": "Test"
+		}`
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "def5678",
+		}).Return(pluginJSON, nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 100,
+			HeadSHA:  "def5678",
+			GitHubToken: config.Secret("test-token"),
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		err := env.GetWorkflowResult(&result)
+		require.Error(t, err) // Workflow should error
+	})
+
+	t.Run("accepts pre-release versions", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// Both have valid pre-release versions
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "12345674",
+		}).Return("2.0.0-rc.1+build.456", nil)
+
+		pluginJSON := `{
+			"name": "contextd",
+			"version": "2.0.0-rc.1+build.456",
+			"description": "Test"
+		}`
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  ".claude-plugin/plugin.json",
+			Ref:   "12345674",
+		}).Return(pluginJSON, nil)
+
+		env.OnActivity(RemoveVersionMismatchCommentActivity, mock.Anything, mock.Anything).Return(nil)
+
+		cfg := VersionValidationConfig{
+			Owner:       "test-owner",
+			Repo:        "test-repo",
+			PRNumber:    101,
+			HeadSHA:     "12345674",
+			GitHubToken: config.Secret("test-token"),
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, cfg)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		require.NoError(t, env.GetWorkflowResult(&result))
+		assert.True(t, result.VersionMatches)
+		assert.Equal(t, "2.0.0-rc.1+build.456", result.VersionFile)
+		assert.Equal(t, "2.0.0-rc.1+build.456", result.PluginVersion)
+	})
+
+	t.Run("rejects version with v prefix", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file has 'v' prefix (common mistake)
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "fed9abc",
+		}).Return("v1.2.3", nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 102,
+			HeadSHA:  "fed9abc",
+			GitHubToken: config.Secret("test-token"),
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		err := env.GetWorkflowResult(&result)
+		require.Error(t, err) // Workflow should error
+	})
+
+	t.Run("rejects partial version numbers", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		env.RegisterWorkflow(VersionValidationWorkflow)
+
+		// VERSION file has only MAJOR.MINOR (1111111 PATCH)
+		env.OnActivity(FetchFileContentActivity, mock.Anything, FetchFileContentInput{
+			Owner: "test-owner",
+			Repo:  "test-repo",
+			Path:  "VERSION",
+			Ref:   "1234567",
+		}).Return("1.2", nil)
+
+		config := VersionValidationConfig{
+			Owner:    "test-owner",
+			Repo:     "test-repo",
+			PRNumber: 103,
+			HeadSHA:  "1234567",
+			GitHubToken: config.Secret("test-token"),
+		}
+		env.ExecuteWorkflow(VersionValidationWorkflow, config)
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.Error(t, env.GetWorkflowError())
+
+		var result VersionValidationResult
+		err := env.GetWorkflowResult(&result)
+		require.Error(t, err) // Workflow should error
+	})
 }
