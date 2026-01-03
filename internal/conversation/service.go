@@ -2,6 +2,8 @@ package conversation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,7 +79,9 @@ func (s *Service) collectionName(tenantID, projectPath string) string {
 
 // sanitizeForCollectionName ensures a string is safe for use in collection names.
 // Only allows alphanumeric characters and underscores.
+// Uses a hash prefix when sanitization produces no alphanumeric characters to avoid collisions.
 func sanitizeForCollectionName(s string) string {
+	original := s
 	s = strings.ToLower(s)
 	var result strings.Builder
 	for _, r := range s {
@@ -91,9 +95,11 @@ func sanitizeForCollectionName(s string) string {
 		// Skip other characters
 		}
 	}
-	// Ensure non-empty result
+	// Use hash prefix when result is empty to avoid collisions between
+	// different all-unicode strings that would otherwise all become "default"
 	if result.Len() == 0 {
-		return "default"
+		hash := sha256.Sum256([]byte(original))
+		return "h_" + hex.EncodeToString(hash[:8]) // 16-char hex prefix
 	}
 	return result.String()
 }
@@ -114,10 +120,19 @@ func (s *Service) Index(ctx context.Context, opts IndexOptions) (*IndexResult, e
 		return nil, fmt.Errorf("conversation directory not found: %s", convDir)
 	}
 
-	// Parse all conversations
-	sessionMessages, err := s.parser.ParseAll(convDir)
+	// Parse all conversations with error tracking
+	parseResult, err := s.parser.ParseAllWithErrors(convDir)
 	if err != nil {
 		return nil, fmt.Errorf("parsing conversations: %w", err)
+	}
+	sessionMessages := parseResult.Messages
+
+	// Log parse errors (they're non-fatal)
+	if parseResult.ErrorCount > 0 {
+		s.logger.Warn("encountered parse errors during indexing",
+			zap.Int("error_count", parseResult.ErrorCount),
+			zap.Int("files_with_errors", len(parseResult.Errors)),
+		)
 	}
 
 	// Filter sessions if specified
@@ -155,6 +170,12 @@ func (s *Service) Index(ctx context.Context, opts IndexOptions) (*IndexResult, e
 		FilesReferenced: []string{},
 	}
 	var indexErrors []error
+
+	// Include parse errors in result
+	for _, pe := range parseResult.Errors {
+		indexErrors = append(indexErrors, fmt.Errorf("%s", pe.Error))
+	}
+
 	filesSet := make(map[string]bool)
 
 	// Process each session

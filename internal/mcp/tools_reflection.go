@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/reflection"
 )
@@ -38,6 +39,7 @@ type reflectReportOutput struct {
 	InsightCount  int                           `json:"insight_count" jsonschema:"Number of insights generated"`
 	Format        string                        `json:"format" jsonschema:"Output format used"`
 	FormattedText string                        `json:"formatted_text,omitempty" jsonschema:"Formatted report (for text/markdown)"`
+	ReportPath    string                        `json:"report_path,omitempty" jsonschema:"Path where report was saved (if project_path provided)"`
 }
 
 type reflectAnalyzeInput struct {
@@ -143,9 +145,23 @@ func (s *Server) registerReflectionTools() {
 			}
 		}
 
+		// Persist report to disk if project path is provided
+		if args.ProjectPath != "" {
+			if path, err := StoreReflectionReport(report, args.ProjectPath); err == nil {
+				output.ReportPath = path
+			} else {
+				s.logger.Warn("failed to save reflection report", zap.Error(err))
+			}
+		}
+
+		resultText := fmt.Sprintf("Generated reflection report: %s - %s", report.ID, report.Summary)
+		if output.ReportPath != "" {
+			resultText += fmt.Sprintf("\nReport saved to: %s", output.ReportPath)
+		}
+
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Generated reflection report: %s - %s", report.ID, report.Summary)},
+				&mcp.TextContent{Text: resultText},
 			},
 		}, output, nil
 	})

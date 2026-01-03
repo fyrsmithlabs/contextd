@@ -3,6 +3,7 @@ package extraction
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // HeuristicExtractor implements DecisionExtractor using pattern matching.
@@ -137,19 +138,29 @@ func (h *HeuristicExtractor) buildContext(messages []RawMessage, idx int) []stri
 // formatContextMessage formats a message for context.
 func formatContextMessage(msg RawMessage) string {
 	role := capitalizeFirst(msg.Role)
-	content := msg.Content
-	if len(content) > 200 {
-		content = content[:200] + "..."
-	}
+	content := truncateToRunes(msg.Content, 200)
 	return role + ": " + content
 }
 
-// capitalizeFirst capitalizes the first letter of a string.
-func capitalizeFirst(s string) string {
-	if len(s) == 0 {
+// truncateToRunes truncates a string to a maximum number of runes, preserving UTF-8 validity.
+func truncateToRunes(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	return string(runes[:maxRunes]) + "..."
+}
+
+// capitalizeFirst capitalizes the first letter of a string, preserving UTF-8 validity.
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return strings.ToUpper(string(r)) + s[size:]
 }
 
 // Ensure HeuristicExtractor implements DecisionExtractor.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -349,17 +350,24 @@ func TestService_CollectionName(t *testing.T) {
 			want:        "my_org_my_project_v2_conversations",
 		},
 		{
-			name:        "unicode characters stripped",
+			name:        "unicode characters use hash fallback",
 			tenantID:    "租户",
 			projectPath: "/path/项目",
-			want:        "default_default_conversations",
+			// Each unicode string gets a unique hash, so we test the pattern not exact value
+			want:        "", // Special case: verify in test body
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := service.collectionName(tt.tenantID, tt.projectPath)
-			if got != tt.want {
+			if tt.want == "" {
+				// Special case: verify hash pattern for unicode input
+				// Should be "h_<hash1>_h_<hash2>_conversations"
+				if !strings.HasPrefix(got, "h_") || !strings.Contains(got, "_conversations") {
+					t.Errorf("collectionName(%q, %q) = %q, want hash-based collection name", tt.tenantID, tt.projectPath, got)
+				}
+			} else if got != tt.want {
 				t.Errorf("collectionName(%q, %q) = %q, want %q", tt.tenantID, tt.projectPath, got, tt.want)
 			}
 		})
@@ -368,28 +376,54 @@ func TestService_CollectionName(t *testing.T) {
 
 func TestSanitizeForCollectionName(t *testing.T) {
 	tests := []struct {
-		input string
-		want  string
+		input       string
+		want        string
+		wantHashPrefix bool // When true, verify starts with "h_" instead of exact match
 	}{
-		{"simple", "simple"},
-		{"with-dash", "with_dash"},
-		{"with space", "with_space"},
-		{"with.dot", "with_dot"},
-		{"UPPERCASE", "uppercase"},
-		{"mix123", "mix123"},
-		{"special@#$chars", "specialchars"},
-		{"", "default"},
-		{"!@#$%", "default"},
-		{"test__double", "test__double"},
+		{"simple", "simple", false},
+		{"with-dash", "with_dash", false},
+		{"with space", "with_space", false},
+		{"with.dot", "with_dot", false},
+		{"UPPERCASE", "uppercase", false},
+		{"mix123", "mix123", false},
+		{"special@#$chars", "specialchars", false},
+		{"", "", true},        // Empty string gets hash
+		{"!@#$%", "", true},   // All special chars gets hash
+		{"test__double", "test__double", false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
+		name := tt.input
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
 			got := sanitizeForCollectionName(tt.input)
-			if got != tt.want {
+			if tt.wantHashPrefix {
+				if !strings.HasPrefix(got, "h_") || len(got) != 18 { // "h_" + 16 hex chars
+					t.Errorf("sanitizeForCollectionName(%q) = %q, want h_<16 hex chars>", tt.input, got)
+				}
+			} else if got != tt.want {
 				t.Errorf("sanitizeForCollectionName(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeForCollectionName_DifferentUnicode(t *testing.T) {
+	// Verify different unicode strings produce different hashes
+	hash1 := sanitizeForCollectionName("租户")
+	hash2 := sanitizeForCollectionName("项目")
+	hash3 := sanitizeForCollectionName("租户") // Same as hash1
+
+	if hash1 == hash2 {
+		t.Errorf("Different unicode strings should produce different hashes: %q == %q", hash1, hash2)
+	}
+	if hash1 != hash3 {
+		t.Errorf("Same unicode strings should produce same hash: %q != %q", hash1, hash3)
+	}
+	if !strings.HasPrefix(hash1, "h_") {
+		t.Errorf("Unicode string should produce hash prefix: %q", hash1)
 	}
 }
 

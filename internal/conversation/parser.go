@@ -264,8 +264,27 @@ func (p *Parser) extractContent(blocks []contentBlock) (string, []ToolCall) {
 }
 
 // ParseAll reads all JSONL files in a directory and returns messages grouped by session.
+// ParseAllResult holds results from ParseAll including errors.
+type ParseAllResult struct {
+	Messages   map[string][]RawMessage
+	Errors     []ParseError
+	ErrorCount int
+}
+
 func (p *Parser) ParseAll(dir string) (map[string][]RawMessage, error) {
-	result := make(map[string][]RawMessage)
+	result, err := p.ParseAllWithErrors(dir)
+	if err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
+}
+
+// ParseAllWithErrors parses all JSONL files and returns results with error details.
+func (p *Parser) ParseAllWithErrors(dir string) (*ParseAllResult, error) {
+	result := &ParseAllResult{
+		Messages: make(map[string][]RawMessage),
+		Errors:   make([]ParseError, 0),
+	}
 
 	// Find all JSONL files
 	pattern := filepath.Join(dir, "*.jsonl")
@@ -280,15 +299,33 @@ func (p *Parser) ParseAll(dir string) (map[string][]RawMessage, error) {
 	files = append(files, subdirFiles...)
 
 	for _, file := range files {
-		messages, err := p.Parse(file)
+		parseResult, err := p.ParseWithErrors(file)
 		if err != nil {
-			// Log but continue with other files
+			// Track file-level error but continue with other files
+			result.ErrorCount++
+			if len(result.Errors) < 10 {
+				result.Errors = append(result.Errors, ParseError{
+					Line:  0, // File-level error
+					Error: fmt.Sprintf("file %s: %v", filepath.Base(file), err),
+				})
+			}
 			continue
 		}
 
-		if len(messages) > 0 {
-			sessionID := messages[0].SessionID
-			result[sessionID] = append(result[sessionID], messages...)
+		// Aggregate errors from parsing
+		result.ErrorCount += parseResult.ErrorCount
+		for _, e := range parseResult.Errors {
+			if len(result.Errors) < 10 {
+				result.Errors = append(result.Errors, ParseError{
+					Line:  e.Line,
+					Error: fmt.Sprintf("file %s: %s", filepath.Base(file), e.Error),
+				})
+			}
+		}
+
+		if len(parseResult.Messages) > 0 {
+			sessionID := parseResult.Messages[0].SessionID
+			result.Messages[sessionID] = append(result.Messages[sessionID], parseResult.Messages...)
 		}
 	}
 
