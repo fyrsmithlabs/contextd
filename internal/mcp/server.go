@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/conversation"
 	"github.com/fyrsmithlabs/contextd/internal/folding"
 	"github.com/fyrsmithlabs/contextd/internal/ignore"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
@@ -29,6 +30,7 @@ type Server struct {
 	repositorySvc    *repository.Service
 	troubleshootSvc  *troubleshoot.Service
 	reasoningbankSvc *reasoningbank.Service
+	conversationSvc  conversation.ConversationService
 	foldingSvc       *folding.BranchManager
 	scrubber         secrets.Scrubber
 	ignoreParser     *ignore.Parser
@@ -140,6 +142,12 @@ func NewServer(
 	}
 
 	return s, nil
+}
+
+// SetConversationService sets the optional conversation service.
+// Must be called before Run() to enable conversation tools.
+func (s *Server) SetConversationService(svc conversation.ConversationService) {
+	s.conversationSvc = svc
 }
 
 // Run starts the MCP server on the stdio transport.
