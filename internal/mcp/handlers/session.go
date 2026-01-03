@@ -100,7 +100,7 @@ func (h *SessionHandler) Start(ctx context.Context, input json.RawMessage) (inte
 
 	// Execute session start hook
 	if h.registry.Hooks() != nil {
-		h.registry.Hooks().Execute(ctx, hooks.HookSessionStart, map[string]interface{}{
+		_ = h.registry.Hooks().Execute(ctx, hooks.HookSessionStart, map[string]interface{}{
 			"project_id": req.ProjectID,
 			"session_id": req.SessionID,
 		})
@@ -193,7 +193,7 @@ func (h *SessionHandler) End(ctx context.Context, input json.RawMessage) (interf
 
 	// Execute session end hook
 	if h.registry.Hooks() != nil {
-		h.registry.Hooks().Execute(ctx, hooks.HookSessionEnd, map[string]interface{}{
+		_ = h.registry.Hooks().Execute(ctx, hooks.HookSessionEnd, map[string]interface{}{
 			"project_id": req.ProjectID,
 			"session_id": req.SessionID,
 			"outcome":    req.Outcome,
@@ -242,7 +242,7 @@ func (h *SessionHandler) ContextThreshold(ctx context.Context, input json.RawMes
 
 	// Execute threshold hook
 	if h.registry.Hooks() != nil {
-		h.registry.Hooks().Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
+		_ = h.registry.Hooks().Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
 			"project_id": req.ProjectID,
 			"session_id": req.SessionID,
 			"percent":    req.Percent,

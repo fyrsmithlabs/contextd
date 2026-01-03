@@ -45,7 +45,7 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with AWS API key - pass RAW content, let Developer scrub automatically
 		contentWithSecret := "To fix the AWS connection error, use this key: AKIAIOSFODNN7EXAMPLE"
@@ -84,7 +84,7 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with GitHub personal access token - RAW content
 		contentWithSecret := "Use this token for CI: ghp_1234567890abcdefghijklmnopqrstuv123456"
@@ -122,7 +122,7 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with multiple types of secrets - RAW content
 		contentWithSecrets := `Configuration for production:
@@ -167,7 +167,7 @@ func TestSuiteA_Secrets_A4_SecretScrubbingBeforeStorage(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content without secrets - should pass through unchanged
 		contentNoSecret := "The error occurred because the API endpoint was wrong. Fix by updating the URL to https://api.example.com/v2"
@@ -229,7 +229,7 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with database connection string - pass RAW
 		contentWithSecret := "Database connection: postgres://admin:P@ssw0rd123@db.example.com:5432/mydb"
@@ -271,7 +271,7 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with JWT token - pass RAW
 		contentWithJWT := "Authentication token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
@@ -310,7 +310,7 @@ func TestSuiteA_Secrets_A5_SecretScrubbingInSearchResults(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with Anthropic API key - pass RAW
 		contentWithSecret := "To use Claude API, set your key: sk-ant-api03-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz5678901234567890123456789012345678901234567890"
@@ -370,7 +370,7 @@ func TestSuiteA_Secrets_A6_SecretScrubbingBypassDetection(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with AWS key
 		secretContent := "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
@@ -417,7 +417,7 @@ func TestSuiteA_Secrets_A6_SecretScrubbingBypassDetection(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with private key
 		secretContent := `-----BEGIN RSA PRIVATE KEY-----
@@ -471,7 +471,7 @@ MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Content with GitHub token
 		secretContent := "ghp_1234567890abcdefghijklmnopqrstuv123456"

@@ -97,7 +97,7 @@ func TestSuiteD_MultiSession_CleanResume(t *testing.T) {
 
 		err = dev2.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev2.StopContextd(ctx)
+		defer func() { _ = dev2.StopContextd(ctx) }()
 
 		// Resume from checkpoint
 		resumed, err := dev2.ResumeCheckpoint(ctx, checkpointID)
@@ -142,7 +142,7 @@ func TestSuiteD_MultiSession_CheckpointListAndSelection(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Save multiple checkpoints
 		cp1ID, err := dev.SaveCheckpoint(ctx, CheckpointSaveRequest{
@@ -218,7 +218,7 @@ func TestSuiteD_MultiSession_PartialWorkResume(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Simulate partial work with detailed task tracking
 		workSummary := `User Registration Feature Progress:
@@ -317,7 +317,7 @@ func TestSuiteD_MultiSession_CrossSessionMemoryAccumulation(t *testing.T) {
 
 		err = dev2.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev2.StopContextd(ctx)
+		defer func() { _ = dev2.StopContextd(ctx) }()
 
 		// Resume checkpoint
 		_, err = dev2.ResumeCheckpoint(ctx, checkpointID)
@@ -369,7 +369,7 @@ func TestSuiteD_MultiSession_CheckpointStats(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Initial stats
 		initialStats := dev.SessionStats()
@@ -427,7 +427,7 @@ func TestSuiteD_MultiSession_SessionIDPreservation(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Session ID should be auto-generated on start
 		sessionID := dev.SessionID()

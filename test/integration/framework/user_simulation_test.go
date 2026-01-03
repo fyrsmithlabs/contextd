@@ -52,7 +52,7 @@ func TestUserSimulation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test harness: %v", err)
 	}
-	defer harness.Cleanup(context.Background())
+	defer func() { _ = harness.Cleanup(context.Background()) }()
 
 	// Create developers
 	var developers []*Developer

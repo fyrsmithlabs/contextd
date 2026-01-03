@@ -53,7 +53,7 @@ func TestDeveloperSimulator_StartContextd(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		assert.True(t, dev.IsContextdRunning())
 	})
@@ -70,7 +70,7 @@ func TestDeveloperSimulator_StartContextd(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		err = dev.StartContextd(ctx)
 		assert.Error(t, err)
@@ -91,7 +91,7 @@ func TestDeveloperSimulator_RecordMemory(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		memoryID, err := dev.RecordMemory(ctx, MemoryRecord{
 			Title:   "Test memory",
@@ -117,7 +117,7 @@ func TestDeveloperSimulator_SearchMemory(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a memory first
 		_, err = dev.RecordMemory(ctx, MemoryRecord{
@@ -154,7 +154,7 @@ func TestDeveloperSimulator_GiveFeedback(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record and search for a memory
 		memoryID, err := dev.RecordMemory(ctx, MemoryRecord{
@@ -184,7 +184,7 @@ func TestDeveloperSimulator_SessionTracking(t *testing.T) {
 		ctx := context.Background()
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Perform some operations
 		_, _ = dev.RecordMemory(ctx, MemoryRecord{
@@ -208,7 +208,7 @@ func TestTestHarness(t *testing.T) {
 		require.NoError(t, err)
 
 		ctx := context.Background()
-		defer harness.Cleanup(ctx)
+		defer func() { _ = harness.Cleanup(ctx) }()
 
 		assert.NotNil(t, harness.SharedStore())
 	})
@@ -218,7 +218,7 @@ func TestTestHarness(t *testing.T) {
 		require.NoError(t, err)
 
 		ctx := context.Background()
-		defer harness.Cleanup(ctx)
+		defer func() { _ = harness.Cleanup(ctx) }()
 
 		dev1, err := harness.CreateDeveloper("alice", "tenant-a")
 		require.NoError(t, err)

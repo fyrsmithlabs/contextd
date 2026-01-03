@@ -32,7 +32,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 
 		err = devA.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devA.StopContextd(ctx)
+		defer func() { _ = devA.StopContextd(ctx) }()
 
 		// Dev A records a fix for a null pointer bug
 		memoryID, err := devA.RecordMemory(ctx, MemoryRecord{
@@ -61,7 +61,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 
 		err = devB.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devB.StopContextd(ctx)
+		defer func() { _ = devB.StopContextd(ctx) }()
 
 		// Dev B searches using EXACT title (test embedder uses hash-based similarity)
 		// In production with real embeddings, semantic search would work
@@ -99,7 +99,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		require.NoError(t, err)
 		err = devA.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devA.StopContextd(ctx)
+		defer func() { _ = devA.StopContextd(ctx) }()
 
 		memoryID, err := devA.RecordMemory(ctx, MemoryRecord{
 			Title:   "Database connection pattern",
@@ -119,7 +119,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		require.NoError(t, err)
 		err = devB.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devB.StopContextd(ctx)
+		defer func() { _ = devB.StopContextd(ctx) }()
 
 		err = devB.GiveFeedback(ctx, memoryID, true, "This helped me fix my connection issues")
 		require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		require.NoError(t, err)
 		err = devA.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devA.StopContextd(ctx)
+		defer func() { _ = devA.StopContextd(ctx) }()
 
 		_, err = devA.RecordMemory(ctx, MemoryRecord{
 			Title:   "Auth token refresh pattern",
@@ -168,7 +168,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		require.NoError(t, err)
 		err = devB.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devB.StopContextd(ctx)
+		defer func() { _ = devB.StopContextd(ctx) }()
 
 		_, err = devB.RecordMemory(ctx, MemoryRecord{
 			Title:   "API rate limiting best practice",
@@ -188,7 +188,7 @@ func TestCrossDeveloperKnowledgeSharing(t *testing.T) {
 		require.NoError(t, err)
 		err = devC.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devC.StopContextd(ctx)
+		defer func() { _ = devC.StopContextd(ctx) }()
 
 		// Search for auth knowledge (from Dev A)
 		authResults, err := devC.SearchMemory(ctx, "auth token refresh", 5)
