@@ -166,16 +166,17 @@ func TestService_Index_EmptyDir(t *testing.T) {
 		ConversationsPath: tmpDir,
 	})
 
-	result, err := service.Index(context.Background(), IndexOptions{
+	_, err := service.Index(context.Background(), IndexOptions{
 		TenantID:    "test-tenant",
 		ProjectPath: tmpDir,
 	})
-	if err != nil {
-		t.Fatalf("Index() error = %v", err)
-	}
 
-	if result.SessionsIndexed != 0 {
-		t.Errorf("result.SessionsIndexed = %d, want 0", result.SessionsIndexed)
+	// Empty directories (no JSONL files) should now return an error
+	if err == nil {
+		t.Error("Index() expected error for empty directory, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "no conversation files found") {
+		t.Errorf("Index() error = %v, want error containing 'no conversation files found'", err)
 	}
 }
 

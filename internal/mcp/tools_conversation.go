@@ -16,7 +16,7 @@ type conversationIndexInput struct {
 	ProjectPath string   `json:"project_path" jsonschema:"required,Path to project to index conversations for"`
 	TenantID    string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
 	SessionIDs  []string `json:"session_ids,omitempty" jsonschema:"Specific session IDs to index (empty = all)"`
-	EnableLLM   bool     `json:"enable_llm,omitempty" jsonschema:"Enable LLM-based decision extraction (default: false)"`
+	EnableLLM   bool     `json:"enable_llm,omitempty" jsonschema:"Enable LLM-based decision extraction (default: false). NOTE: LLM summarization is not yet implemented - this flag is reserved for future use. Currently uses heuristic extraction only."`
 	Force       bool     `json:"force,omitempty" jsonschema:"Force reindexing of existing sessions (default: false)"`
 }
 
@@ -55,7 +55,7 @@ func (s *Server) registerConversationTools() {
 	// conversation_index
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "conversation_index",
-		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search.",
+		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
 		tenantID := args.TenantID
 		if tenantID == "" && args.ProjectPath != "" {
@@ -71,6 +71,11 @@ func (s *Server) registerConversationTools() {
 			SessionIDs:  args.SessionIDs,
 			EnableLLM:   args.EnableLLM,
 			Force:       args.Force,
+		}
+
+		// Warn if LLM is requested but not implemented
+		if args.EnableLLM {
+			s.logger.Warn("enable_llm=true requested but LLM summarization is not yet implemented; using heuristic extraction only")
 		}
 
 		result, err := s.conversationSvc.Index(ctx, opts)

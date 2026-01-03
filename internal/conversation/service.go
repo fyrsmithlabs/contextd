@@ -120,9 +120,22 @@ func (s *Service) Index(ctx context.Context, opts IndexOptions) (*IndexResult, e
 	)
 
 	// Determine conversation directory
-	convDir := s.getConversationDir(opts.ProjectPath)
+	convDir, usedFallback := s.getConversationDir(opts.ProjectPath)
 	if _, err := os.Stat(convDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("conversation directory not found: %s", convDir)
+	}
+
+	// Warn if using fallback path (may contain unrelated conversations)
+	if usedFallback {
+		s.logger.Warn("using fallback conversation directory; results may include unrelated projects",
+			zap.String("fallback_dir", convDir),
+			zap.String("requested_project", opts.ProjectPath),
+		)
+	}
+
+	// Validate directory contains JSONL files
+	if !hasJSONLFiles(convDir) {
+		return nil, fmt.Errorf("no conversation files found in directory: %s", convDir)
 	}
 
 	// Parse all conversations with error tracking
@@ -243,7 +256,8 @@ func (s *Service) Index(ctx context.Context, opts IndexOptions) (*IndexResult, e
 }
 
 // getConversationDir determines the conversation directory for a project.
-func (s *Service) getConversationDir(projectPath string) string {
+// Returns the directory path and a boolean indicating if fallback was used.
+func (s *Service) getConversationDir(projectPath string) (string, bool) {
 	// Claude Code stores conversations in ~/.claude/projects/{project-hash}/
 	// We need to find the right directory based on project path
 
@@ -253,12 +267,26 @@ func (s *Service) getConversationDir(projectPath string) string {
 	projectDir := filepath.Join(s.conversationsPath, projectName)
 
 	if _, err := os.Stat(projectDir); err == nil {
-		return projectDir
+		return projectDir, false
 	}
 
 	// Try with path hash (Claude's actual behavior)
-	// For MVP, just return base path
-	return s.conversationsPath
+	// For MVP, just return base path with fallback indicator
+	return s.conversationsPath, true
+}
+
+// hasJSONLFiles checks if a directory contains any JSONL files.
+func hasJSONLFiles(dir string) bool {
+	pattern := filepath.Join(dir, "*.jsonl")
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) > 0 {
+		return len(files) > 0
+	}
+
+	// Also check subdirectories
+	subdirPattern := filepath.Join(dir, "*", "*.jsonl")
+	subdirFiles, _ := filepath.Glob(subdirPattern)
+	return len(subdirFiles) > 0
 }
 
 // messageToDocument converts a RawMessage to a MessageDocument.
