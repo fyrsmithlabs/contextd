@@ -65,6 +65,10 @@ func NewHeuristicExtractor(cfg ExtractionConfig) (*HeuristicExtractor, error) {
 
 // Extract finds decision candidates in messages using pattern matching.
 func (h *HeuristicExtractor) Extract(messages []RawMessage) ([]DecisionCandidate, error) {
+	if len(messages) == 0 {
+		return []DecisionCandidate{}, nil
+	}
+
 	var candidates []DecisionCandidate
 
 	for i, msg := range messages {

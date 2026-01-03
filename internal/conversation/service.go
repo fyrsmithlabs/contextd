@@ -80,6 +80,11 @@ func (s *Service) collectionName(tenantID, projectPath string) string {
 // sanitizeForCollectionName ensures a string is safe for use in collection names.
 // Only allows alphanumeric characters and underscores.
 // Uses a hash prefix when sanitization produces no alphanumeric characters to avoid collisions.
+//
+// Hash collision note: When using hash fallback, we use first 8 bytes of SHA-256 (2^64 space).
+// This provides sufficient collision resistance for typical tenant/project naming scenarios.
+// For untrusted input with adversarial collision attempts, consider using full hash or
+// adding collision detection in CreateCollection.
 func sanitizeForCollectionName(s string) string {
 	original := s
 	s = strings.ToLower(s)

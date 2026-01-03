@@ -152,7 +152,7 @@ func (p *Parser) parseMessage(jm jsonlMessage, path string) (*RawMessage, error)
 	sessionID := jm.SessionID
 	if sessionID == "" {
 		// Try to extract from filename (often session UUID)
-		sessionID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		sessionID = extractSessionID(path)
 	}
 
 	// Parse timestamp

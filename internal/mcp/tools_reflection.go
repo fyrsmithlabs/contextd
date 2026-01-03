@@ -77,11 +77,14 @@ func (s *Server) registerReflectionTools() {
 			periodDays = 30
 		}
 
-		// Determine what to include - if nothing specified, include everything
+		// Determine what to include in the report.
+		// Default behavior: If user doesn't explicitly set any include flags, include everything.
+		// If user sets at least one flag, respect their explicit choices (only include what they asked for).
 		includePatterns := args.IncludePatterns
 		includeCorrelations := args.IncludeCorrelations
 		includeInsights := args.IncludeInsights
 		if !includePatterns && !includeCorrelations && !includeInsights {
+			// No explicit flags set - default to including all sections
 			includePatterns = true
 			includeCorrelations = true
 			includeInsights = true
