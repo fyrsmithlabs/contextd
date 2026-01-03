@@ -37,6 +37,12 @@ func (s *Server) registerTools() error {
 	// Folding tools (context-folding branch/return)
 	s.registerFoldingTools()
 
+	// Conversation tools (conversation indexing and search)
+	s.registerConversationTools()
+
+	// Reflection tools (pattern analysis and reporting)
+	s.registerReflectionTools()
+
 	return nil
 }
 
