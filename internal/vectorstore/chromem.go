@@ -444,7 +444,7 @@ func (s *ChromemStore) DeleteDocumentsFromCollection(ctx context.Context, collec
 
 // CreateCollection creates a new collection with the specified configuration.
 func (s *ChromemStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
-	ctx, span := chromemTracer.Start(ctx, "ChromemStore.CreateCollection")
+	_, span := chromemTracer.Start(ctx, "ChromemStore.CreateCollection")
 	defer span.End()
 
 	span.SetAttributes(
@@ -497,7 +497,7 @@ func (s *ChromemStore) CreateCollection(ctx context.Context, collectionName stri
 
 // DeleteCollection deletes a collection and all its documents.
 func (s *ChromemStore) DeleteCollection(ctx context.Context, collectionName string) error {
-	ctx, span := chromemTracer.Start(ctx, "ChromemStore.DeleteCollection")
+	_, span := chromemTracer.Start(ctx, "ChromemStore.DeleteCollection")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("collection", collectionName))
@@ -524,7 +524,7 @@ func (s *ChromemStore) DeleteCollection(ctx context.Context, collectionName stri
 
 // CollectionExists checks if a collection exists.
 func (s *ChromemStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
-	ctx, span := chromemTracer.Start(ctx, "ChromemStore.CollectionExists")
+	_, span := chromemTracer.Start(ctx, "ChromemStore.CollectionExists")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("collection", collectionName))
@@ -543,7 +543,7 @@ func (s *ChromemStore) CollectionExists(ctx context.Context, collectionName stri
 
 // ListCollections returns a list of all collection names.
 func (s *ChromemStore) ListCollections(ctx context.Context) ([]string, error) {
-	ctx, span := chromemTracer.Start(ctx, "ChromemStore.ListCollections")
+	_, span := chromemTracer.Start(ctx, "ChromemStore.ListCollections")
 	defer span.End()
 
 	collectionsMap := s.db.ListCollections()
@@ -560,7 +560,7 @@ func (s *ChromemStore) ListCollections(ctx context.Context) ([]string, error) {
 
 // GetCollectionInfo returns metadata about a collection.
 func (s *ChromemStore) GetCollectionInfo(ctx context.Context, collectionName string) (*CollectionInfo, error) {
-	ctx, span := chromemTracer.Start(ctx, "ChromemStore.GetCollectionInfo")
+	_, span := chromemTracer.Start(ctx, "ChromemStore.GetCollectionInfo")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("collection", collectionName))

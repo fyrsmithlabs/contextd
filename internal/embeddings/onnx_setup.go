@@ -183,10 +183,7 @@ func extractTarGz(r io.Reader, destDir, version, platform string) error {
 		}
 
 		// Normalize path - strip leading "./" if present
-		name := header.Name
-		if strings.HasPrefix(name, "./") {
-			name = name[2:]
-		}
+		name := strings.TrimPrefix(header.Name, "./")
 
 		// Only extract files from the lib directory
 		if !strings.HasPrefix(name, expectedPrefix) {

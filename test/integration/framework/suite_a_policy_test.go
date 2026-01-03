@@ -85,7 +85,7 @@ func TestSuiteA_Policy_TDDEnforcement(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Step 1: Developer records TDD policy
 		policyMemoryID, err := dev.RecordMemory(ctx, MemoryRecord{
@@ -193,7 +193,7 @@ func TestSuiteA_Policy_ConventionalCommits(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Step 1: Developer records conventional commits policy
 		policyMemoryID, err := dev.RecordMemory(ctx, MemoryRecord{
@@ -314,7 +314,7 @@ func TestSuiteA_Policy_NoSecrets(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Step 1: Developer records no secrets policy
 		policyMemoryID, err := dev.RecordMemory(ctx, MemoryRecord{
@@ -434,7 +434,7 @@ func TestSuiteA_Policy_NoSecrets(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a comprehensive secrets policy
 		_, err = dev.RecordMemory(ctx, MemoryRecord{
@@ -489,7 +489,7 @@ func TestSuiteA_Policy_CrossDeveloperPolicySharing(t *testing.T) {
 
 		err = devA.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devA.StopContextd(ctx)
+		defer func() { _ = devA.StopContextd(ctx) }()
 
 		policyID, err := devA.RecordMemory(ctx, MemoryRecord{
 			Title:   "Code review policy",
@@ -511,7 +511,7 @@ func TestSuiteA_Policy_CrossDeveloperPolicySharing(t *testing.T) {
 
 		err = devB.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devB.StopContextd(ctx)
+		defer func() { _ = devB.StopContextd(ctx) }()
 
 		results, err := devB.SearchMemory(ctx, "code review pull request approval", 5)
 		require.NoError(t, err)

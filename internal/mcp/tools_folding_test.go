@@ -331,7 +331,6 @@ func TestFoldingTools_MaxDepthEnforcement(t *testing.T) {
 	// Default max depth is 3, so we should be able to create 3 nested branches (depths 0, 1, 2)
 	// The 4th branch (depth 3) should fail
 
-	var branchIDs []string
 	for i := 0; i < 3; i++ {
 		req := folding.BranchRequest{
 			SessionID:   sessionID,
@@ -341,7 +340,6 @@ func TestFoldingTools_MaxDepthEnforcement(t *testing.T) {
 		resp, err := foldingSvc.Create(ctx, req)
 		require.NoError(t, err, "should create branch at depth %d", i)
 		assert.Equal(t, i, resp.Depth)
-		branchIDs = append(branchIDs, resp.BranchID)
 	}
 
 	// 4th branch should fail (would be depth 3, exceeds max depth of 3)

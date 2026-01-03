@@ -294,7 +294,7 @@ func TestFetchStatusHTTP(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/api/v1/status", r.URL.Path)
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(mockStatus)
+			_ = json.NewEncoder(w).Encode(mockStatus)
 		}))
 		defer server.Close()
 
@@ -324,7 +324,7 @@ func TestFetchStatusHTTP(t *testing.T) {
 	t.Run("handles non-200 status", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
+			_, _ = w.Write([]byte("internal error"))
 		}))
 		defer server.Close()
 
@@ -341,7 +341,7 @@ func TestFetchStatusHTTP(t *testing.T) {
 	t.Run("handles invalid json response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("not valid json"))
+			_, _ = w.Write([]byte("not valid json"))
 		}))
 		defer server.Close()
 

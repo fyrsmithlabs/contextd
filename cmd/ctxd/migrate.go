@@ -99,9 +99,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to list Qdrant collections: %w", err)
 		}
-		for _, c := range result {
-			collections = append(collections, c)
-		}
+		collections = append(collections, result...)
 		if len(collections) == 0 {
 			fmt.Println("No collections found in Qdrant")
 			return nil
@@ -262,7 +260,13 @@ func convertQdrantPoint(point *qdrant.RetrievedPoint) *chromem.Document {
 	var embedding []float32
 	if vectors := point.GetVectors(); vectors != nil {
 		if v := vectors.GetVector(); v != nil {
-			embedding = v.GetData()
+			// Use new API: GetDense() for dense vectors, fallback to deprecated Data for compatibility
+			if dense := v.GetDense(); dense != nil {
+				embedding = dense.Data
+			} else {
+				//nolint:staticcheck // fallback for older qdrant versions
+				embedding = v.Data
+			}
 		}
 	}
 

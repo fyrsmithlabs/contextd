@@ -15,27 +15,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
-	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
-
-// injectTenantContext adds tenant information to context for payload-based isolation.
-// This enables vectorstore operations to automatically filter by tenant when using
-// PayloadIsolation mode. The tenant info is derived from:
-//   - tenantID: organization/user identifier (required)
-//   - teamID: team scope (optional, empty string if not applicable)
-//   - projectID: project scope (optional, empty string if not applicable)
-//
-// Returns the original context if tenantID is empty.
-func injectTenantContext(ctx context.Context, tenantID, teamID, projectID string) context.Context {
-	if tenantID == "" {
-		return ctx
-	}
-	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		TeamID:    teamID,
-		ProjectID: projectID,
-	})
-}
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
@@ -478,13 +458,15 @@ type repositorySearchInput struct {
 	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
 	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content mode: minimal (default), preview, or full"`
 }
 
 type repositorySearchOutput struct {
-	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count   int                      `json:"count" jsonschema:"Number of results returned"`
-	Query   string                   `json:"query" jsonschema:"Original search query"`
-	Branch  string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	Results     []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
+	Count       int                      `json:"count" jsonschema:"Number of results returned"`
+	Query       string                   `json:"query" jsonschema:"Original search query"`
+	Branch      string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	ContentMode string                   `json:"content_mode" jsonschema:"Content mode used"`
 }
 
 func (s *Server) registerRepositoryTools() {
@@ -542,9 +524,8 @@ func (s *Server) registerRepositoryTools() {
 			source = "grep"
 
 			// Parse project's ignore files for grep
-			excludePatterns := []string{}
-			parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath)
-			if parseErr != nil {
+			var excludePatterns []string
+			if parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath); parseErr != nil {
 				s.logger.Warn("failed to parse ignore files for grep, using fallback",
 					zap.String("path", args.ProjectPath),
 					zap.Error(parseErr))
@@ -631,26 +612,67 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositorySearchOutput{}, fmt.Errorf("repository search failed: %w", err)
 		}
 
-		// Convert to output format
+		// Content mode constants
+		const (
+			previewMaxRunes = 200
+			previewEllipsis = "..."
+		)
+
+		// Determine content mode (default: minimal)
+		contentMode := args.ContentMode
+		if contentMode == "" {
+			contentMode = "minimal"
+		}
+
+		// Validate content_mode enum value
+		switch contentMode {
+		case "minimal", "preview", "full":
+			// Valid content mode
+		default:
+			return nil, repositorySearchOutput{}, fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+		}
+
+		// Convert to output format based on content mode
 		outputResults := make([]map[string]interface{}, 0, len(results))
 		for _, r := range results {
-			// Scrub content before returning
-			scrubbedContent := s.scrubber.Scrub(r.Content).Scrubbed
-
-			outputResults = append(outputResults, map[string]interface{}{
+			result := map[string]interface{}{
 				"file_path": r.FilePath,
-				"content":   scrubbedContent,
 				"score":     r.Score,
 				"branch":    r.Branch,
-				"metadata":  r.Metadata,
-			})
+			}
+
+			// Scrub content once before use (only if needed)
+			var scrubbedContent string
+			if contentMode == "full" || contentMode == "preview" {
+				scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
+			}
+
+			switch contentMode {
+			case "full":
+				// Full mode: include complete content and metadata
+				result["content"] = scrubbedContent
+				result["metadata"] = r.Metadata
+			case "preview":
+				// Preview mode: include first 200 characters (UTF-8 safe)
+				preview := scrubbedContent
+				runes := []rune(preview)
+				if len(runes) > previewMaxRunes {
+					preview = string(runes[:previewMaxRunes]) + previewEllipsis
+				}
+				result["content_preview"] = preview
+			case "minimal":
+				// Minimal mode: no content added - just file_path, score, branch
+			}
+
+			outputResults = append(outputResults, result)
 		}
 
 		output := repositorySearchOutput{
-			Results: outputResults,
-			Count:   len(outputResults),
-			Query:   args.Query,
-			Branch:  args.Branch,
+			Results:     outputResults,
+			Count:       len(outputResults),
+			Query:       args.Query,
+			Branch:      args.Branch,
+			ContentMode: contentMode,
 		}
 
 		return &mcp.CallToolResult{

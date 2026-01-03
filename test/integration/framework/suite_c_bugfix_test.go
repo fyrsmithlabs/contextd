@@ -68,7 +68,7 @@ func TestSuiteC_BugFix_SameBugRetrieval(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a bug fix
 		bugTitle := "nil pointer dereference in user service"
@@ -135,7 +135,7 @@ func TestSuiteC_BugFix_SimilarBugAdaptation(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a bug fix for one service
 		originalBugContent := `
@@ -198,7 +198,7 @@ func TestSuiteC_BugFix_FalsePositivePrevention(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a specific bug fix
 		_, err = dev.RecordMemory(ctx, MemoryRecord{
@@ -254,7 +254,7 @@ func TestSuiteC_BugFix_ConfidenceDecayOnNegativeFeedback(t *testing.T) {
 
 		err = dev.StartContextd(ctx)
 		require.NoError(t, err)
-		defer dev.StopContextd(ctx)
+		defer func() { _ = dev.StopContextd(ctx) }()
 
 		// Record a bug fix
 		memoryID, err := dev.RecordMemory(ctx, MemoryRecord{
@@ -327,11 +327,11 @@ func TestSuiteC_BugFix_KnowledgeTransferWorkflow(t *testing.T) {
 		// Start both developers
 		err = devSenior.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devSenior.StopContextd(ctx)
+		defer func() { _ = devSenior.StopContextd(ctx) }()
 
 		err = devJunior.StartContextd(ctx)
 		require.NoError(t, err)
-		defer devJunior.StopContextd(ctx)
+		defer func() { _ = devJunior.StopContextd(ctx) }()
 
 		// Senior developer records a bug fix
 		bugFixContent := `

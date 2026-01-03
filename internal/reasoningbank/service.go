@@ -488,7 +488,6 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 			zap.String("memory_id", memoryID),
 			zap.Error(err))
 		memory.AdjustConfidence(helpful)
-		newConfidence = memory.Confidence
 	} else {
 		memory.Confidence = newConfidence
 	}
@@ -731,7 +730,7 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 				memory.Confidence = 0.0
 			}
 		}
-		newConfidence = memory.Confidence
+		// newConfidence not needed in fallback - memory.Confidence is already updated
 	} else {
 		memory.Confidence = newConfidence
 	}
