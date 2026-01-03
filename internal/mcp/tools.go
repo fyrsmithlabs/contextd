@@ -478,13 +478,15 @@ type repositorySearchInput struct {
 	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
 	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content mode: minimal (default), preview, or full"`
 }
 
 type repositorySearchOutput struct {
-	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count   int                      `json:"count" jsonschema:"Number of results returned"`
-	Query   string                   `json:"query" jsonschema:"Original search query"`
-	Branch  string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	Results     []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
+	Count       int                      `json:"count" jsonschema:"Number of results returned"`
+	Query       string                   `json:"query" jsonschema:"Original search query"`
+	Branch      string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	ContentMode string                   `json:"content_mode" jsonschema:"Content mode used"`
 }
 
 func (s *Server) registerRepositoryTools() {
@@ -631,26 +633,67 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositorySearchOutput{}, fmt.Errorf("repository search failed: %w", err)
 		}
 
-		// Convert to output format
+		// Content mode constants
+		const (
+			previewMaxRunes = 200
+			previewEllipsis = "..."
+		)
+
+		// Determine content mode (default: minimal)
+		contentMode := args.ContentMode
+		if contentMode == "" {
+			contentMode = "minimal"
+		}
+
+		// Validate content_mode enum value
+		switch contentMode {
+		case "minimal", "preview", "full":
+			// Valid content mode
+		default:
+			return nil, repositorySearchOutput{}, fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+		}
+
+		// Convert to output format based on content mode
 		outputResults := make([]map[string]interface{}, 0, len(results))
 		for _, r := range results {
-			// Scrub content before returning
-			scrubbedContent := s.scrubber.Scrub(r.Content).Scrubbed
-
-			outputResults = append(outputResults, map[string]interface{}{
+			result := map[string]interface{}{
 				"file_path": r.FilePath,
-				"content":   scrubbedContent,
 				"score":     r.Score,
 				"branch":    r.Branch,
-				"metadata":  r.Metadata,
-			})
+			}
+
+			// Scrub content once before use (only if needed)
+			var scrubbedContent string
+			if contentMode == "full" || contentMode == "preview" {
+				scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
+			}
+
+			switch contentMode {
+			case "full":
+				// Full mode: include complete content and metadata
+				result["content"] = scrubbedContent
+				result["metadata"] = r.Metadata
+			case "preview":
+				// Preview mode: include first 200 characters (UTF-8 safe)
+				preview := scrubbedContent
+				runes := []rune(preview)
+				if len(runes) > previewMaxRunes {
+					preview = string(runes[:previewMaxRunes]) + previewEllipsis
+				}
+				result["content_preview"] = preview
+			case "minimal":
+				// Minimal mode: no content added - just file_path, score, branch
+			}
+
+			outputResults = append(outputResults, result)
 		}
 
 		output := repositorySearchOutput{
-			Results: outputResults,
-			Count:   len(outputResults),
-			Query:   args.Query,
-			Branch:  args.Branch,
+			Results:     outputResults,
+			Count:       len(outputResults),
+			Query:       args.Query,
+			Branch:      args.Branch,
+			ContentMode: contentMode,
 		}
 
 		return &mcp.CallToolResult{

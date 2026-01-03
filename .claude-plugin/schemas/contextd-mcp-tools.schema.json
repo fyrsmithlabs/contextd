@@ -322,7 +322,13 @@
         "project_path": { "type": "string", "description": "Project path to search within. SECURITY: Path must be within user home directory or an authorized project directory." },
         "tenant_id": { "type": "string", "description": "Tenant identifier (defaults to tenant derived from git remote URL org/owner name)" },
         "branch": { "type": "string", "description": "Filter by branch (empty = all branches)" },
-        "limit": { "type": "integer", "default": 10, "description": "Maximum results (default: 10)" }
+        "limit": { "type": "integer", "default": 10, "description": "Maximum results (default: 10)" },
+        "content_mode": {
+          "type": "string",
+          "enum": ["minimal", "preview", "full"],
+          "default": "minimal",
+          "description": "Content inclusion mode: minimal (path/score/branch only, ~100 tokens/result), preview (first 200 chars, ~150 tokens/result), full (complete content, ~2k tokens/result)"
+        }
       },
       "required": ["query", "project_path"]
     },
@@ -337,18 +343,22 @@
             "type": "object",
             "properties": {
               "file_path": { "type": "string", "description": "File path" },
-              "content": { "type": "string", "description": "Matched content" },
               "score": { "type": "number", "description": "Similarity score" },
-              "metadata": { "type": "object", "additionalProperties": true, "description": "Additional metadata" }
-            }
+              "branch": { "type": "string", "description": "Branch name" },
+              "content": { "type": "string", "description": "Full content (only in 'full' mode)" },
+              "content_preview": { "type": "string", "description": "First 200 chars (only in 'preview' mode)" },
+              "metadata": { "type": "object", "additionalProperties": true, "description": "Additional metadata (only in 'full' mode)" }
+            },
+            "required": ["file_path", "score", "branch"]
           },
-          "description": "Search results with file paths and content"
+          "description": "Search results with file paths and optional content based on content_mode"
         },
         "count": { "type": "integer", "description": "Number of results returned" },
         "query": { "type": "string", "description": "Original search query" },
-        "branch": { "type": "string", "description": "Branch filter applied (if any)" }
+        "branch": { "type": "string", "description": "Branch filter applied (if any)" },
+        "content_mode": { "type": "string", "description": "Content mode used for results" }
       },
-      "required": ["results", "count", "query"]
+      "required": ["results", "count", "query", "content_mode"]
     },
 
     "troubleshoot_diagnose_input": {
