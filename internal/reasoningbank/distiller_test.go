@@ -1514,6 +1514,16 @@ func TestMergeCluster_MemoryLinking(t *testing.T) {
 	assert.Equal(t, consolidatedMem.ID, *updatedMem2.ConsolidationID,
 		"source memory 2 should link to consolidated memory")
 
+	// Verify source memories are marked as archived
+	assert.Equal(t, MemoryStateArchived, updatedMem1.State,
+		"source memory 1 should be archived")
+	assert.Equal(t, MemoryStateArchived, updatedMem2.State,
+		"source memory 2 should be archived")
+
+	// Verify consolidated memory is active
+	assert.Equal(t, MemoryStateActive, consolidatedMem.State,
+		"consolidated memory should be active")
+
 	// Verify original content is preserved
 	assert.Equal(t, "Source Memory 1", updatedMem1.Title)
 	assert.Equal(t, "Content 1", updatedMem1.Content)
@@ -2208,4 +2218,90 @@ func TestClampConfidence(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// TestLinkMemoriesToConsolidated_ArchivedState tests that source memories are marked as archived.
+func TestLinkMemoriesToConsolidated_ArchivedState(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger)
+	require.NoError(t, err)
+
+	projectID := "archive-test-project"
+
+	// Create source memories in active state
+	mem1, _ := NewMemory(projectID, "Memory to Archive 1", "Content 1", OutcomeSuccess, []string{"test"})
+	require.Equal(t, MemoryStateActive, mem1.State, "new memory should be active")
+	require.NoError(t, svc.Record(ctx, mem1))
+
+	mem2, _ := NewMemory(projectID, "Memory to Archive 2", "Content 2", OutcomeSuccess, []string{"test"})
+	require.Equal(t, MemoryStateActive, mem2.State, "new memory should be active")
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Create consolidated memory
+	consolidatedMem, _ := NewMemory(projectID, "Consolidated Memory", "Merged content", OutcomeSuccess, []string{"consolidated"})
+	require.NoError(t, svc.Record(ctx, consolidatedMem))
+
+	// Link source memories to consolidated version
+	err = distiller.linkMemoriesToConsolidated(ctx, projectID, []string{mem1.ID, mem2.ID}, consolidatedMem.ID)
+	require.NoError(t, err)
+
+	// Retrieve updated memories
+	updatedMem1, err := svc.GetByProjectID(ctx, projectID, mem1.ID)
+	require.NoError(t, err)
+	updatedMem2, err := svc.GetByProjectID(ctx, projectID, mem2.ID)
+	require.NoError(t, err)
+
+	// Verify memories are marked as archived
+	assert.Equal(t, MemoryStateArchived, updatedMem1.State,
+		"linked memory should be archived")
+	assert.Equal(t, MemoryStateArchived, updatedMem2.State,
+		"linked memory should be archived")
+
+	// Verify ConsolidationID is set
+	require.NotNil(t, updatedMem1.ConsolidationID)
+	require.NotNil(t, updatedMem2.ConsolidationID)
+	assert.Equal(t, consolidatedMem.ID, *updatedMem1.ConsolidationID)
+	assert.Equal(t, consolidatedMem.ID, *updatedMem2.ConsolidationID)
+
+	// Verify original content is preserved
+	assert.Equal(t, "Memory to Archive 1", updatedMem1.Title)
+	assert.Equal(t, "Content 1", updatedMem1.Content)
+	assert.Equal(t, []string{"test"}, updatedMem1.Tags)
+	assert.Equal(t, "Memory to Archive 2", updatedMem2.Title)
+	assert.Equal(t, "Content 2", updatedMem2.Content)
+	assert.Equal(t, []string{"test"}, updatedMem2.Tags)
+}
+
+// TestMemoryState_NewMemoryIsActive tests that new memories are created in active state.
+func TestMemoryState_NewMemoryIsActive(t *testing.T) {
+	mem, err := NewMemory("test-project", "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+	require.NoError(t, err)
+	assert.Equal(t, MemoryStateActive, mem.State, "new memory should be in active state")
+}
+
+// TestMemoryState_Validation tests that State field is validated.
+func TestMemoryState_Validation(t *testing.T) {
+	mem, err := NewMemory("test-project", "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
+	require.NoError(t, err)
+
+	// Valid states should pass validation
+	mem.State = MemoryStateActive
+	assert.NoError(t, mem.Validate(), "active state should be valid")
+
+	mem.State = MemoryStateArchived
+	assert.NoError(t, mem.Validate(), "archived state should be valid")
+
+	// Invalid state should fail validation
+	mem.State = "invalid"
+	assert.Error(t, mem.Validate(), "invalid state should fail validation")
+	assert.Contains(t, mem.Validate().Error(), "state must be 'active' or 'archived'")
 }

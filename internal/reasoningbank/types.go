@@ -30,6 +30,18 @@ const (
 	OutcomeFailure Outcome = "failure"
 )
 
+// MemoryState represents the lifecycle state of a memory.
+type MemoryState string
+
+const (
+	// MemoryStateActive indicates the memory is actively used in searches.
+	MemoryStateActive MemoryState = "active"
+
+	// MemoryStateArchived indicates the memory has been consolidated into another memory.
+	// Archived memories are preserved for attribution but excluded from normal searches.
+	MemoryStateArchived MemoryState = "archived"
+)
+
 // Memory represents a cross-session memory in the ReasoningBank.
 //
 // Memories are distilled strategies learned from agent interactions.
@@ -75,6 +87,11 @@ type Memory struct {
 	// resulting ConsolidatedMemory. The original memory is preserved for attribution.
 	ConsolidationID *string `json:"consolidation_id,omitempty"`
 
+	// State indicates the lifecycle state of this memory (active or archived).
+	// Archived memories have been consolidated into other memories but are preserved
+	// for attribution and traceability. They are excluded from normal searches.
+	State MemoryState `json:"state"`
+
 	// CreatedAt is when the memory was created.
 	CreatedAt time.Time `json:"created_at"`
 
@@ -107,6 +124,7 @@ func NewMemory(projectID, title, content string, outcome Outcome, tags []string)
 		Confidence: 0.5, // Default confidence (neutral)
 		UsageCount: 0,
 		Tags:       tags,
+		State:      MemoryStateActive, // New memories are active by default
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil
@@ -137,6 +155,9 @@ func (m *Memory) Validate() error {
 	}
 	if m.UsageCount < 0 {
 		return errors.New("usage count cannot be negative")
+	}
+	if m.State != MemoryStateActive && m.State != MemoryStateArchived {
+		return errors.New("state must be 'active' or 'archived'")
 	}
 	return nil
 }

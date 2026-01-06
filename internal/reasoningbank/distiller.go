@@ -738,6 +738,7 @@ func parseConsolidatedMemory(llmResponse string, sourceIDs []string) (*Memory, e
 		Confidence:  DistilledConfidence, // Start with distilled confidence
 		UsageCount:  0,
 		Tags:        tags,
+		State:       MemoryStateActive, // Consolidated memories are active
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -1061,8 +1062,9 @@ func clampConfidence(confidence float64) float64 {
 // linkMemoriesToConsolidated updates source memories to link them to the consolidated version.
 //
 // This method updates each source memory's ConsolidationID field to point to the
-// consolidated memory. The source memories are preserved with their original content
-// for attribution and traceability.
+// consolidated memory and marks them as 'archived'. The source memories are preserved
+// with their original content for attribution and traceability, but are excluded from
+// normal searches.
 //
 // Note: This is a helper method and errors are logged but not propagated to avoid
 // failing the consolidation if linking fails (the consolidated memory is already created).
@@ -1077,8 +1079,9 @@ func (d *Distiller) linkMemoriesToConsolidated(ctx context.Context, projectID st
 			continue
 		}
 
-		// Set consolidation ID
+		// Set consolidation ID and mark as archived
 		memory.ConsolidationID = &consolidatedID
+		memory.State = MemoryStateArchived
 		memory.UpdatedAt = time.Now()
 
 		// Update the memory in storage
