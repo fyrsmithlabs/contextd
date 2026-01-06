@@ -1,6 +1,6 @@
 # Memory Distiller Implementation - Build Progress
 
-## Status: PLANNING COMPLETE
+## Status: IN PROGRESS - Phase 2
 **Last Updated**: 2026-01-06
 
 ## Overview
@@ -26,15 +26,15 @@ Implementing real memory consolidation to replace the stub distiller. The system
 
 ## Phase Progress
 
-### Phase 1: Core Consolidation Types & Interface [PENDING]
-- [ ] ConsolidatedMemory type with SourceIDs, ConsolidationType
-- [ ] SimilarityCluster type for grouping similar memories
-- [ ] ConsolidationResult type for operation results
-- [ ] MemoryConsolidator interface
+### Phase 1: Core Consolidation Types & Interface [COMPLETED]
+- [x] ConsolidatedMemory type with SourceIDs, ConsolidationType (commit 4a06478)
+- [x] SimilarityCluster type for grouping similar memories (commit 5ceaeac)
+- [x] ConsolidationResult type for operation results (commit bffac35)
+- [x] MemoryConsolidator interface (commit 36c1fd8)
 
-### Phase 2: Similarity Detection Engine [PENDING]
-- [ ] ListMemories() on Service
-- [ ] GetMemoryVector() for embedding retrieval
+### Phase 2: Similarity Detection Engine [IN PROGRESS]
+- [x] ListMemories() on Service (commit 9733b77)
+- [x] GetMemoryVector() for embedding retrieval (commit fc656e8)
 - [ ] CosineSimilarity() utility function
 - [ ] FindSimilarClusters() on Distiller
 - [ ] Tests for similarity detection
