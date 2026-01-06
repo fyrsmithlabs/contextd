@@ -53,7 +53,7 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] Consolidated confidence calculation (commit 37db2eb)
 - [x] consolidation_id field on Memory (already in types.go)
 - [x] LinkMemoriesToConsolidated() method (already implemented in distiller.go)
-- [ ] Search boost for consolidated memories
+- [x] Search boost for consolidated memories (commit d14edcf)
 - [ ] Tests
 
 ### Phase 5: Consolidate Method & Scheduling [PENDING]
