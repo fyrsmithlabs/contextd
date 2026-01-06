@@ -191,11 +191,35 @@
         }
       ],
       "status": "completed"
+    },
+    "4.2": {
+      "attempts": [
+        {
+          "session": 18,
+          "timestamp": "2026-01-06T17:50:15.235441",
+          "approach": "Implemented: Update Memory type to include ConsolidationID *string field that links original memories to their co",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
+    },
+    "4.3": {
+      "attempts": [
+        {
+          "session": 19,
+          "timestamp": "2026-01-06T17:54:18.842805",
+          "approach": "Implemented: Add method to update source memories with consolidation_id back-reference and mark them as 'archived",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
     }
   },
   "stuck_subtasks": [],
   "metadata": {
     "created_at": "2026-01-06T16:58:46.596202",
-    "last_updated": "2026-01-06T17:48:27.098101"
+    "last_updated": "2026-01-06T17:54:18.842814"
   }
 }

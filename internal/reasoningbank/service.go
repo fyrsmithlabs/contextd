@@ -314,7 +314,15 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	}
 
 	// Convert results to Memory structs, filter by confidence, and record usage signals
-	memories := make([]Memory, 0, len(results))
+	// We'll track both the memory and its score for re-ranking with consolidated memory boost
+	type scoredMemory struct {
+		memory Memory
+		score  float32
+	}
+	scoredMemories := make([]scoredMemory, 0, len(results))
+
+	const consolidatedMemoryBoost = 1.2 // 20% boost for consolidated memories
+
 	for _, result := range results {
 		memory, err := s.resultToMemory(result)
 		if err != nil {
@@ -333,6 +341,32 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			continue
 		}
 
+		// Filter out archived memories (they were consolidated into other memories)
+		if memory.State == MemoryStateArchived {
+			s.logger.Debug("skipping archived memory",
+				zap.String("id", memory.ID),
+				zap.String("consolidation_id", func() string {
+					if memory.ConsolidationID != nil {
+						return *memory.ConsolidationID
+					}
+					return ""
+				}()))
+			continue
+		}
+
+		// Apply boost to consolidated memories (synthesized knowledge from multiple sources)
+		score := result.Score
+		isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
+			(strings.Contains(memory.Description, "Synthesized from") ||
+				strings.Contains(memory.Description, "Consolidated from"))
+		if isConsolidated {
+			score *= consolidatedMemoryBoost
+			s.logger.Debug("applying consolidated memory boost",
+				zap.String("id", memory.ID),
+				zap.Float32("original_score", result.Score),
+				zap.Float32("boosted_score", score))
+		}
+
 		// Record usage signal for this memory (positive = retrieved in search)
 		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
 		if err == nil {
@@ -343,12 +377,26 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			}
 		}
 
-		memories = append(memories, *memory)
+		scoredMemories = append(scoredMemories, scoredMemory{
+			memory: *memory,
+			score:  score,
+		})
+	}
 
-		// Stop once we have enough results
-		if len(memories) >= limit {
-			break
+	// Re-sort by boosted scores (higher score = more relevant)
+	// Use a simple bubble sort since the list is nearly sorted already
+	for i := 0; i < len(scoredMemories); i++ {
+		for j := i + 1; j < len(scoredMemories); j++ {
+			if scoredMemories[j].score > scoredMemories[i].score {
+				scoredMemories[i], scoredMemories[j] = scoredMemories[j], scoredMemories[i]
+			}
 		}
+	}
+
+	// Extract memories up to limit
+	memories := make([]Memory, 0, limit)
+	for i := 0; i < len(scoredMemories) && i < limit; i++ {
+		memories = append(memories, scoredMemories[i].memory)
 	}
 
 	// Track last confidence for statusline (use first result's confidence)
@@ -786,8 +834,14 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 		"confidence":  memory.Confidence,
 		"usage_count": memory.UsageCount,
 		"tags":        memory.Tags,
+		"state":       string(memory.State),
 		"created_at":  memory.CreatedAt.Unix(),
 		"updated_at":  memory.UpdatedAt.Unix(),
+	}
+
+	// Include consolidation_id if set (for source memories that were consolidated)
+	if memory.ConsolidationID != nil {
+		metadata["consolidation_id"] = *memory.ConsolidationID
 	}
 
 	return vectorstore.Document{
@@ -1092,6 +1146,19 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	createdAt := time.Unix(createdAtUnix, 0)
 	updatedAt := time.Unix(updatedAtUnix, 0)
 
+	// Parse state (default to Active for backwards compatibility with existing memories)
+	stateStr, _ := result.Metadata["state"].(string)
+	state := MemoryStateActive
+	if stateStr == string(MemoryStateArchived) {
+		state = MemoryStateArchived
+	}
+
+	// Parse consolidation_id if present
+	var consolidationID *string
+	if consolidationIDStr, ok := result.Metadata["consolidation_id"].(string); ok && consolidationIDStr != "" {
+		consolidationID = &consolidationIDStr
+	}
+
 	// Parse content (strip title from beginning if present)
 	content := result.Content
 	if len(title) > 0 && len(content) > len(title)+2 {
@@ -1102,17 +1169,19 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	}
 
 	memory := &Memory{
-		ID:          id,
-		ProjectID:   projectID,
-		Title:       title,
-		Description: description,
-		Content:     content,
-		Outcome:     Outcome(outcomeStr),
-		Confidence:  confidence,
-		UsageCount:  usageCount,
-		Tags:        tags,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:              id,
+		ProjectID:       projectID,
+		Title:           title,
+		Description:     description,
+		Content:         content,
+		Outcome:         Outcome(outcomeStr),
+		Confidence:      confidence,
+		UsageCount:      usageCount,
+		Tags:            tags,
+		ConsolidationID: consolidationID,
+		State:           state,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
 	}
 
 	return memory, nil

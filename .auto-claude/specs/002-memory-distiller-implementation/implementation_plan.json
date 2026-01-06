@@ -176,8 +176,9 @@
           "id": "4.3",
           "title": "Implement LinkMemoriesToConsolidated method",
           "description": "Add method to update source memories with consolidation_id back-reference and mark them as 'archived' state while preserving original content",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully implemented memory archival functionality. Added MemoryState type (Active/Archived constants), State field to Memory struct with validation, and updated linkMemoriesToConsolidated to mark source memories as archived while preserving original content. Enhanced existing test TestMergeCluster_MemoryLinking and added 3 comprehensive new tests: TestLinkMemoriesToConsolidated_ArchivedState, TestMemoryState_NewMemoryIsActive, and TestMemoryState_Validation. Commit e06f161 passed golangci-lint validation. Source memories now have ConsolidationID back-reference AND archived state as required by spec.",
+          "updated_at": "2026-01-06T23:54:05.172642+00:00"
         },
         {
           "id": "4.4",
@@ -401,5 +402,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-06T23:49:39.749480+00:00"
+  "last_updated": "2026-01-06T23:54:05.172650+00:00"
 }
