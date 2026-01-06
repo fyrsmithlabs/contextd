@@ -54,6 +54,19 @@ type SessionSummary struct {
 	CompletedAt time.Time
 }
 
+// LLMClient provides an interface for interacting with LLM backends.
+//
+// This interface allows pluggable LLM providers (Claude, OpenAI, local models)
+// to be used for memory synthesis and consolidation tasks. Implementations
+// should handle retries, rate limiting, and error handling internally.
+type LLMClient interface {
+	// Complete generates a completion from the given prompt.
+	//
+	// The context can be used for cancellation and deadline control.
+	// Returns the generated text or an error if the request fails.
+	Complete(ctx context.Context, prompt string) (string, error)
+}
+
 // Distiller extracts learnings from completed sessions and creates memories.
 //
 // FR-006: Distillation pipeline for async memory extraction
