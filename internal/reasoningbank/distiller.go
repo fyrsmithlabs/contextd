@@ -556,3 +556,82 @@ func calculateSimilarityStats(similarities []float64) (avg float64, min float64)
 	avg = sum / float64(len(similarities))
 	return avg, min
 }
+
+// buildConsolidationPrompt creates a prompt for LLM-powered memory synthesis.
+//
+// This function formats a cluster of similar memories into a structured prompt
+// that instructs the LLM to synthesize them into a consolidated memory.
+// The prompt asks the LLM to:
+//   - Identify the common theme across all memories
+//   - Synthesize key insights into coherent knowledge
+//   - Preserve important details that shouldn't be lost
+//   - Note when and how to apply this consolidated knowledge
+//
+// The resulting prompt is designed to produce high-quality consolidated memories
+// that are more valuable than the individual source memories.
+func buildConsolidationPrompt(memories []*Memory) string {
+	var b strings.Builder
+
+	b.WriteString("You are a memory consolidation assistant. Your task is to analyze the following related memories ")
+	b.WriteString("and synthesize them into a single, more valuable consolidated memory.\n\n")
+
+	b.WriteString("## Source Memories\n\n")
+
+	// Format each memory with clear separation
+	for i, mem := range memories {
+		b.WriteString(fmt.Sprintf("### Memory %d: %s\n\n", i+1, mem.Title))
+
+		if mem.Description != "" {
+			b.WriteString(fmt.Sprintf("**Description:** %s\n\n", mem.Description))
+		}
+
+		b.WriteString("**Content:**\n")
+		b.WriteString(mem.Content)
+		b.WriteString("\n\n")
+
+		if len(mem.Tags) > 0 {
+			b.WriteString(fmt.Sprintf("**Tags:** %s\n\n", strings.Join(mem.Tags, ", ")))
+		}
+
+		b.WriteString(fmt.Sprintf("**Outcome:** %s\n", mem.Outcome))
+		b.WriteString(fmt.Sprintf("**Confidence:** %.2f\n", mem.Confidence))
+		b.WriteString(fmt.Sprintf("**Usage Count:** %d\n\n", mem.UsageCount))
+
+		// Add separator between memories
+		if i < len(memories)-1 {
+			b.WriteString("---\n\n")
+		}
+	}
+
+	b.WriteString("## Your Task\n\n")
+	b.WriteString("Please synthesize these memories into a single consolidated memory by following these steps:\n\n")
+
+	b.WriteString("1. **Identify the Common Theme:** What underlying concept, pattern, or strategy connects these memories?\n\n")
+
+	b.WriteString("2. **Synthesize Key Insights:** Combine the most important insights from all memories into a coherent narrative. ")
+	b.WriteString("Don't just list them - create an integrated understanding that's more valuable than the parts.\n\n")
+
+	b.WriteString("3. **Preserve Important Details:** Ensure critical information isn't lost. ")
+	b.WriteString("Include specific examples, caveats, or edge cases mentioned in the source memories.\n\n")
+
+	b.WriteString("4. **Note When to Apply:** Clearly describe the situations, contexts, or conditions where this ")
+	b.WriteString("consolidated knowledge should be applied. Help future sessions recognize when this memory is relevant.\n\n")
+
+	b.WriteString("## Output Format\n\n")
+	b.WriteString("Provide your consolidated memory in the following format:\n\n")
+
+	b.WriteString("```\n")
+	b.WriteString("TITLE: [A clear, concise title for the consolidated memory]\n\n")
+	b.WriteString("CONTENT:\n")
+	b.WriteString("[The synthesized content following the structure above]\n\n")
+	b.WriteString("TAGS: [Comma-separated tags that apply to this consolidated knowledge]\n\n")
+	b.WriteString("OUTCOME: [Either 'success' or 'failure' based on the predominant outcome type]\n\n")
+	b.WriteString("SOURCE_ATTRIBUTION:\n")
+	b.WriteString("[A brief note about how the source memories contributed to this synthesis]\n")
+	b.WriteString("```\n\n")
+
+	b.WriteString("Remember: The goal is to create a MORE valuable memory than any individual source. ")
+	b.WriteString("Synthesize insights, don't just summarize.\n")
+
+	return b.String()
+}

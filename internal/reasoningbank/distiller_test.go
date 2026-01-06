@@ -2,7 +2,9 @@ package reasoningbank
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -546,4 +548,227 @@ func TestFindSimilarClusters_NoEmbedder(t *testing.T) {
 	// Try to find clusters - should fail because embedder is required
 	_, err = distiller.FindSimilarClusters(ctx, projectID, 0.8)
 	assert.Error(t, err, "should error when embedder is not set")
+}
+
+// TestBuildConsolidationPrompt_SingleMemory tests prompt generation with a single memory.
+func TestBuildConsolidationPrompt_SingleMemory(t *testing.T) {
+	memory, err := NewMemory(
+		"test-project",
+		"Error Handling Strategy",
+		"Always wrap errors with context using fmt.Errorf",
+		OutcomeSuccess,
+		[]string{"go", "error-handling"},
+	)
+	require.NoError(t, err)
+	memory.Description = "A common pattern for Go error handling"
+	memory.Confidence = 0.8
+	memory.UsageCount = 5
+
+	prompt := buildConsolidationPrompt([]*Memory{memory})
+
+	// Verify prompt structure
+	assert.Contains(t, prompt, "You are a memory consolidation assistant")
+	assert.Contains(t, prompt, "## Source Memories")
+	assert.Contains(t, prompt, "## Your Task")
+	assert.Contains(t, prompt, "## Output Format")
+
+	// Verify memory details are included
+	assert.Contains(t, prompt, "Memory 1: Error Handling Strategy")
+	assert.Contains(t, prompt, "A common pattern for Go error handling")
+	assert.Contains(t, prompt, "Always wrap errors with context using fmt.Errorf")
+	assert.Contains(t, prompt, "go, error-handling")
+	assert.Contains(t, prompt, "Outcome: success")
+	assert.Contains(t, prompt, "Confidence: 0.80")
+	assert.Contains(t, prompt, "Usage Count: 5")
+
+	// Verify task instructions
+	assert.Contains(t, prompt, "Identify the Common Theme")
+	assert.Contains(t, prompt, "Synthesize Key Insights")
+	assert.Contains(t, prompt, "Preserve Important Details")
+	assert.Contains(t, prompt, "Note When to Apply")
+
+	// Verify output format specification
+	assert.Contains(t, prompt, "TITLE:")
+	assert.Contains(t, prompt, "CONTENT:")
+	assert.Contains(t, prompt, "TAGS:")
+	assert.Contains(t, prompt, "OUTCOME:")
+	assert.Contains(t, prompt, "SOURCE_ATTRIBUTION:")
+}
+
+// TestBuildConsolidationPrompt_MultipleMemories tests prompt with multiple memories.
+func TestBuildConsolidationPrompt_MultipleMemories(t *testing.T) {
+	memory1, err := NewMemory(
+		"test-project",
+		"Use context.Context for cancellation",
+		"Pass context.Context as first parameter to enable cancellation",
+		OutcomeSuccess,
+		[]string{"go", "context"},
+	)
+	require.NoError(t, err)
+	memory1.Confidence = 0.9
+	memory1.UsageCount = 10
+
+	memory2, err := NewMemory(
+		"test-project",
+		"Context deadline handling",
+		"Check context.Err() to detect cancellation or deadline exceeded",
+		OutcomeSuccess,
+		[]string{"go", "context", "timeout"},
+	)
+	require.NoError(t, err)
+	memory2.Description = "Important for long-running operations"
+	memory2.Confidence = 0.85
+	memory2.UsageCount = 7
+
+	memory3, err := NewMemory(
+		"test-project",
+		"Avoid context.Background in libraries",
+		"Don't use context.Background() in library code, accept ctx from caller",
+		OutcomeFailure,
+		[]string{"go", "context", "anti-pattern"},
+	)
+	require.NoError(t, err)
+	memory3.Confidence = 0.75
+	memory3.UsageCount = 3
+
+	prompt := buildConsolidationPrompt([]*Memory{memory1, memory2, memory3})
+
+	// Verify all memories are included
+	assert.Contains(t, prompt, "Memory 1: Use context.Context for cancellation")
+	assert.Contains(t, prompt, "Memory 2: Context deadline handling")
+	assert.Contains(t, prompt, "Memory 3: Avoid context.Background in libraries")
+
+	// Verify separators between memories
+	assert.Contains(t, prompt, "---")
+
+	// Verify all memory contents are included
+	assert.Contains(t, prompt, "Pass context.Context as first parameter")
+	assert.Contains(t, prompt, "Check context.Err() to detect cancellation")
+	assert.Contains(t, prompt, "Don't use context.Background() in library code")
+
+	// Verify different outcomes are shown
+	assert.Contains(t, prompt, "Outcome: success")
+	assert.Contains(t, prompt, "Outcome: failure")
+
+	// Verify descriptions when present
+	assert.Contains(t, prompt, "Important for long-running operations")
+
+	// Verify task guidance emphasizes synthesis
+	assert.Contains(t, prompt, "Synthesize insights, don't just summarize")
+	assert.Contains(t, prompt, "MORE valuable memory than any individual source")
+}
+
+// TestBuildConsolidationPrompt_EmptySlice tests handling of empty memory slice.
+func TestBuildConsolidationPrompt_EmptySlice(t *testing.T) {
+	prompt := buildConsolidationPrompt([]*Memory{})
+
+	// Should still have valid structure even with no memories
+	assert.Contains(t, prompt, "You are a memory consolidation assistant")
+	assert.Contains(t, prompt, "## Source Memories")
+	assert.Contains(t, prompt, "## Your Task")
+
+	// Should not have memory separators
+	assert.NotContains(t, prompt, "---")
+}
+
+// TestBuildConsolidationPrompt_MemoryWithoutOptionalFields tests handling of minimal memory.
+func TestBuildConsolidationPrompt_MemoryWithoutOptionalFields(t *testing.T) {
+	memory, err := NewMemory(
+		"test-project",
+		"Minimal Memory",
+		"Just basic content",
+		OutcomeSuccess,
+		[]string{}, // No tags
+	)
+	require.NoError(t, err)
+	// No description set
+
+	prompt := buildConsolidationPrompt([]*Memory{memory})
+
+	// Should include title and content
+	assert.Contains(t, prompt, "Memory 1: Minimal Memory")
+	assert.Contains(t, prompt, "Just basic content")
+
+	// Should not have description or tags sections when empty
+	assert.NotContains(t, prompt, "**Description:**")
+	assert.NotContains(t, prompt, "**Tags:**")
+
+	// Should still have required fields
+	assert.Contains(t, prompt, "Outcome: success")
+	assert.Contains(t, prompt, "Confidence:")
+	assert.Contains(t, prompt, "Usage Count:")
+}
+
+// TestBuildConsolidationPrompt_FormattingConsistency tests consistent formatting.
+func TestBuildConsolidationPrompt_FormattingConsistency(t *testing.T) {
+	memories := make([]*Memory, 5)
+	for i := 0; i < 5; i++ {
+		mem, err := NewMemory(
+			"test-project",
+			fmt.Sprintf("Memory %d", i+1),
+			fmt.Sprintf("Content for memory %d", i+1),
+			OutcomeSuccess,
+			[]string{fmt.Sprintf("tag%d", i+1)},
+		)
+		require.NoError(t, err)
+		mem.Confidence = float64(i+1) * 0.15
+		mem.UsageCount = i + 1
+		memories[i] = mem
+	}
+
+	prompt := buildConsolidationPrompt(memories)
+
+	// Each memory should be formatted consistently
+	for i := 1; i <= 5; i++ {
+		assert.Contains(t, prompt, fmt.Sprintf("### Memory %d:", i))
+		assert.Contains(t, prompt, fmt.Sprintf("Memory %d", i))
+		assert.Contains(t, prompt, fmt.Sprintf("Content for memory %d", i))
+	}
+
+	// Should have 4 separators for 5 memories
+	separatorCount := 0
+	for i := 0; i < len(prompt)-3; i++ {
+		if prompt[i:i+3] == "---" {
+			separatorCount++
+		}
+	}
+	// Note: There might be separators in the template itself, so check for at least 4
+	assert.GreaterOrEqual(t, separatorCount, 4, "should have separator between each pair of memories")
+}
+
+// TestBuildConsolidationPrompt_LongContent tests handling of memories with long content.
+func TestBuildConsolidationPrompt_LongContent(t *testing.T) {
+	longContent := strings.Repeat("This is a very long content string with lots of details. ", 100)
+	memory, err := NewMemory(
+		"test-project",
+		"Long Memory",
+		longContent,
+		OutcomeSuccess,
+		[]string{"go", "verbose"},
+	)
+	require.NoError(t, err)
+
+	prompt := buildConsolidationPrompt([]*Memory{memory})
+
+	// Should include the full content without truncation
+	assert.Contains(t, prompt, longContent)
+	assert.Contains(t, prompt, "Long Memory")
+}
+
+// TestBuildConsolidationPrompt_SpecialCharacters tests handling of special characters.
+func TestBuildConsolidationPrompt_SpecialCharacters(t *testing.T) {
+	memory, err := NewMemory(
+		"test-project",
+		"Special chars: <>\"'&",
+		"Content with special chars: \n\t\r $ % # @ !",
+		OutcomeSuccess,
+		[]string{"special", "chars"},
+	)
+	require.NoError(t, err)
+
+	prompt := buildConsolidationPrompt([]*Memory{memory})
+
+	// Should preserve special characters
+	assert.Contains(t, prompt, "Special chars: <>\"'&")
+	assert.Contains(t, prompt, "Content with special chars: \n\t\r $ % # @ !")
 }
