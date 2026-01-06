@@ -35,7 +35,7 @@ Implementing real memory consolidation to replace the stub distiller. The system
 ### Phase 2: Similarity Detection Engine [IN PROGRESS]
 - [x] ListMemories() on Service (commit 9733b77)
 - [x] GetMemoryVector() for embedding retrieval (commit fc656e8)
-- [ ] CosineSimilarity() utility function
+- [x] CosineSimilarity() utility function (commit 8afde33)
 - [ ] FindSimilarClusters() on Distiller
 - [ ] Tests for similarity detection
 
