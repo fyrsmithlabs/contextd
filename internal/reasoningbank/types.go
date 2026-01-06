@@ -224,3 +224,29 @@ type SimilarityCluster struct {
 	// Indicates the cluster's cohesion - higher values mean tighter clustering.
 	MinSimilarity float64 `json:"min_similarity"`
 }
+
+// ConsolidationResult contains the results of a memory consolidation operation.
+//
+// This structure tracks the outcome of running memory consolidation, including
+// which memories were created (consolidated memories), which were archived
+// (source memories linked to consolidated versions), how many were skipped
+// (didn't meet consolidation criteria), and performance metrics.
+type ConsolidationResult struct {
+	// CreatedMemories contains the IDs of newly created consolidated memories.
+	CreatedMemories []string `json:"created_memories"`
+
+	// ArchivedMemories contains the IDs of source memories that were archived
+	// after being consolidated into new memories. These memories are preserved
+	// with their ConsolidationID field pointing to the consolidated memory.
+	ArchivedMemories []string `json:"archived_memories"`
+
+	// SkippedCount is the number of memories that were evaluated but not
+	// consolidated (e.g., no similar memories found, below threshold).
+	SkippedCount int `json:"skipped_count"`
+
+	// TotalProcessed is the total number of memories examined during consolidation.
+	TotalProcessed int `json:"total_processed"`
+
+	// Duration is how long the consolidation operation took to complete.
+	Duration time.Duration `json:"duration"`
+}
