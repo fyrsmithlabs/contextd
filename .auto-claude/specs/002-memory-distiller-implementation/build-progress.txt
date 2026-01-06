@@ -41,8 +41,8 @@ Implementing real memory consolidation to replace the stub distiller. The system
 
 ### Phase 3: Memory Synthesis Engine [IN PROGRESS]
 - [x] LLMClient interface for pluggable backends (commit b037096)
-- [ ] Consolidation prompt template
-- [ ] parseConsolidatedMemory() parser
+- [x] Consolidation prompt template (commit 0027972)
+- [x] parseConsolidatedMemory() parser (commit d4d2c14)
 - [ ] MergeCluster() implementation
 - [ ] MockLLMClient for testing
 - [ ] Tests for synthesis
