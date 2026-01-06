@@ -128,15 +128,17 @@
           "id": "3.4",
           "title": "Implement MergeCluster method",
           "description": "Add MergeCluster(ctx, cluster *SimilarityCluster) on Distiller that: calls LLM to synthesize memories, creates new consolidated memory, links source memories to consolidated version, calculates merged confidence",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully implemented MergeCluster(ctx, cluster *SimilarityCluster) method on Distiller. The method provides LLM-powered memory synthesis with the following features:\n\n**Core Implementation:**\n- Added llmClient field to Distiller struct for pluggable LLM backends\n- Added WithLLMClient option function for configuration\n- Updated NewDistiller to accept variadic DistillerOption parameters\n\n**MergeCluster Method:**\n1. Validates cluster has >= 2 members and LLM client is configured\n2. Builds consolidation prompt from cluster members\n3. Calls LLM to synthesize memories into consolidated knowledge\n4. Parses LLM response into Memory struct\n5. Calculates merged confidence from source memories (weighted by usage count)\n6. Stores new consolidated memory via service.Record\n7. Links source memories to consolidated version via ConsolidationID field\n\n**Helper Functions:**\n- calculateMergedConfidence: Computes weighted average of source confidences based on usage counts, ensuring frequently used high-confidence memories dominate the score\n- linkMemoriesToConsolidated: Updates source memories to link to consolidated version, preserving originals for attribution\n\n**Error Handling:**\n- Comprehensive input validation\n- Graceful error handling with detailed logging\n- Non-fatal linking errors (consolidated memory already created)\n- All errors wrapped with context\n\nCommit 7b80c14 passed golangci-lint validation. Implementation follows existing code patterns with debug/info logging throughout the consolidation workflow.",
+          "updated_at": "2026-01-06T23:37:15.091521+00:00"
         },
         {
           "id": "3.5",
           "title": "Implement MockLLMClient for testing",
           "description": "Create MockLLMClient that returns canned synthesis responses for testing without real LLM calls",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created MockLLMClient for testing memory consolidation without real LLM calls.\n\n**Implementation:**\n- Created mockLLMClient struct with response, err, callCount, and lastPrompt fields\n- Implemented LLMClient interface with Complete(ctx, prompt) (string, error) method\n- Added three factory functions:\n  * newMockLLMClient() - Returns mock with default valid consolidation response\n  * newMockLLMClientWithResponse(response) - Returns mock with custom response\n  * newMockLLMClientWithError(err) - Returns mock that returns an error\n- Added call tracking methods: CallCount() and LastPrompt() for test verification\n\n**Default Response:**\n- Valid format matching parseConsolidatedMemory requirements\n- Contains all required fields: TITLE, CONTENT, OUTCOME\n- Contains optional fields: TAGS, SOURCE_ATTRIBUTION\n- Parseable response produces valid Memory struct\n\n**Test Coverage:**\nAdded 5 comprehensive test functions:\n1. TestMockLLMClient_DefaultResponse - Verifies default behavior and response format\n2. TestMockLLMClient_CustomResponse - Tests custom response injection\n3. TestMockLLMClient_Error - Verifies error handling behavior\n4. TestMockLLMClient_MultipleCalls - Tests call tracking across multiple invocations\n5. TestMockLLMClient_ValidResponseFormat - Validates default response is parseable by parseConsolidatedMemory\n\nAll tests verify both functionality and call tracking (callCount, lastPrompt).\n\nCommit 8bd435d passed golangci-lint validation. Implementation follows existing mock patterns (mockStore, mockEmbedder) and integrates seamlessly with the testing infrastructure.",
+          "updated_at": "2026-01-06T23:40:16.873018+00:00"
         },
         {
           "id": "3.6",
@@ -396,5 +398,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-06T23:33:39.253495+00:00"
+  "last_updated": "2026-01-06T23:40:16.873026+00:00"
 }

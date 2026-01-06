@@ -1314,3 +1314,610 @@ func TestMockLLMClient_ValidResponseFormat(t *testing.T) {
 	assert.Equal(t, []string{"consolidated", "pattern", "synthesis"}, memory.Tags)
 	assert.Contains(t, memory.Description, "Synthesized from multiple source memories")
 }
+
+// TestMergeCluster_ValidCluster tests successful cluster merging with mock LLM.
+func TestMergeCluster_ValidCluster(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "merge-test-project"
+
+	// Create cluster with similar memories
+	mem1, _ := NewMemory(projectID, "Go Error Pattern 1", "Always wrap errors", OutcomeSuccess, []string{"go", "errors"})
+	mem1.Confidence = 0.8
+	mem1.UsageCount = 5
+	require.NoError(t, svc.Record(ctx, mem1))
+
+	mem2, _ := NewMemory(projectID, "Go Error Pattern 2", "Use fmt.Errorf for wrapping", OutcomeSuccess, []string{"go", "errors"})
+	mem2.Confidence = 0.9
+	mem2.UsageCount = 10
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Get vectors for centroid calculation
+	vec1, err := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	require.NoError(t, err)
+	vec2, err := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+	require.NoError(t, err)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2}),
+		AverageSimilarity: 0.95,
+		MinSimilarity:     0.92,
+	}
+
+	// Merge the cluster
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	require.NoError(t, err)
+	assert.NotNil(t, consolidatedMem)
+
+	// Verify consolidated memory properties
+	assert.Equal(t, projectID, consolidatedMem.ProjectID)
+	assert.NotEmpty(t, consolidatedMem.ID)
+	assert.Equal(t, "Consolidated Memory Pattern", consolidatedMem.Title)
+	assert.Contains(t, consolidatedMem.Content, "synthesized memory")
+	assert.Equal(t, OutcomeSuccess, consolidatedMem.Outcome)
+	assert.Equal(t, []string{"consolidated", "pattern", "synthesis"}, consolidatedMem.Tags)
+
+	// Verify source attribution is in description
+	assert.Contains(t, consolidatedMem.Description, "Synthesized from multiple source memories")
+
+	// Verify LLM was called
+	assert.Equal(t, 1, mockLLM.CallCount())
+	assert.NotEmpty(t, mockLLM.LastPrompt())
+	assert.Contains(t, mockLLM.LastPrompt(), "Go Error Pattern 1")
+	assert.Contains(t, mockLLM.LastPrompt(), "Go Error Pattern 2")
+}
+
+// TestMergeCluster_ConfidenceCalculation tests that merged confidence is calculated correctly.
+func TestMergeCluster_ConfidenceCalculation(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "confidence-test-project"
+
+	// Create memories with different confidences and usage counts
+	// High confidence, high usage (should dominate)
+	mem1, _ := NewMemory(projectID, "High confidence memory", "Content 1", OutcomeSuccess, []string{"test"})
+	mem1.Confidence = 0.9
+	mem1.UsageCount = 10
+	require.NoError(t, svc.Record(ctx, mem1))
+
+	// Low confidence, low usage (should contribute less)
+	mem2, _ := NewMemory(projectID, "Low confidence memory", "Content 2", OutcomeSuccess, []string{"test"})
+	mem2.Confidence = 0.5
+	mem2.UsageCount = 1
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Medium confidence, medium usage
+	mem3, _ := NewMemory(projectID, "Medium confidence memory", "Content 3", OutcomeSuccess, []string{"test"})
+	mem3.Confidence = 0.7
+	mem3.UsageCount = 5
+	require.NoError(t, svc.Record(ctx, mem3))
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+	vec3, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem3.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2, mem3},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2, vec3}),
+		AverageSimilarity: 0.85,
+		MinSimilarity:     0.80,
+	}
+
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	require.NoError(t, err)
+	assert.NotNil(t, consolidatedMem)
+
+	// Calculate expected confidence: weighted average
+	// weight1 = usageCount + 1 = 11, weight2 = 2, weight3 = 6
+	// expectedConfidence = (0.9*11 + 0.5*2 + 0.7*6) / (11+2+6) = (9.9 + 1.0 + 4.2) / 19 = 15.1 / 19 ≈ 0.795
+	expectedConfidence := (0.9*11.0 + 0.5*2.0 + 0.7*6.0) / (11.0 + 2.0 + 6.0)
+
+	// Verify confidence is calculated correctly (weighted by usage count)
+	assert.InDelta(t, expectedConfidence, consolidatedMem.Confidence, 0.001,
+		"confidence should be weighted average based on usage counts")
+
+	// Verify confidence is in valid range
+	assert.GreaterOrEqual(t, consolidatedMem.Confidence, 0.0)
+	assert.LessOrEqual(t, consolidatedMem.Confidence, 1.0)
+
+	// High-usage, high-confidence memory should dominate
+	// So result should be closer to 0.9 than to 0.5
+	assert.Greater(t, consolidatedMem.Confidence, 0.7,
+		"high-usage high-confidence memory should dominate the score")
+}
+
+// TestMergeCluster_MemoryLinking tests that source memories are linked to consolidated version.
+func TestMergeCluster_MemoryLinking(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "linking-test-project"
+
+	// Create source memories
+	mem1, _ := NewMemory(projectID, "Source Memory 1", "Content 1", OutcomeSuccess, []string{"source"})
+	mem1.Confidence = 0.8
+	mem1.UsageCount = 3
+	require.NoError(t, svc.Record(ctx, mem1))
+
+	mem2, _ := NewMemory(projectID, "Source Memory 2", "Content 2", OutcomeSuccess, []string{"source"})
+	mem2.Confidence = 0.85
+	mem2.UsageCount = 5
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Store original IDs before merging
+	originalID1 := mem1.ID
+	originalID2 := mem2.ID
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2}),
+		AverageSimilarity: 0.90,
+		MinSimilarity:     0.88,
+	}
+
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	require.NoError(t, err)
+	assert.NotNil(t, consolidatedMem)
+
+	// Retrieve source memories from storage to check linking
+	updatedMem1, err := svc.GetByProjectID(ctx, projectID, originalID1)
+	require.NoError(t, err)
+	updatedMem2, err := svc.GetByProjectID(ctx, projectID, originalID2)
+	require.NoError(t, err)
+
+	// Verify source memories have ConsolidationID set
+	assert.NotNil(t, updatedMem1.ConsolidationID, "source memory 1 should have consolidation ID")
+	assert.NotNil(t, updatedMem2.ConsolidationID, "source memory 2 should have consolidation ID")
+
+	// Verify ConsolidationID points to consolidated memory
+	assert.Equal(t, consolidatedMem.ID, *updatedMem1.ConsolidationID,
+		"source memory 1 should link to consolidated memory")
+	assert.Equal(t, consolidatedMem.ID, *updatedMem2.ConsolidationID,
+		"source memory 2 should link to consolidated memory")
+
+	// Verify original content is preserved
+	assert.Equal(t, "Source Memory 1", updatedMem1.Title)
+	assert.Equal(t, "Content 1", updatedMem1.Content)
+	assert.Equal(t, "Source Memory 2", updatedMem2.Title)
+	assert.Equal(t, "Content 2", updatedMem2.Content)
+}
+
+// TestMergeCluster_SourceAttribution tests that source attribution is properly stored.
+func TestMergeCluster_SourceAttribution(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+
+	// Create mock LLM with custom response that includes specific attribution
+	customResponse := `
+TITLE: Consolidated API Error Handling
+
+CONTENT:
+Comprehensive error handling strategy combining multiple approaches.
+Use structured errors with proper HTTP status codes.
+
+TAGS: api, errors, go
+
+OUTCOME: success
+
+SOURCE_ATTRIBUTION:
+Synthesized from 3 source memories covering authentication errors,
+validation errors, and database error handling patterns.
+`
+	mockLLM := newMockLLMClientWithResponse(customResponse)
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "attribution-test-project"
+
+	// Create source memories
+	mem1, _ := NewMemory(projectID, "Auth Errors", "Handle auth errors", OutcomeSuccess, []string{"auth"})
+	mem2, _ := NewMemory(projectID, "Validation Errors", "Handle validation errors", OutcomeSuccess, []string{"validation"})
+	mem3, _ := NewMemory(projectID, "DB Errors", "Handle database errors", OutcomeSuccess, []string{"database"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+	require.NoError(t, svc.Record(ctx, mem3))
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+	vec3, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem3.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2, mem3},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2, vec3}),
+		AverageSimilarity: 0.85,
+		MinSimilarity:     0.80,
+	}
+
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	require.NoError(t, err)
+	assert.NotNil(t, consolidatedMem)
+
+	// Verify source attribution is stored in Description field
+	assert.Contains(t, consolidatedMem.Description, "Synthesized from 3 source memories")
+	assert.Contains(t, consolidatedMem.Description, "authentication errors")
+	assert.Contains(t, consolidatedMem.Description, "validation errors")
+	assert.Contains(t, consolidatedMem.Description, "database error handling patterns")
+
+	// Verify title and content are also set correctly
+	assert.Equal(t, "Consolidated API Error Handling", consolidatedMem.Title)
+	assert.Contains(t, consolidatedMem.Content, "Comprehensive error handling strategy")
+}
+
+// TestMergeCluster_NilCluster tests error handling with nil cluster.
+func TestMergeCluster_NilCluster(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Try to merge nil cluster
+	consolidatedMem, err := distiller.MergeCluster(ctx, nil)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "cluster cannot be nil")
+
+	// Verify LLM was not called
+	assert.Equal(t, 0, mockLLM.CallCount())
+}
+
+// TestMergeCluster_InsufficientMembers tests error handling with cluster < 2 members.
+func TestMergeCluster_InsufficientMembers(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "insufficient-members-project"
+
+	// Create cluster with only 1 member
+	mem, _ := NewMemory(projectID, "Single Memory", "Content", OutcomeSuccess, []string{"test"})
+	require.NoError(t, svc.Record(ctx, mem))
+
+	vec, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem},
+		CentroidVector:    vec,
+		AverageSimilarity: 0.0,
+		MinSimilarity:     0.0,
+	}
+
+	// Try to merge cluster with insufficient members
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "cluster must have at least 2 members")
+
+	// Verify LLM was not called
+	assert.Equal(t, 0, mockLLM.CallCount())
+}
+
+// TestMergeCluster_NoLLMClient tests error handling when LLM client is not configured.
+func TestMergeCluster_NoLLMClient(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	// Create distiller WITHOUT LLM client
+	distiller, err := NewDistiller(svc, logger)
+	require.NoError(t, err)
+
+	projectID := "no-llm-project"
+
+	// Create cluster
+	mem1, _ := NewMemory(projectID, "Memory 1", "Content 1", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Content 2", OutcomeSuccess, []string{"test"})
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2}),
+		AverageSimilarity: 0.90,
+		MinSimilarity:     0.85,
+	}
+
+	// Try to merge without LLM client
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "LLM client not configured")
+}
+
+// TestMergeCluster_LLMError tests error handling when LLM call fails.
+func TestMergeCluster_LLMError(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+
+	// Create mock LLM that returns an error
+	llmError := fmt.Errorf("LLM API error: rate limit exceeded")
+	mockLLM := newMockLLMClientWithError(llmError)
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "llm-error-project"
+
+	// Create cluster
+	mem1, _ := NewMemory(projectID, "Memory 1", "Content 1", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Content 2", OutcomeSuccess, []string{"test"})
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2}),
+		AverageSimilarity: 0.90,
+		MinSimilarity:     0.85,
+	}
+
+	// Try to merge - should fail with LLM error
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "LLM synthesis failed")
+	assert.Contains(t, err.Error(), "rate limit exceeded")
+
+	// Verify LLM was called
+	assert.Equal(t, 1, mockLLM.CallCount())
+}
+
+// TestMergeCluster_InvalidLLMResponse tests error handling with malformed LLM response.
+func TestMergeCluster_InvalidLLMResponse(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(10)
+	logger := zap.NewNop()
+
+	// Create mock LLM with invalid response (missing required fields)
+	invalidResponse := `
+TITLE: Incomplete Response
+
+CONTENT:
+This response is missing the OUTCOME field.
+`
+	mockLLM := newMockLLMClientWithResponse(invalidResponse)
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	projectID := "invalid-response-project"
+
+	// Create cluster
+	mem1, _ := NewMemory(projectID, "Memory 1", "Content 1", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Content 2", OutcomeSuccess, []string{"test"})
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	vec1, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem1.ID)
+	vec2, _ := svc.GetMemoryVectorByProjectID(ctx, projectID, mem2.ID)
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    calculateCentroid([][]float32{vec1, vec2}),
+		AverageSimilarity: 0.90,
+		MinSimilarity:     0.85,
+	}
+
+	// Try to merge - should fail during parsing
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "parsing LLM response")
+	assert.Contains(t, err.Error(), "OUTCOME field is required")
+
+	// Verify LLM was called
+	assert.Equal(t, 1, mockLLM.CallCount())
+}
+
+// TestMergeCluster_EmptyProjectID tests error handling with empty project ID.
+func TestMergeCluster_EmptyProjectID(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	logger := zap.NewNop()
+	mockLLM := newMockLLMClient()
+
+	svc, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create cluster with memories that have empty project ID
+	mem1 := &Memory{
+		ID:         "mem-1",
+		ProjectID:  "", // Empty project ID
+		Title:      "Memory 1",
+		Content:    "Content 1",
+		Outcome:    OutcomeSuccess,
+		Confidence: 0.8,
+	}
+	mem2 := &Memory{
+		ID:         "mem-2",
+		ProjectID:  "", // Empty project ID
+		Title:      "Memory 2",
+		Content:    "Content 2",
+		Outcome:    OutcomeSuccess,
+		Confidence: 0.8,
+	}
+
+	cluster := &SimilarityCluster{
+		Members:           []*Memory{mem1, mem2},
+		CentroidVector:    make([]float32, 10),
+		AverageSimilarity: 0.90,
+		MinSimilarity:     0.85,
+	}
+
+	// Try to merge - should fail with empty project ID error
+	consolidatedMem, err := distiller.MergeCluster(ctx, cluster)
+	assert.Error(t, err)
+	assert.Nil(t, consolidatedMem)
+	assert.Contains(t, err.Error(), "project ID cannot be empty")
+
+	// Verify LLM was not called
+	assert.Equal(t, 0, mockLLM.CallCount())
+}
+
+// TestCalculateMergedConfidence tests the confidence calculation helper function.
+func TestCalculateMergedConfidence(t *testing.T) {
+	store := newMockStore()
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name               string
+		memories           []*Memory
+		expectedConfidence float64
+		description        string
+	}{
+		{
+			name: "equal weights",
+			memories: []*Memory{
+				{Confidence: 0.8, UsageCount: 0},
+				{Confidence: 0.6, UsageCount: 0},
+			},
+			// Both have weight 1 (usageCount+1): (0.8*1 + 0.6*1) / 2 = 0.7
+			expectedConfidence: 0.7,
+			description:        "equal usage should average confidences",
+		},
+		{
+			name: "weighted by usage",
+			memories: []*Memory{
+				{Confidence: 0.9, UsageCount: 10}, // weight 11
+				{Confidence: 0.5, UsageCount: 0},  // weight 1
+			},
+			// (0.9*11 + 0.5*1) / 12 = 10.4 / 12 = 0.8666...
+			expectedConfidence: 0.8666666666666667,
+			description:        "high usage should dominate",
+		},
+		{
+			name: "single memory",
+			memories: []*Memory{
+				{Confidence: 0.75, UsageCount: 5},
+			},
+			expectedConfidence: 0.75,
+			description:        "single memory should return its confidence",
+		},
+		{
+			name:               "empty slice",
+			memories:           []*Memory{},
+			expectedConfidence: DistilledConfidence,
+			description:        "empty slice should return default",
+		},
+		{
+			name: "multiple memories with varying usage",
+			memories: []*Memory{
+				{Confidence: 0.9, UsageCount: 10}, // weight 11
+				{Confidence: 0.7, UsageCount: 5},  // weight 6
+				{Confidence: 0.5, UsageCount: 1},  // weight 2
+			},
+			// (0.9*11 + 0.7*6 + 0.5*2) / (11+6+2) = (9.9 + 4.2 + 1.0) / 19 = 15.1 / 19 = 0.794736...
+			expectedConfidence: 0.7947368421052632,
+			description:        "multiple memories should use weighted average",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			confidence := distiller.calculateMergedConfidence(tc.memories)
+			assert.InDelta(t, tc.expectedConfidence, confidence, 0.0001,
+				"%s: got %.4f, expected %.4f", tc.description, confidence, tc.expectedConfidence)
+
+			// Verify confidence is in valid range
+			assert.GreaterOrEqual(t, confidence, 0.0, "confidence should be >= 0.0")
+			assert.LessOrEqual(t, confidence, 1.0, "confidence should be <= 1.0")
+		})
+	}
+}
