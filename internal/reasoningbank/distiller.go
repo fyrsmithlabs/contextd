@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -289,4 +290,54 @@ func (d *Distiller) formatFailureContent(summary SessionSummary) string {
 	b.WriteString(". Look for alternative strategies instead.\n")
 
 	return b.String()
+}
+
+// CosineSimilarity computes the cosine similarity between two embedding vectors.
+//
+// Cosine similarity measures the cosine of the angle between two vectors,
+// producing a value between -1 and 1:
+//   - 1.0: vectors point in the same direction (identical)
+//   - 0.0: vectors are orthogonal (unrelated)
+//   - -1.0: vectors point in opposite directions (opposite)
+//
+// For embedding vectors, similarity is typically in the range [0, 1] since
+// embeddings generally have positive components.
+//
+// Formula: cos(θ) = (A · B) / (||A|| * ||B||)
+//
+// Returns 0.0 for invalid inputs (empty vectors, zero-magnitude vectors,
+// or vectors of different lengths).
+func CosineSimilarity(vec1, vec2 []float32) float64 {
+	// Validate inputs
+	if len(vec1) == 0 || len(vec2) == 0 {
+		return 0.0
+	}
+	if len(vec1) != len(vec2) {
+		return 0.0
+	}
+
+	// Compute dot product and magnitudes
+	var dotProduct float64
+	var magnitude1 float64
+	var magnitude2 float64
+
+	for i := 0; i < len(vec1); i++ {
+		v1 := float64(vec1[i])
+		v2 := float64(vec2[i])
+		dotProduct += v1 * v2
+		magnitude1 += v1 * v1
+		magnitude2 += v2 * v2
+	}
+
+	// Check for zero-magnitude vectors
+	if magnitude1 == 0.0 || magnitude2 == 0.0 {
+		return 0.0
+	}
+
+	// Compute cosine similarity
+	// Use sqrt for magnitudes: ||A|| = sqrt(A · A)
+	magnitude1 = math.Sqrt(magnitude1)
+	magnitude2 = math.Sqrt(magnitude2)
+
+	return dotProduct / (magnitude1 * magnitude2)
 }
