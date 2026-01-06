@@ -1,6 +1,6 @@
 # Memory Distiller Implementation - Build Progress
 
-## Status: IN PROGRESS - Phase 3
+## Status: IN PROGRESS - Phase 4
 **Last Updated**: 2026-01-06
 
 ## Overview
@@ -15,14 +15,16 @@ Implementing real memory consolidation to replace the stub distiller. The system
 ### Current State (distiller.go)
 - Distiller exists with DistillSession() for session-based memory extraction
 - Works for session end events
-- NO consolidation/merging functionality yet
+- FindSimilarClusters() detects memory groups above similarity threshold
+- MergeCluster() uses LLM to synthesize similar memories into consolidated versions
+- calculateMergedConfidence() computes weighted confidence scores
+- linkMemoriesToConsolidated() preserves source memories with back-links
 
-### Target State
-- Add FindSimilarClusters() - detect memory groups above similarity threshold
-- Add MergeCluster() - use LLM to synthesize similar memories
-- Add Consolidate() - orchestrate full consolidation run
-- Add ConsolidationScheduler - background automatic runs
-- Add memory_consolidate MCP tool - manual triggering
+### Remaining Work
+- Add Consolidate() - orchestrate full consolidation run (Phase 5)
+- Add ConsolidationScheduler - background automatic runs (Phase 7)
+- Add memory_consolidate MCP tool - manual triggering (Phase 6)
+- Update Search() to prefer consolidated memories (Phase 4)
 
 ## Phase Progress
 
@@ -39,13 +41,13 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] FindSimilarClusters() on Distiller (commit 5da6fba)
 - [x] Tests for similarity detection (commit 0b452f8)
 
-### Phase 3: Memory Synthesis Engine [IN PROGRESS]
+### Phase 3: Memory Synthesis Engine [COMPLETED]
 - [x] LLMClient interface for pluggable backends (commit b037096)
 - [x] Consolidation prompt template (commit 0027972)
 - [x] parseConsolidatedMemory() parser (commit d4d2c14)
-- [ ] MergeCluster() implementation
-- [ ] MockLLMClient for testing
-- [ ] Tests for synthesis
+- [x] MergeCluster() implementation (commit 7b80c14)
+- [x] MockLLMClient for testing (commit 8bd435d)
+- [x] Tests for synthesis (commit 2e01930)
 
 ### Phase 4: Confidence & Attribution System [PENDING]
 - [ ] Consolidated confidence calculation
