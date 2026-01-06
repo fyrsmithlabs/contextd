@@ -1921,3 +1921,291 @@ func TestCalculateMergedConfidence(t *testing.T) {
 		})
 	}
 }
+
+// TestCalculateConsolidatedConfidence tests the calculateConsolidatedConfidence function.
+func TestCalculateConsolidatedConfidence(t *testing.T) {
+	testCases := []struct {
+		name               string
+		memories           []*Memory
+		expectedMin        float64 // minimum expected confidence
+		expectedMax        float64 // maximum expected confidence
+		description        string
+	}{
+		{
+			name:               "empty slice",
+			memories:           []*Memory{},
+			expectedMin:        DistilledConfidence,
+			expectedMax:        DistilledConfidence,
+			description:        "empty slice should return default",
+		},
+		{
+			name: "single memory",
+			memories: []*Memory{
+				{Confidence: 0.75, UsageCount: 5},
+			},
+			expectedMin: 0.75,
+			expectedMax: 0.75,
+			description: "single memory should return its confidence (no consensus bonus)",
+		},
+		{
+			name: "perfect consensus - two memories",
+			memories: []*Memory{
+				{Confidence: 0.8, UsageCount: 0},
+				{Confidence: 0.8, UsageCount: 0},
+			},
+			// Base: 0.8, Consensus bonus: (1.0 - 0.0) * (2/10) * 0.1 = 1.0 * 0.2 * 0.1 = 0.02
+			// Final: 0.8 + 0.02 = 0.82
+			expectedMin: 0.819,
+			expectedMax: 0.821,
+			description: "perfect consensus with 2 memories should add small bonus",
+		},
+		{
+			name: "perfect consensus - ten memories",
+			memories: []*Memory{
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+			},
+			// Base: 0.9, Consensus bonus: (1.0 - 0.0) * (10/10) * 0.1 = 1.0 * 1.0 * 0.1 = 0.1
+			// Final: 0.9 + 0.1 = 1.0
+			expectedMin: 0.999,
+			expectedMax: 1.0,
+			description: "perfect consensus with 10 memories should give maximum bonus",
+		},
+		{
+			name: "high consensus - similar confidences",
+			memories: []*Memory{
+				{Confidence: 0.8, UsageCount: 0},
+				{Confidence: 0.82, UsageCount: 0},
+				{Confidence: 0.79, UsageCount: 0},
+				{Confidence: 0.81, UsageCount: 0},
+			},
+			// Base: (0.8 + 0.82 + 0.79 + 0.81) / 4 = 0.805
+			// Small variance, so consensus bonus should be significant
+			expectedMin: 0.81,
+			expectedMax: 0.84,
+			description: "high consensus (low variance) should add noticeable bonus",
+		},
+		{
+			name: "low consensus - divergent confidences",
+			memories: []*Memory{
+				{Confidence: 0.2, UsageCount: 0},
+				{Confidence: 0.9, UsageCount: 0},
+				{Confidence: 0.5, UsageCount: 0},
+			},
+			// Base: (0.2 + 0.9 + 0.5) / 3 = 0.533
+			// High variance, so consensus bonus should be minimal
+			expectedMin: 0.53,
+			expectedMax: 0.56,
+			description: "low consensus (high variance) should add minimal bonus",
+		},
+		{
+			name: "weighted by usage - equal confidence",
+			memories: []*Memory{
+				{Confidence: 0.8, UsageCount: 10}, // weight 11
+				{Confidence: 0.8, UsageCount: 0},  // weight 1
+			},
+			// Base: (0.8*11 + 0.8*1) / 12 = 0.8
+			// Perfect consensus bonus applies: (1.0 - 0.0) * (2/10) * 0.1 = 0.02
+			// Final: 0.8 + 0.02 = 0.82
+			expectedMin: 0.819,
+			expectedMax: 0.821,
+			description: "weighted calculation with perfect consensus",
+		},
+		{
+			name: "weighted by usage - different confidence",
+			memories: []*Memory{
+				{Confidence: 0.9, UsageCount: 10}, // weight 11
+				{Confidence: 0.5, UsageCount: 0},  // weight 1
+			},
+			// Base: (0.9*11 + 0.5*1) / 12 = 10.4 / 12 = 0.8666...
+			// High variance (0.9 vs 0.5), minimal consensus bonus
+			expectedMin: 0.86,
+			expectedMax: 0.88,
+			description: "high usage should dominate, low consensus gives small bonus",
+		},
+		{
+			name: "all zeros",
+			memories: []*Memory{
+				{Confidence: 0.0, UsageCount: 0},
+				{Confidence: 0.0, UsageCount: 0},
+				{Confidence: 0.0, UsageCount: 0},
+			},
+			// Base: 0.0, Consensus bonus: (1.0 - 0.0) * (3/10) * 0.1 = 0.03
+			// Final: 0.0 + 0.03 = 0.03
+			expectedMin: 0.029,
+			expectedMax: 0.031,
+			description: "all zeros with perfect consensus should add bonus",
+		},
+		{
+			name: "near max - should clamp at 1.0",
+			memories: []*Memory{
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+				{Confidence: 0.95, UsageCount: 0},
+			},
+			// Base: 0.95, Consensus bonus: 0.1, Final: 1.05 -> clamped to 1.0
+			expectedMin: 1.0,
+			expectedMax: 1.0,
+			description: "should clamp at 1.0",
+		},
+		{
+			name: "mixed usage and confidence",
+			memories: []*Memory{
+				{Confidence: 0.85, UsageCount: 8},
+				{Confidence: 0.88, UsageCount: 5},
+				{Confidence: 0.83, UsageCount: 12},
+				{Confidence: 0.86, UsageCount: 3},
+				{Confidence: 0.87, UsageCount: 6},
+			},
+			// Base is weighted average, variance is relatively low
+			// Should get a decent consensus bonus
+			expectedMin: 0.85,
+			expectedMax: 0.91,
+			description: "real-world scenario with mixed usage and similar confidences",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			confidence := calculateConsolidatedConfidence(tc.memories)
+
+			// Check if within expected range
+			assert.GreaterOrEqual(t, confidence, tc.expectedMin,
+				"%s: got %.4f, expected >= %.4f", tc.description, confidence, tc.expectedMin)
+			assert.LessOrEqual(t, confidence, tc.expectedMax,
+				"%s: got %.4f, expected <= %.4f", tc.description, confidence, tc.expectedMax)
+
+			// Verify confidence is in valid range [0.0, 1.0]
+			assert.GreaterOrEqual(t, confidence, 0.0, "confidence should be >= 0.0")
+			assert.LessOrEqual(t, confidence, 1.0, "confidence should be <= 1.0")
+
+			// For non-empty slices, verify consensus bonus is applied correctly
+			if len(tc.memories) > 1 {
+				// Calculate base confidence (weighted average)
+				var weightedSum float64
+				var totalWeight float64
+				for _, mem := range tc.memories {
+					weight := float64(mem.UsageCount + 1)
+					weightedSum += mem.Confidence * weight
+					totalWeight += weight
+				}
+				baseConfidence := weightedSum / totalWeight
+
+				// Confidence with bonus should be >= base (unless clamped)
+				if baseConfidence <= 0.9 {
+					assert.GreaterOrEqual(t, confidence, baseConfidence,
+						"consensus bonus should increase or maintain confidence")
+				}
+			}
+		})
+	}
+}
+
+// TestCalculateConsolidatedConfidence_ConsensusBonus verifies consensus bonus calculation.
+func TestCalculateConsolidatedConfidence_ConsensusBonus(t *testing.T) {
+	// Test that consensus bonus increases with:
+	// 1. Lower variance (higher consensus)
+	// 2. More sources
+
+	// Same base confidence (0.8), varying consensus
+	perfectConsensus := []*Memory{
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+	}
+
+	moderateConsensus := []*Memory{
+		{Confidence: 0.75, UsageCount: 0},
+		{Confidence: 0.85, UsageCount: 0},
+	}
+
+	lowConsensus := []*Memory{
+		{Confidence: 0.6, UsageCount: 0},
+		{Confidence: 1.0, UsageCount: 0},
+	}
+
+	perfectConf := calculateConsolidatedConfidence(perfectConsensus)
+	moderateConf := calculateConsolidatedConfidence(moderateConsensus)
+	lowConf := calculateConsolidatedConfidence(lowConsensus)
+
+	// Perfect consensus should have highest confidence
+	assert.Greater(t, perfectConf, moderateConf,
+		"perfect consensus should yield higher confidence than moderate")
+	assert.Greater(t, moderateConf, lowConf,
+		"moderate consensus should yield higher confidence than low")
+
+	// Test that more sources increase bonus (with same variance)
+	twoSources := []*Memory{
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+	}
+
+	fiveSources := []*Memory{
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+	}
+
+	tenSources := []*Memory{
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+		{Confidence: 0.8, UsageCount: 0},
+	}
+
+	twoConf := calculateConsolidatedConfidence(twoSources)
+	fiveConf := calculateConsolidatedConfidence(fiveSources)
+	tenConf := calculateConsolidatedConfidence(tenSources)
+
+	// More sources should increase confidence (with perfect consensus)
+	assert.Greater(t, fiveConf, twoConf,
+		"5 agreeing sources should yield higher confidence than 2")
+	assert.Greater(t, tenConf, fiveConf,
+		"10 agreeing sources should yield higher confidence than 5")
+}
+
+// TestClampConfidence tests the clampConfidence helper function.
+func TestClampConfidence(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    float64
+		expected float64
+	}{
+		{"below minimum", -0.5, 0.0},
+		{"at minimum", 0.0, 0.0},
+		{"normal value", 0.5, 0.5},
+		{"at maximum", 1.0, 1.0},
+		{"above maximum", 1.5, 1.0},
+		{"way below", -100.0, 0.0},
+		{"way above", 100.0, 1.0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := clampConfidence(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}

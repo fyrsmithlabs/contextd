@@ -959,6 +959,105 @@ func (d *Distiller) calculateMergedConfidence(sources []*Memory) float64 {
 	return confidence
 }
 
+// calculateConsolidatedConfidence computes the confidence score for a consolidated memory
+// with a consensus bonus.
+//
+// The confidence is calculated as a weighted average of source memory confidences
+// (weighted by usage counts), with an additional bonus for consensus among sources.
+// The consensus bonus rewards situations where:
+//   - Source memories have similar confidence scores (low variance)
+//   - Multiple memories agree (more sources = higher potential bonus)
+//
+// Formula:
+//   base = sum(confidence_i * weight_i) / sum(weight_i)
+//   where weight_i = usageCount_i + 1
+//
+//   consensus_bonus = (1 - normalized_std_dev) * min(num_sources / 10, 1.0) * 0.1
+//   final = base + consensus_bonus (capped at 1.0)
+//
+// This ensures:
+//   - High agreement among many sources increases confidence
+//   - Low variance (consensus) provides up to 0.1 bonus
+//   - Bonus scales with number of sources (up to 10 sources)
+//   - Result is always in valid range [0.0, 1.0]
+func calculateConsolidatedConfidence(sources []*Memory) float64 {
+	if len(sources) == 0 {
+		return DistilledConfidence // Default if no sources
+	}
+
+	// Calculate weighted average (base confidence)
+	var weightedSum float64
+	var totalWeight float64
+
+	for _, mem := range sources {
+		// Weight by usage count + 1 (to avoid zero weights)
+		weight := float64(mem.UsageCount + 1)
+		weightedSum += mem.Confidence * weight
+		totalWeight += weight
+	}
+
+	if totalWeight == 0 {
+		// Shouldn't happen due to +1, but guard against division by zero
+		return DistilledConfidence
+	}
+
+	baseConfidence := weightedSum / totalWeight
+
+	// Calculate consensus bonus based on confidence variance
+	if len(sources) == 1 {
+		// Single source: no consensus bonus
+		return clampConfidence(baseConfidence)
+	}
+
+	// Calculate mean confidence (unweighted, for variance calculation)
+	var sumConfidence float64
+	for _, mem := range sources {
+		sumConfidence += mem.Confidence
+	}
+	meanConfidence := sumConfidence / float64(len(sources))
+
+	// Calculate variance
+	var varianceSum float64
+	for _, mem := range sources {
+		diff := mem.Confidence - meanConfidence
+		varianceSum += diff * diff
+	}
+	variance := varianceSum / float64(len(sources))
+	stdDev := math.Sqrt(variance)
+
+	// Normalize std dev by the theoretical maximum (0.5 for range [0, 1])
+	// This gives us a value in [0, 1] where 0 = perfect consensus, 1 = maximum disagreement
+	normalizedStdDev := stdDev / 0.5
+	if normalizedStdDev > 1.0 {
+		normalizedStdDev = 1.0
+	}
+
+	// Calculate consensus factor: 1.0 for perfect agreement, 0.0 for maximum disagreement
+	consensusFactor := 1.0 - normalizedStdDev
+
+	// Scale by number of sources (more agreeing sources = higher bonus, max at 10 sources)
+	numSourcesFactor := math.Min(float64(len(sources))/10.0, 1.0)
+
+	// Calculate consensus bonus (up to 0.1)
+	consensusBonus := consensusFactor * numSourcesFactor * 0.1
+
+	// Combine base confidence with consensus bonus
+	finalConfidence := baseConfidence + consensusBonus
+
+	return clampConfidence(finalConfidence)
+}
+
+// clampConfidence ensures a confidence value is within the valid range [0.0, 1.0].
+func clampConfidence(confidence float64) float64 {
+	if confidence < 0.0 {
+		return 0.0
+	}
+	if confidence > 1.0 {
+		return 1.0
+	}
+	return confidence
+}
+
 // linkMemoriesToConsolidated updates source memories to link them to the consolidated version.
 //
 // This method updates each source memory's ConsolidationID field to point to the
