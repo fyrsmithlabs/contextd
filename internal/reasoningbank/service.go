@@ -49,6 +49,7 @@ type Service struct {
 	store         vectorstore.Store
 	stores        vectorstore.StoreProvider // For database-per-project isolation
 	defaultTenant string                    // Default tenant for StoreProvider (usually git username)
+	embedder      vectorstore.Embedder      // For re-embedding content to retrieve vectors
 	signalStore   SignalStore
 	confCalc      *ConfidenceCalculator
 	logger        *zap.Logger
@@ -83,6 +84,14 @@ func WithSignalStore(ss SignalStore) ServiceOption {
 func WithDefaultTenant(tenantID string) ServiceOption {
 	return func(s *Service) {
 		s.defaultTenant = tenantID
+	}
+}
+
+// WithEmbedder sets a custom embedder for the service.
+// Required for GetMemoryVector to re-embed memory content.
+func WithEmbedder(embedder vectorstore.Embedder) ServiceOption {
+	return func(s *Service) {
+		s.embedder = embedder
 	}
 }
 
@@ -931,6 +940,85 @@ func (s *Service) ListMemories(ctx context.Context, projectID string, limit, off
 		zap.Int("results", len(memories)))
 
 	return memories, nil
+}
+
+// GetMemoryVector retrieves the embedding vector for a memory by ID.
+//
+// This method re-embeds the memory content to retrieve its vector representation.
+// The content is embedded the same way as during storage (title + content).
+//
+// Note: This method requires the legacy single-store configuration.
+// When using StoreProvider (database-per-project), use GetMemoryVectorByProjectID instead.
+//
+// Returns the embedding vector or an error if the memory doesn't exist or embedder is not configured.
+func (s *Service) GetMemoryVector(ctx context.Context, memoryID string) ([]float32, error) {
+	if memoryID == "" {
+		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+	if s.embedder == nil {
+		return nil, fmt.Errorf("embedder not configured for reasoningbank service")
+	}
+
+	// Get the memory first
+	memory, err := s.Get(ctx, memoryID)
+	if err != nil {
+		return nil, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Re-embed the content (same format as when storing: title + content)
+	content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+	vector, err := s.embedder.EmbedQuery(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("embedding memory content: %w", err)
+	}
+
+	s.logger.Debug("retrieved memory vector",
+		zap.String("memory_id", memoryID),
+		zap.String("project_id", memory.ProjectID),
+		zap.Int("vector_size", len(vector)))
+
+	return vector, nil
+}
+
+// GetMemoryVectorByProjectID retrieves the embedding vector for a memory within a specific project.
+//
+// This is the preferred method when using StoreProvider (database-per-project isolation)
+// as it directly accesses the project's store without enumeration.
+//
+// The method re-embeds the memory content to retrieve its vector representation.
+// The content is embedded the same way as during storage (title + content).
+//
+// Returns the embedding vector or an error if the memory doesn't exist or embedder is not configured.
+func (s *Service) GetMemoryVectorByProjectID(ctx context.Context, projectID, memoryID string) ([]float32, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if memoryID == "" {
+		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+	if s.embedder == nil {
+		return nil, fmt.Errorf("embedder not configured for reasoningbank service")
+	}
+
+	// Get the memory first
+	memory, err := s.GetByProjectID(ctx, projectID, memoryID)
+	if err != nil {
+		return nil, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Re-embed the content (same format as when storing: title + content)
+	content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+	vector, err := s.embedder.EmbedQuery(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("embedding memory content: %w", err)
+	}
+
+	s.logger.Debug("retrieved memory vector",
+		zap.String("memory_id", memoryID),
+		zap.String("project_id", projectID),
+		zap.Int("vector_size", len(vector)))
+
+	return vector, nil
 }
 
 // parseFloat64 extracts a float64 from metadata, handling both float64 and string types.

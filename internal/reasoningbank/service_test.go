@@ -1249,3 +1249,231 @@ func TestService_ListMemories(t *testing.T) {
 		assert.Len(t, allMemories, 10)
 	})
 }
+
+// mockEmbedder implements vectorstore.Embedder for testing.
+type mockEmbedder struct {
+	vectorSize int
+}
+
+func newMockEmbedder(vectorSize int) *mockEmbedder {
+	return &mockEmbedder{vectorSize: vectorSize}
+}
+
+func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	embeddings := make([][]float32, len(texts))
+	for i := range texts {
+		embeddings[i] = make([]float32, m.vectorSize)
+		// Create deterministic embeddings based on text length
+		for j := 0; j < m.vectorSize; j++ {
+			embeddings[i][j] = float32(len(texts[i])+j) / 1000.0
+		}
+	}
+	return embeddings, nil
+}
+
+func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	embedding := make([]float32, m.vectorSize)
+	// Create deterministic embedding based on text length
+	for j := 0; j < m.vectorSize; j++ {
+		embedding[j] = float32(len(text)+j) / 1000.0
+	}
+	return embedding, nil
+}
+
+func TestGetMemoryVector(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	t.Run("retrieves vector for existing memory", func(t *testing.T) {
+		projectID := "vector-project-1"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"This is test content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector
+		vector, err := svc.GetMemoryVector(ctx, memory.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, vector)
+		assert.Len(t, vector, 384)
+
+		// Verify vector is deterministic (based on content)
+		// Content is "Test Memory\n\nThis is test content" (33 chars)
+		expectedFirstValue := float32(33) / 1000.0
+		assert.Equal(t, expectedFirstValue, vector[0])
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		vector, err := svc.GetMemoryVector(ctx, "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory not found")
+	})
+
+	t.Run("returns error when embedder not configured", func(t *testing.T) {
+		// Create service without embedder
+		svcNoEmbedder, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+		require.NoError(t, err)
+
+		projectID := "vector-project-2"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svcNoEmbedder.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Try to get vector without embedder
+		vector, err := svcNoEmbedder.GetMemoryVector(ctx, memory.ID)
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "embedder not configured")
+	})
+
+	t.Run("returns error for empty memory ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVector(ctx, "")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+}
+
+func TestGetMemoryVectorByProjectID(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	t.Run("retrieves vector for existing memory in project", func(t *testing.T) {
+		projectID := "vector-project-3"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"This is test content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector by project ID
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, vector)
+		assert.Len(t, vector, 384)
+
+		// Verify vector is deterministic (based on content)
+		// Content is "Test Memory\n\nThis is test content" (33 chars)
+		expectedFirstValue := float32(33) / 1000.0
+		assert.Equal(t, expectedFirstValue, vector[0])
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory not found")
+	})
+
+	t.Run("returns error when embedder not configured", func(t *testing.T) {
+		// Create service without embedder
+		svcNoEmbedder, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+		require.NoError(t, err)
+
+		projectID := "vector-project-4"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svcNoEmbedder.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Try to get vector without embedder
+		vector, err := svcNoEmbedder.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "embedder not configured")
+	})
+
+	t.Run("returns error for empty project ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "", "some-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("returns error for empty memory ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("vector matches content embedding", func(t *testing.T) {
+		projectID := "vector-project-5"
+
+		// Create a memory with specific content
+		memory, err := NewMemory(
+			projectID,
+			"Title",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		require.NoError(t, err)
+
+		// Manually embed the same content to verify consistency
+		content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+		expectedVector, err := embedder.EmbedQuery(ctx, content)
+		require.NoError(t, err)
+
+		// Vectors should match
+		assert.Equal(t, expectedVector, vector)
+	})
+}
