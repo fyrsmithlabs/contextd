@@ -341,3 +341,205 @@ func CosineSimilarity(vec1, vec2 []float32) float64 {
 
 	return dotProduct / (magnitude1 * magnitude2)
 }
+
+// FindSimilarClusters detects groups of similar memories for a project.
+//
+// Searches all memories in the project and groups those with similarity
+// scores above the threshold. Uses greedy clustering: for each memory,
+// finds all similar memories above threshold, forms cluster if >=2 members.
+//
+// The algorithm:
+//  1. Retrieve all memories for the project
+//  2. Get embedding vectors for each memory
+//  3. For each memory, compute similarity with all other memories
+//  4. Group memories with similarity > threshold
+//  5. Form clusters only if they have >= 2 members
+//  6. Calculate cluster statistics (centroid, average similarity, min similarity)
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - projectID: Project to search for similar memories
+//   - threshold: Minimum similarity score (0.0-1.0, typically 0.8)
+//
+// Returns:
+//   - Slice of similarity clusters, each containing related memories
+//   - Error if clustering fails
+func (d *Distiller) FindSimilarClusters(ctx context.Context, projectID string, threshold float64) ([]SimilarityCluster, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if threshold < 0.0 || threshold > 1.0 {
+		return nil, fmt.Errorf("threshold must be between 0.0 and 1.0, got %f", threshold)
+	}
+
+	d.logger.Info("finding similar memory clusters",
+		zap.String("project_id", projectID),
+		zap.Float64("threshold", threshold))
+
+	// Get all memories for the project
+	memories, err := d.service.ListMemories(ctx, projectID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("listing memories: %w", err)
+	}
+
+	if len(memories) < 2 {
+		// Need at least 2 memories to form a cluster
+		d.logger.Debug("not enough memories for clustering",
+			zap.Int("count", len(memories)))
+		return []SimilarityCluster{}, nil
+	}
+
+	d.logger.Debug("retrieved memories for clustering",
+		zap.Int("count", len(memories)))
+
+	// Get embedding vectors for all memories
+	type memoryWithVector struct {
+		memory *Memory
+		vector []float32
+	}
+
+	memVecs := make([]memoryWithVector, 0, len(memories))
+	for i := range memories {
+		var vector []float32
+		var err error
+
+		// Try project-specific method first (for StoreProvider), fall back to legacy
+		if d.service.stores != nil {
+			vector, err = d.service.GetMemoryVectorByProjectID(ctx, projectID, memories[i].ID)
+		} else {
+			vector, err = d.service.GetMemoryVector(ctx, memories[i].ID)
+		}
+
+		if err != nil {
+			d.logger.Warn("failed to get memory vector, skipping",
+				zap.String("memory_id", memories[i].ID),
+				zap.Error(err))
+			continue
+		}
+
+		memVecs = append(memVecs, memoryWithVector{
+			memory: &memories[i],
+			vector: vector,
+		})
+	}
+
+	if len(memVecs) < 2 {
+		d.logger.Debug("not enough memories with vectors for clustering",
+			zap.Int("count", len(memVecs)))
+		return []SimilarityCluster{}, nil
+	}
+
+	// Track which memories have already been clustered
+	clustered := make(map[string]bool)
+	var clusters []SimilarityCluster
+
+	// Greedy clustering: for each memory, find all similar memories above threshold
+	for i := 0; i < len(memVecs); i++ {
+		// Skip if already in a cluster
+		if clustered[memVecs[i].memory.ID] {
+			continue
+		}
+
+		// Find all memories similar to this one
+		similar := []*Memory{memVecs[i].memory}
+		similarVectors := [][]float32{memVecs[i].vector}
+		similarities := []float64{}
+
+		for j := 0; j < len(memVecs); j++ {
+			if i == j {
+				continue
+			}
+			if clustered[memVecs[j].memory.ID] {
+				continue
+			}
+
+			similarity := CosineSimilarity(memVecs[i].vector, memVecs[j].vector)
+			if similarity > threshold {
+				similar = append(similar, memVecs[j].memory)
+				similarVectors = append(similarVectors, memVecs[j].vector)
+				similarities = append(similarities, similarity)
+			}
+		}
+
+		// Only form cluster if >= 2 members
+		if len(similar) < 2 {
+			continue
+		}
+
+		// Mark all members as clustered
+		for _, mem := range similar {
+			clustered[mem.ID] = true
+		}
+
+		// Calculate cluster statistics
+		centroid := calculateCentroid(similarVectors)
+		avgSim, minSim := calculateSimilarityStats(similarities)
+
+		cluster := SimilarityCluster{
+			Members:           similar,
+			CentroidVector:    centroid,
+			AverageSimilarity: avgSim,
+			MinSimilarity:     minSim,
+		}
+
+		clusters = append(clusters, cluster)
+
+		d.logger.Debug("formed cluster",
+			zap.Int("members", len(similar)),
+			zap.Float64("avg_similarity", avgSim),
+			zap.Float64("min_similarity", minSim))
+	}
+
+	d.logger.Info("clustering completed",
+		zap.String("project_id", projectID),
+		zap.Int("clusters", len(clusters)),
+		zap.Int("total_memories", len(memories)),
+		zap.Int("clustered_memories", len(clustered)))
+
+	return clusters, nil
+}
+
+// calculateCentroid computes the average (centroid) vector from a set of vectors.
+func calculateCentroid(vectors [][]float32) []float32 {
+	if len(vectors) == 0 {
+		return nil
+	}
+
+	vectorSize := len(vectors[0])
+	centroid := make([]float32, vectorSize)
+
+	// Sum all vectors
+	for _, vec := range vectors {
+		for i := 0; i < vectorSize; i++ {
+			centroid[i] += vec[i]
+		}
+	}
+
+	// Divide by count to get average
+	count := float32(len(vectors))
+	for i := 0; i < vectorSize; i++ {
+		centroid[i] /= count
+	}
+
+	return centroid
+}
+
+// calculateSimilarityStats computes average and minimum similarity from a set of similarity scores.
+func calculateSimilarityStats(similarities []float64) (avg float64, min float64) {
+	if len(similarities) == 0 {
+		return 0.0, 0.0
+	}
+
+	min = 1.0
+	var sum float64
+
+	for _, sim := range similarities {
+		sum += sim
+		if sim < min {
+			min = sim
+		}
+	}
+
+	avg = sum / float64(len(similarities))
+	return avg, min
+}
