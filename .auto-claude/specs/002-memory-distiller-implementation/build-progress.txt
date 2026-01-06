@@ -1,0 +1,119 @@
+# Memory Distiller Implementation - Build Progress
+
+## Status: PLANNING COMPLETE
+**Last Updated**: 2026-01-06
+
+## Overview
+Implementing real memory consolidation to replace the stub distiller. The system will:
+- Detect similar memories using vectorstore semantic search (>0.8 similarity threshold)
+- Synthesize clusters into consolidated memories using LLM
+- Preserve original memories with back-links to consolidated versions
+- Run automatically on schedule or manually via MCP tool
+
+## Architecture Summary
+
+### Current State (distiller.go)
+- Distiller exists with DistillSession() for session-based memory extraction
+- Works for session end events
+- NO consolidation/merging functionality yet
+
+### Target State
+- Add FindSimilarClusters() - detect memory groups above similarity threshold
+- Add MergeCluster() - use LLM to synthesize similar memories
+- Add Consolidate() - orchestrate full consolidation run
+- Add ConsolidationScheduler - background automatic runs
+- Add memory_consolidate MCP tool - manual triggering
+
+## Phase Progress
+
+### Phase 1: Core Consolidation Types & Interface [PENDING]
+- [ ] ConsolidatedMemory type with SourceIDs, ConsolidationType
+- [ ] SimilarityCluster type for grouping similar memories
+- [ ] ConsolidationResult type for operation results
+- [ ] MemoryConsolidator interface
+
+### Phase 2: Similarity Detection Engine [PENDING]
+- [ ] ListMemories() on Service
+- [ ] GetMemoryVector() for embedding retrieval
+- [ ] CosineSimilarity() utility function
+- [ ] FindSimilarClusters() on Distiller
+- [ ] Tests for similarity detection
+
+### Phase 3: Memory Synthesis Engine [PENDING]
+- [ ] LLMClient interface for pluggable backends
+- [ ] Consolidation prompt template
+- [ ] parseConsolidatedMemory() parser
+- [ ] MergeCluster() implementation
+- [ ] MockLLMClient for testing
+- [ ] Tests for synthesis
+
+### Phase 4: Confidence & Attribution System [PENDING]
+- [ ] Consolidated confidence calculation
+- [ ] consolidation_id field on Memory
+- [ ] LinkMemoriesToConsolidated() method
+- [ ] Search boost for consolidated memories
+- [ ] Tests
+
+### Phase 5: Consolidate Method & Scheduling [PENDING]
+- [ ] ConsolidationOptions struct
+- [ ] Consolidate() orchestration method
+- [ ] Consolidation metadata tracking
+- [ ] ConsolidateAll() for bulk runs
+- [ ] Integration tests
+
+### Phase 6: MCP Tool Integration [PENDING]
+- [ ] memory_consolidate tool schema
+- [ ] MemoryConsolidateHandler
+- [ ] Register in handlers Registry
+- [ ] Register in MCP server
+- [ ] Handler tests
+
+### Phase 7: Background Scheduler [PENDING]
+- [ ] ConsolidationScheduler struct
+- [ ] Start/Stop lifecycle methods
+- [ ] Scheduler loop implementation
+- [ ] Configuration options
+- [ ] Wire into cmd/contextd
+- [ ] Scheduler tests
+
+### Phase 8: QA & Documentation [PENDING]
+- [ ] Full integration test
+- [ ] AC verification: >0.8 similarity
+- [ ] AC verification: preserved originals
+- [ ] AC verification: confidence scoring
+- [ ] AC verification: manual/auto triggers
+- [ ] AC verification: source attribution
+- [ ] DESIGN.md update
+- [ ] Test coverage verification
+
+## Key Files to Modify/Create
+
+### Existing Files
+- `internal/reasoningbank/types.go` - Add consolidation types
+- `internal/reasoningbank/distiller.go` - Main implementation
+- `internal/reasoningbank/service.go` - Add ListMemories()
+- `internal/mcp/handlers/registry.go` - Register new tool
+- `internal/services/registry.go` - Already exposes Distiller
+- `cmd/contextd/main.go` - Wire scheduler
+
+### New Files
+- `internal/reasoningbank/consolidation.go` - Consolidation logic
+- `internal/reasoningbank/consolidation_test.go` - Tests
+- `internal/reasoningbank/scheduler.go` - Background scheduler
+- `internal/mcp/handlers/memory.go` - MCP handler
+
+## Acceptance Criteria Mapping
+
+| AC | Phase | Subtasks |
+|----|-------|----------|
+| Consolidates >0.8 similarity | P2, P5 | 2.4, 5.2 |
+| Original memories preserved | P4 | 4.2, 4.3 |
+| Confidence scores updated | P4 | 4.1 |
+| Manual + automatic triggers | P6, P7 | 6.1-6.5, 7.1-7.6 |
+| Source attribution | P1, P3 | 1.1, 3.3 |
+
+## Notes
+- Existing Distiller handles session distillation well
+- Need LLM integration for synthesis (interface-based for flexibility)
+- vectorstore already supports similarity search
+- Signal system can track consolidation outcomes

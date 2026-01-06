@@ -1,0 +1,389 @@
+{
+  "feature": "Memory Distiller Implementation",
+  "description": "Replace the stub distiller with real memory consolidation that compresses, merges, and prioritizes memories based on usage patterns. Uses LLM to synthesize related memories into more valuable consolidated knowledge.",
+  "created_at": "2026-01-06T22:58:39.106Z",
+  "updated_at": "2026-01-06T23:15:00.000Z",
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Consolidation Types & Interface",
+      "description": "Define types for memory consolidation, similarity detection, and consolidated memory representation",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Define ConsolidatedMemory type",
+          "description": "Create types.go additions: ConsolidatedMemory struct with SourceIDs []string, ConsolidationType (enum: merged, deduplicated, synthesized), and SourceAttribution field. Add consolidation_id field to Memory struct for back-reference.",
+          "status": "completed",
+          "notes": "Successfully added ConsolidationType enum (merged, deduplicated, synthesized), ConsolidatedMemory struct with SourceIDs/ConsolidationType/SourceAttribution fields, and ConsolidationID field to Memory struct. Commit 4a06478 passed golangci-lint validation.",
+          "updated_at": "2026-01-06T23:03:32.781474+00:00"
+        },
+        {
+          "id": "1.2",
+          "title": "Define SimilarityCluster type",
+          "description": "Create SimilarityCluster struct to represent groups of similar memories: Members []*Memory, CentroidVector []float32, AverageSimilarity float64, MinSimilarity float64",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "1.3",
+          "title": "Define ConsolidationResult type",
+          "description": "Create ConsolidationResult struct: CreatedMemories []string, ArchivedMemories []string, SkippedCount int, TotalProcessed int, Duration time.Duration",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "1.4",
+          "title": "Define MemoryConsolidator interface",
+          "description": "Create MemoryConsolidator interface with methods: FindSimilarClusters(ctx, projectID, threshold) ([]SimilarityCluster, error), MergeCluster(ctx, cluster) (*Memory, error), Consolidate(ctx, projectID, opts) (*ConsolidationResult, error)",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Similarity Detection Engine",
+      "description": "Implement similarity detection using vectorstore semantic search to find memory clusters",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Implement ListMemories method on Service",
+          "description": "Add ListMemories(ctx, projectID, limit, offset) to Service that retrieves all memories for a project using vectorstore.SearchInCollection with high limit and no query (or dummy query). This is needed to iterate over all memories for consolidation.",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "2.2",
+          "title": "Implement GetMemoryVector method",
+          "description": "Add GetMemoryVector(ctx, memoryID) that retrieves the embedding vector for a memory. This may require storing/retrieving vectors directly or re-embedding content.",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "2.3",
+          "title": "Implement CosineSimilarity function",
+          "description": "Add utility function CosineSimilarity(vec1, vec2 []float32) float64 for computing similarity between two embedding vectors",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "2.4",
+          "title": "Implement FindSimilarClusters method",
+          "description": "Add FindSimilarClusters(ctx, projectID, threshold float64) on Distiller that groups memories with >threshold similarity. Uses greedy clustering: for each memory, find all similar memories above threshold, form cluster if >=2 members.",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "2.5",
+          "title": "Write tests for similarity detection",
+          "description": "Create distiller_test.go with tests for CosineSimilarity, FindSimilarClusters with mock vectorstore returning known similar/dissimilar memories",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Memory Synthesis Engine",
+      "description": "Implement LLM-powered memory synthesis to merge similar memories into consolidated entries",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Define LLMClient interface",
+          "description": "Create LLMClient interface in distiller.go: Complete(ctx context.Context, prompt string) (string, error). This allows pluggable LLM backends (Claude, OpenAI, local)",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "3.2",
+          "title": "Implement consolidation prompt template",
+          "description": "Create buildConsolidationPrompt(memories []*Memory) string that formats memories for LLM synthesis. Template should ask LLM to: identify common theme, synthesize key insights, preserve important details, note when to apply",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "3.3",
+          "title": "Implement parseConsolidatedMemory function",
+          "description": "Create parseConsolidatedMemory(llmResponse string, sourceIDs []string) (*Memory, error) that parses LLM response into Memory struct with source attribution and consolidated flag",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "3.4",
+          "title": "Implement MergeCluster method",
+          "description": "Add MergeCluster(ctx, cluster *SimilarityCluster) on Distiller that: calls LLM to synthesize memories, creates new consolidated memory, links source memories to consolidated version, calculates merged confidence",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "3.5",
+          "title": "Implement MockLLMClient for testing",
+          "description": "Create MockLLMClient that returns canned synthesis responses for testing without real LLM calls",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "3.6",
+          "title": "Write tests for memory synthesis",
+          "description": "Test MergeCluster with mock LLM, verify source attribution, confidence calculation, and memory linking",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Confidence & Attribution System",
+      "description": "Implement confidence scoring for consolidated memories and source attribution tracking",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Implement consolidated confidence calculation",
+          "description": "Create calculateConsolidatedConfidence(sources []*Memory) float64 that computes confidence for merged memory: weighted average based on source confidences and usage counts, with bonus for consensus",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "4.2",
+          "title": "Add consolidation_id to Memory struct",
+          "description": "Update Memory type to include ConsolidationID *string field that links original memories to their consolidated version",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "4.3",
+          "title": "Implement LinkMemoriesToConsolidated method",
+          "description": "Add method to update source memories with consolidation_id back-reference and mark them as 'archived' state while preserving original content",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "4.4",
+          "title": "Update Search to prefer consolidated memories",
+          "description": "Modify Search() to boost consolidated memories in ranking (they represent synthesized knowledge from multiple sources)",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "4.5",
+          "title": "Write tests for confidence and attribution",
+          "description": "Test confidence calculation, back-linking, and search preference for consolidated memories",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "Consolidate Method & Scheduling",
+      "description": "Implement the main Consolidate method and scheduling infrastructure",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Define ConsolidationOptions",
+          "description": "Create ConsolidationOptions struct: SimilarityThreshold float64 (default 0.8), MaxClustersPerRun int, DryRun bool, ForceAll bool (ignore recent consolidation)",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "5.2",
+          "title": "Implement Consolidate method",
+          "description": "Add Consolidate(ctx, projectID string, opts ConsolidationOptions) on Distiller that orchestrates: FindSimilarClusters, MergeCluster for each, LinkMemories, return ConsolidationResult",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "5.3",
+          "title": "Add consolidation metadata tracking",
+          "description": "Track last consolidation time per project to avoid re-processing recently consolidated memories. Store in memory metadata or separate tracking.",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "5.4",
+          "title": "Implement ConsolidateAll method",
+          "description": "Add ConsolidateAll(ctx, opts) that runs consolidation across all projects (for scheduled background runs)",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "5.5",
+          "title": "Write integration tests for Consolidate",
+          "description": "Test full consolidation flow with mock vectorstore and LLM: multiple clusters, partial failures, dry run mode",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "name": "MCP Tool Integration",
+      "description": "Add memory_consolidate MCP tool for manual triggering",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Define memory_consolidate tool schema",
+          "description": "Create MCP tool definition in handlers with inputs: project_id (required), similarity_threshold (optional, default 0.8), dry_run (optional, default false), max_clusters (optional)",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "6.2",
+          "title": "Implement MemoryConsolidateHandler",
+          "description": "Create handler that calls Distiller.Consolidate and returns ConsolidationResult formatted for MCP response",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "6.3",
+          "title": "Register tool in handlers Registry",
+          "description": "Add memory_consolidate to handler registry in NewRegistry(), wire up to MemoryConsolidateHandler",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "6.4",
+          "title": "Register tool in MCP server",
+          "description": "Add memory_consolidate tool definition to tools.go with proper inputSchema",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "6.5",
+          "title": "Write MCP tool tests",
+          "description": "Test handler with various inputs, verify proper error handling and response format",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "name": "Background Scheduler",
+      "description": "Implement automatic scheduled consolidation",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Define ConsolidationScheduler",
+          "description": "Create scheduler struct with: interval time.Duration, distiller *Distiller, running bool, stopCh chan struct{}",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "7.2",
+          "title": "Implement Start/Stop methods",
+          "description": "Add Start() and Stop() methods for scheduler lifecycle management with graceful shutdown",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "7.3",
+          "title": "Implement scheduler loop",
+          "description": "Background goroutine that runs Consolidate on configured interval (default: daily), handles errors gracefully",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "7.4",
+          "title": "Add configuration options",
+          "description": "Add consolidation scheduler config to koanf config: enabled bool, interval duration, similarity_threshold float64",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "7.5",
+          "title": "Wire scheduler into cmd/contextd",
+          "description": "Initialize and start scheduler in main.go if enabled in config, ensure proper shutdown",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "7.6",
+          "title": "Write scheduler tests",
+          "description": "Test scheduler start/stop, interval triggering, graceful shutdown",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-8",
+      "name": "QA & Documentation",
+      "description": "Final testing, documentation, and acceptance criteria verification",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Integration test: full consolidation flow",
+          "description": "End-to-end test: create similar memories, run consolidation, verify merged result, check back-links, test search preference",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.2",
+          "title": "Verify AC: >0.8 similarity consolidation",
+          "description": "Test that memories with >0.8 similarity are consolidated, <0.8 are not",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.3",
+          "title": "Verify AC: original memories preserved",
+          "description": "Test that original memories retain content and have consolidation_id link",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.4",
+          "title": "Verify AC: confidence scoring",
+          "description": "Test that consolidated memory confidence is calculated correctly from sources",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.5",
+          "title": "Verify AC: manual/auto triggers",
+          "description": "Test MCP tool manual trigger and scheduler automatic trigger both work",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.6",
+          "title": "Verify AC: source attribution",
+          "description": "Test that consolidated memories include source memory IDs and attribution",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.7",
+          "title": "Update DESIGN.md with consolidation section",
+          "description": "Document consolidation architecture, configuration options, and MCP tool usage",
+          "status": "pending",
+          "notes": ""
+        },
+        {
+          "id": "8.8",
+          "title": "Run full test suite and verify coverage",
+          "description": "Ensure all tests pass, reasoningbank coverage remains >80%",
+          "status": "pending",
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "qaStatus": {
+    "status": "pending",
+    "tests_passed": "",
+    "issues": ""
+  },
+  "last_updated": "2026-01-06T23:03:32.781486+00:00"
+}
