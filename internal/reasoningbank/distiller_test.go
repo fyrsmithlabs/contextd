@@ -1137,3 +1137,180 @@ func TestBuildConsolidationPrompt_SpecialCharacters(t *testing.T) {
 	assert.Contains(t, prompt, "Special chars: <>\"'&")
 	assert.Contains(t, prompt, "Content with special chars: \n\t\r $ % # @ !")
 }
+
+// mockLLMClient is a mock LLM client for testing memory consolidation.
+// It returns pre-defined synthesis responses without making real LLM API calls.
+type mockLLMClient struct {
+	// response is the canned response to return from Complete
+	response string
+	// err is the error to return (if any)
+	err error
+	// callCount tracks how many times Complete was called
+	callCount int
+	// lastPrompt stores the last prompt passed to Complete
+	lastPrompt string
+}
+
+// newMockLLMClient creates a mock LLM client with a default valid response.
+// The default response follows the expected format for memory consolidation.
+func newMockLLMClient() *mockLLMClient {
+	return &mockLLMClient{
+		response: `
+TITLE: Consolidated Memory Pattern
+
+CONTENT:
+This is a synthesized memory that combines insights from multiple source memories.
+It represents the common patterns and key learnings extracted from the sources.
+
+The consolidation process identified shared themes and merged them into this
+more valuable, integrated understanding that's easier to retrieve and apply.
+
+TAGS: consolidated, pattern, synthesis
+
+OUTCOME: success
+
+SOURCE_ATTRIBUTION:
+Synthesized from multiple source memories using LLM-powered consolidation.
+Combines common themes and key insights into integrated knowledge.
+`,
+	}
+}
+
+// newMockLLMClientWithResponse creates a mock LLM client with a custom response.
+func newMockLLMClientWithResponse(response string) *mockLLMClient {
+	return &mockLLMClient{
+		response: response,
+	}
+}
+
+// newMockLLMClientWithError creates a mock LLM client that returns an error.
+func newMockLLMClientWithError(err error) *mockLLMClient {
+	return &mockLLMClient{
+		err: err,
+	}
+}
+
+// Complete returns the pre-defined response without calling a real LLM.
+func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	m.callCount++
+	m.lastPrompt = prompt
+
+	if m.err != nil {
+		return "", m.err
+	}
+
+	return m.response, nil
+}
+
+// CallCount returns the number of times Complete was called.
+func (m *mockLLMClient) CallCount() int {
+	return m.callCount
+}
+
+// LastPrompt returns the last prompt passed to Complete.
+func (m *mockLLMClient) LastPrompt() string {
+	return m.lastPrompt
+}
+
+// TestMockLLMClient_DefaultResponse tests the default mock LLM client behavior.
+func TestMockLLMClient_DefaultResponse(t *testing.T) {
+	ctx := context.Background()
+	mock := newMockLLMClient()
+
+	// Call Complete
+	response, err := mock.Complete(ctx, "test prompt")
+	require.NoError(t, err)
+	assert.NotEmpty(t, response)
+
+	// Verify response contains expected fields
+	assert.Contains(t, response, "TITLE:")
+	assert.Contains(t, response, "CONTENT:")
+	assert.Contains(t, response, "TAGS:")
+	assert.Contains(t, response, "OUTCOME:")
+	assert.Contains(t, response, "SOURCE_ATTRIBUTION:")
+
+	// Verify call tracking
+	assert.Equal(t, 1, mock.CallCount())
+	assert.Equal(t, "test prompt", mock.LastPrompt())
+}
+
+// TestMockLLMClient_CustomResponse tests mock with custom response.
+func TestMockLLMClient_CustomResponse(t *testing.T) {
+	ctx := context.Background()
+	customResponse := `
+TITLE: Custom Test Memory
+
+CONTENT:
+This is a custom response for testing purposes.
+
+OUTCOME: success
+`
+	mock := newMockLLMClientWithResponse(customResponse)
+
+	response, err := mock.Complete(ctx, "custom prompt")
+	require.NoError(t, err)
+	assert.Equal(t, customResponse, response)
+
+	// Verify call tracking
+	assert.Equal(t, 1, mock.CallCount())
+	assert.Equal(t, "custom prompt", mock.LastPrompt())
+}
+
+// TestMockLLMClient_Error tests mock that returns an error.
+func TestMockLLMClient_Error(t *testing.T) {
+	ctx := context.Background()
+	expectedErr := fmt.Errorf("mock LLM error")
+	mock := newMockLLMClientWithError(expectedErr)
+
+	response, err := mock.Complete(ctx, "error prompt")
+	assert.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+	assert.Empty(t, response)
+
+	// Verify call tracking (should still track call even on error)
+	assert.Equal(t, 1, mock.CallCount())
+	assert.Equal(t, "error prompt", mock.LastPrompt())
+}
+
+// TestMockLLMClient_MultipleCalls tests that call tracking works correctly.
+func TestMockLLMClient_MultipleCalls(t *testing.T) {
+	ctx := context.Background()
+	mock := newMockLLMClient()
+
+	// Make multiple calls
+	for i := 1; i <= 3; i++ {
+		prompt := fmt.Sprintf("prompt %d", i)
+		_, err := mock.Complete(ctx, prompt)
+		require.NoError(t, err)
+
+		// Verify call count increments
+		assert.Equal(t, i, mock.CallCount())
+		// Verify last prompt is updated
+		assert.Equal(t, prompt, mock.LastPrompt())
+	}
+
+	assert.Equal(t, 3, mock.CallCount())
+	assert.Equal(t, "prompt 3", mock.LastPrompt())
+}
+
+// TestMockLLMClient_ValidResponseFormat tests that default response is parseable.
+func TestMockLLMClient_ValidResponseFormat(t *testing.T) {
+	ctx := context.Background()
+	mock := newMockLLMClient()
+
+	response, err := mock.Complete(ctx, "test prompt")
+	require.NoError(t, err)
+
+	// Verify the response can be parsed by parseConsolidatedMemory
+	sourceIDs := []string{"mem-1", "mem-2"}
+	memory, err := parseConsolidatedMemory(response, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	// Verify parsed fields
+	assert.Equal(t, "Consolidated Memory Pattern", memory.Title)
+	assert.Contains(t, memory.Content, "synthesized memory")
+	assert.Equal(t, OutcomeSuccess, memory.Outcome)
+	assert.Equal(t, []string{"consolidated", "pattern", "synthesis"}, memory.Tags)
+	assert.Contains(t, memory.Description, "Synthesized from multiple source memories")
+}
