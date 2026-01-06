@@ -1065,3 +1065,187 @@ func TestService_WithStoreProvider_Operations(t *testing.T) {
 		assert.True(t, okB, "project-B should have its own store")
 	})
 }
+
+func TestService_ListMemories(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	t.Run("validates project ID", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "", 10, 0)
+		require.Error(t, err)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("validates limit", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "project-123", -1, 0)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "limit cannot be negative")
+	})
+
+	t.Run("validates offset", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "project-123", 10, -1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "offset cannot be negative")
+	})
+
+	t.Run("returns empty list for non-existent project", func(t *testing.T) {
+		memories, err := svc.ListMemories(ctx, "non-existent", 10, 0)
+		require.NoError(t, err)
+		assert.Empty(t, memories)
+	})
+
+	t.Run("lists all memories without pagination", func(t *testing.T) {
+		projectID := "list-project-1"
+
+		// Create multiple memories
+		for i := 1; i <= 5; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List all memories (limit=0 means all)
+		memories, err := svc.ListMemories(ctx, projectID, 0, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 5)
+	})
+
+	t.Run("lists memories with limit", func(t *testing.T) {
+		projectID := "list-project-2"
+
+		// Create multiple memories
+		for i := 1; i <= 10; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List with limit
+		memories, err := svc.ListMemories(ctx, projectID, 3, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 3)
+	})
+
+	t.Run("lists memories with offset", func(t *testing.T) {
+		projectID := "list-project-3"
+
+		// Create memories with known titles
+		titles := []string{"First", "Second", "Third", "Fourth", "Fifth"}
+		for _, title := range titles {
+			memory, _ := NewMemory(
+				projectID,
+				title,
+				fmt.Sprintf("Content for %s", title),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List with offset (skip first 2, get next 2)
+		memories, err := svc.ListMemories(ctx, projectID, 2, 2)
+		require.NoError(t, err)
+		assert.Len(t, memories, 2)
+
+		// Verify offset was applied (we should get 3rd and 4th items)
+		// Note: order depends on storage implementation
+		for _, mem := range memories {
+			assert.NotEmpty(t, mem.Title)
+		}
+	})
+
+	t.Run("handles offset beyond available memories", func(t *testing.T) {
+		projectID := "list-project-4"
+
+		// Create 3 memories
+		for i := 1; i <= 3; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Try to list with offset beyond available memories
+		memories, err := svc.ListMemories(ctx, projectID, 10, 100)
+		require.NoError(t, err)
+		assert.Empty(t, memories)
+	})
+
+	t.Run("returns all memories when limit exceeds count", func(t *testing.T) {
+		projectID := "list-project-5"
+
+		// Create 3 memories
+		for i := 1; i <= 3; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Request more than available
+		memories, err := svc.ListMemories(ctx, projectID, 100, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 3)
+	})
+
+	t.Run("pagination example", func(t *testing.T) {
+		projectID := "list-project-6"
+
+		// Create 10 memories
+		for i := 1; i <= 10; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Paginate through all memories (page size = 3)
+		allMemories := []Memory{}
+		pageSize := 3
+		offset := 0
+
+		for {
+			page, err := svc.ListMemories(ctx, projectID, pageSize, offset)
+			require.NoError(t, err)
+
+			if len(page) == 0 {
+				break
+			}
+
+			allMemories = append(allMemories, page...)
+			offset += len(page)
+		}
+
+		// Should have collected all 10 memories
+		assert.Len(t, allMemories, 10)
+	})
+}

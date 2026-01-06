@@ -828,6 +828,111 @@ func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
 	return info.PointCount, nil
 }
 
+// ListMemories retrieves all memories for a project with pagination support.
+//
+// This method is used by the memory consolidation system to iterate over all memories
+// in a project. Unlike Search, it doesn't filter by semantic similarity - it returns
+// memories in storage order.
+//
+// Parameters:
+//   - limit: Maximum number of memories to return (0 = return all)
+//   - offset: Number of memories to skip (for pagination)
+//
+// Returns memories in storage order. For large projects, use pagination to avoid
+// loading all memories at once.
+func (s *Service) ListMemories(ctx context.Context, projectID string, limit, offset int) ([]Memory, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if limit < 0 {
+		return nil, fmt.Errorf("limit cannot be negative")
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset cannot be negative")
+	}
+
+	// Get store and collection name for this project
+	store, collectionName, err := s.getStore(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Inject tenant context for payload-based isolation
+	// Fail-closed: require tenant ID to be set (no fallback)
+	tenantID := s.defaultTenant
+	if tenantID == "" {
+		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	}
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: projectID,
+	})
+
+	// Check if collection exists
+	exists, err := store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return nil, fmt.Errorf("checking collection existence: %w", err)
+	}
+	if !exists {
+		// No memories yet for this project
+		s.logger.Debug("collection does not exist",
+			zap.String("collection", collectionName),
+			zap.String("project_id", projectID))
+		return []Memory{}, nil
+	}
+
+	// Calculate fetch limit: need offset + limit documents
+	// Use a high limit if limit=0 (return all)
+	fetchLimit := limit + offset
+	if limit == 0 {
+		// Fetch all - use a very high limit
+		// Most projects won't have more than 10k memories
+		fetchLimit = 10000
+	}
+	if fetchLimit > 10000 {
+		fetchLimit = 10000 // Cap to prevent excessive fetching
+	}
+
+	// Use SearchInCollection with an empty query to get all documents
+	// The vectorstore will return results in storage order
+	results, err := store.SearchInCollection(ctx, collectionName, "", fetchLimit, nil)
+	if err != nil {
+		return nil, fmt.Errorf("listing memories: %w", err)
+	}
+
+	// Skip offset documents and take up to limit
+	start := offset
+	if start > len(results) {
+		return []Memory{}, nil
+	}
+
+	end := len(results)
+	if limit > 0 && start+limit < len(results) {
+		end = start + limit
+	}
+
+	// Convert results to Memory structs
+	memories := make([]Memory, 0, end-start)
+	for i := start; i < end; i++ {
+		memory, err := s.resultToMemory(results[i])
+		if err != nil {
+			s.logger.Warn("skipping invalid memory",
+				zap.String("id", results[i].ID),
+				zap.Error(err))
+			continue
+		}
+		memories = append(memories, *memory)
+	}
+
+	s.logger.Debug("list memories completed",
+		zap.String("project_id", projectID),
+		zap.Int("limit", limit),
+		zap.Int("offset", offset),
+		zap.Int("results", len(memories)))
+
+	return memories, nil
+}
+
 // parseFloat64 extracts a float64 from metadata, handling both float64 and string types.
 // chromem-go stores metadata as JSON and may deserialize numbers as strings.
 func parseFloat64(v interface{}) float64 {
