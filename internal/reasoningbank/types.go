@@ -1,6 +1,7 @@
 package reasoningbank
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -249,4 +250,68 @@ type ConsolidationResult struct {
 
 	// Duration is how long the consolidation operation took to complete.
 	Duration time.Duration `json:"duration"`
+}
+
+// MemoryConsolidator defines the interface for memory consolidation operations.
+//
+// Implementations of this interface (such as the Distiller) are responsible for
+// detecting similar memories, merging them into consolidated entries, and
+// orchestrating the overall consolidation process.
+//
+// The consolidation workflow:
+//  1. FindSimilarClusters detects groups of similar memories above a threshold
+//  2. MergeCluster synthesizes each cluster into a single consolidated memory
+//  3. Consolidate orchestrates the full process with configurable options
+//
+// Original memories are preserved with back-links to their consolidated versions
+// via the ConsolidationID field.
+type MemoryConsolidator interface {
+	// FindSimilarClusters detects groups of similar memories for a project.
+	//
+	// Searches all memories in the project and groups those with similarity
+	// scores above the threshold. Uses greedy clustering: for each memory,
+	// finds all similar memories above threshold, forms cluster if >=2 members.
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeouts
+	//   - projectID: Project to search for similar memories
+	//   - threshold: Minimum similarity score (0.0-1.0, typically 0.8)
+	//
+	// Returns:
+	//   - Slice of similarity clusters, each containing related memories
+	//   - Error if clustering fails
+	FindSimilarClusters(ctx context.Context, projectID string, threshold float64) ([]SimilarityCluster, error)
+
+	// MergeCluster synthesizes a cluster of similar memories into one consolidated memory.
+	//
+	// Uses an LLM to analyze the cluster members and create a synthesized memory
+	// that captures their common themes and key insights. The consolidated memory
+	// includes source attribution and links back to the original memories.
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeouts
+	//   - cluster: Similarity cluster to merge
+	//
+	// Returns:
+	//   - The newly created consolidated memory
+	//   - Error if synthesis or storage fails
+	MergeCluster(ctx context.Context, cluster *SimilarityCluster) (*Memory, error)
+
+	// Consolidate runs the full memory consolidation process for a project.
+	//
+	// Orchestrates the complete workflow:
+	//  1. Find all similarity clusters above threshold
+	//  2. Merge each cluster into a consolidated memory
+	//  3. Link source memories to their consolidated versions
+	//  4. Return statistics about the consolidation run
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeouts
+	//   - projectID: Project to consolidate memories for
+	//   - opts: Configuration options (threshold, limits, dry-run mode, etc.)
+	//
+	// Returns:
+	//   - ConsolidationResult with statistics and outcomes
+	//   - Error if consolidation fails
+	Consolidate(ctx context.Context, projectID string, opts interface{}) (*ConsolidationResult, error)
 }
