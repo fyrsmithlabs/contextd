@@ -635,3 +635,155 @@ func buildConsolidationPrompt(memories []*Memory) string {
 
 	return b.String()
 }
+
+// parseConsolidatedMemory parses an LLM response into a Memory struct.
+//
+// This function extracts structured fields from the LLM's consolidation response
+// and creates a Memory suitable for storage. The LLM response is expected to
+// contain the following fields in the format produced by buildConsolidationPrompt:
+//   - TITLE: A clear, concise title for the consolidated memory
+//   - CONTENT: The synthesized content
+//   - TAGS: Comma-separated tags (optional)
+//   - OUTCOME: Either 'success' or 'failure'
+//   - SOURCE_ATTRIBUTION: Attribution note about source memories (optional)
+//
+// Parameters:
+//   - llmResponse: The raw text response from the LLM
+//   - sourceIDs: The IDs of source memories that were consolidated
+//
+// Returns:
+//   - A Memory struct populated with parsed fields (caller will wrap in ConsolidatedMemory)
+//   - Error if required fields are missing or invalid
+//
+// The projectID field in the returned Memory will be empty and must be set by the caller.
+// The SOURCE_ATTRIBUTION is stored in the Memory's Description field.
+func parseConsolidatedMemory(llmResponse string, sourceIDs []string) (*Memory, error) {
+	if llmResponse == "" {
+		return nil, fmt.Errorf("llm response cannot be empty")
+	}
+	if len(sourceIDs) == 0 {
+		return nil, fmt.Errorf("sourceIDs cannot be empty")
+	}
+
+	// Extract fields from the LLM response
+	title := extractField(llmResponse, "TITLE:")
+	content := extractField(llmResponse, "CONTENT:")
+	tagsStr := extractField(llmResponse, "TAGS:")
+	outcomeStr := extractField(llmResponse, "OUTCOME:")
+	sourceAttribution := extractField(llmResponse, "SOURCE_ATTRIBUTION:")
+
+	// Validate required fields
+	if title == "" {
+		return nil, fmt.Errorf("TITLE field is required in LLM response")
+	}
+	if content == "" {
+		return nil, fmt.Errorf("CONTENT field is required in LLM response")
+	}
+	if outcomeStr == "" {
+		return nil, fmt.Errorf("OUTCOME field is required in LLM response")
+	}
+
+	// Parse outcome
+	outcomeStr = strings.ToLower(strings.TrimSpace(outcomeStr))
+	var outcome Outcome
+	switch outcomeStr {
+	case "success":
+		outcome = OutcomeSuccess
+	case "failure":
+		outcome = OutcomeFailure
+	default:
+		return nil, fmt.Errorf("invalid OUTCOME value: %s (must be 'success' or 'failure')", outcomeStr)
+	}
+
+	// Parse tags (comma-separated, optional)
+	var tags []string
+	if tagsStr != "" {
+		for _, tag := range strings.Split(tagsStr, ",") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+
+	// Create the memory
+	// Note: ProjectID must be set by caller
+	now := time.Now()
+	memory := &Memory{
+		ID:          "", // Will be set by caller when storing
+		ProjectID:   "", // Must be set by caller
+		Title:       strings.TrimSpace(title),
+		Description: strings.TrimSpace(sourceAttribution), // Store attribution in description
+		Content:     strings.TrimSpace(content),
+		Outcome:     outcome,
+		Confidence:  DistilledConfidence, // Start with distilled confidence
+		UsageCount:  0,
+		Tags:        tags,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	return memory, nil
+}
+
+// extractField extracts the value of a field from the LLM response.
+//
+// Searches for the field label (e.g., "TITLE:") and extracts everything
+// after it until the next field label or end of string. Handles both
+// single-line and multi-line field values.
+//
+// Returns empty string if the field is not found.
+func extractField(text, fieldLabel string) string {
+	// Find the field label
+	startIdx := strings.Index(text, fieldLabel)
+	if startIdx == -1 {
+		return ""
+	}
+
+	// Start after the label
+	startIdx += len(fieldLabel)
+
+	// Find the next field label (all caps followed by colon)
+	// Common field labels: TITLE:, CONTENT:, TAGS:, OUTCOME:, SOURCE_ATTRIBUTION:
+	fieldLabels := []string{"TITLE:", "CONTENT:", "TAGS:", "OUTCOME:", "SOURCE_ATTRIBUTION:"}
+	endIdx := len(text)
+
+	for _, label := range fieldLabels {
+		// Don't match the current field label
+		if label == fieldLabel {
+			continue
+		}
+
+		// Find next occurrence of this label after our field
+		idx := strings.Index(text[startIdx:], label)
+		if idx != -1 {
+			absoluteIdx := startIdx + idx
+			if absoluteIdx < endIdx {
+				endIdx = absoluteIdx
+			}
+		}
+	}
+
+	// Extract the value
+	value := text[startIdx:endIdx]
+
+	// Clean up: trim whitespace and remove markdown code block markers
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "`")
+	value = strings.TrimSpace(value)
+
+	// Remove leading newlines and excessive whitespace
+	lines := strings.Split(value, "\n")
+	var cleanedLines []string
+	for _, line := range lines {
+		// Trim trailing whitespace but preserve intentional indentation
+		line = strings.TrimRight(line, " \t")
+		cleanedLines = append(cleanedLines, line)
+	}
+
+	// Join back with newlines and trim outer whitespace
+	value = strings.Join(cleanedLines, "\n")
+	value = strings.TrimSpace(value)
+
+	return value
+}

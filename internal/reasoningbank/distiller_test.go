@@ -12,6 +12,371 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestParseConsolidatedMemory_ValidResponse(t *testing.T) {
+	// Test parsing a valid LLM response with all fields
+	llmResponse := `
+TITLE: Consolidated API Error Handling Strategy
+
+CONTENT:
+When building REST APIs, implement comprehensive error handling with:
+1. Structured error responses with error codes
+2. Detailed error messages for developers
+3. Safe, user-friendly messages for clients
+4. Proper HTTP status codes
+
+TAGS: go, api, error-handling, rest
+
+OUTCOME: success
+
+SOURCE_ATTRIBUTION:
+Synthesized from 3 source memories about API error handling patterns.
+Combines insights from authentication, validation, and database error scenarios.
+`
+
+	sourceIDs := []string{"mem-1", "mem-2", "mem-3"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	// Validate parsed fields
+	assert.Equal(t, "Consolidated API Error Handling Strategy", memory.Title)
+	assert.Contains(t, memory.Content, "When building REST APIs")
+	assert.Contains(t, memory.Content, "Proper HTTP status codes")
+	assert.Equal(t, OutcomeSuccess, memory.Outcome)
+	assert.Equal(t, []string{"go", "api", "error-handling", "rest"}, memory.Tags)
+	assert.Contains(t, memory.Description, "Synthesized from 3 source memories")
+	assert.Equal(t, DistilledConfidence, memory.Confidence)
+	assert.Equal(t, 0, memory.UsageCount)
+}
+
+func TestParseConsolidatedMemory_MinimalResponse(t *testing.T) {
+	// Test parsing a response with only required fields
+	llmResponse := `
+TITLE: Database Connection Pattern
+
+CONTENT:
+Always use connection pooling with proper timeout configuration.
+Set max connections based on workload requirements.
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1", "mem-2"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	assert.Equal(t, "Database Connection Pattern", memory.Title)
+	assert.Contains(t, memory.Content, "connection pooling")
+	assert.Equal(t, OutcomeSuccess, memory.Outcome)
+	assert.Empty(t, memory.Tags)
+	assert.Empty(t, memory.Description) // No source attribution
+}
+
+func TestParseConsolidatedMemory_FailureOutcome(t *testing.T) {
+	// Test parsing a response with failure outcome
+	llmResponse := `
+TITLE: Anti-pattern: Ignoring Context Cancellation
+
+CONTENT:
+Never ignore context cancellation in long-running operations.
+This leads to resource leaks and hanging goroutines.
+
+TAGS: go, concurrency, context
+
+OUTCOME: failure
+
+SOURCE_ATTRIBUTION:
+Common mistake observed across multiple failed implementations.
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	assert.Equal(t, OutcomeFailure, memory.Outcome)
+	assert.Contains(t, memory.Title, "Anti-pattern")
+}
+
+func TestParseConsolidatedMemory_MissingTitle(t *testing.T) {
+	// Test error handling when TITLE is missing
+	llmResponse := `
+CONTENT:
+Some content here
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "TITLE field is required")
+}
+
+func TestParseConsolidatedMemory_MissingContent(t *testing.T) {
+	// Test error handling when CONTENT is missing
+	llmResponse := `
+TITLE: Some Title
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "CONTENT field is required")
+}
+
+func TestParseConsolidatedMemory_MissingOutcome(t *testing.T) {
+	// Test error handling when OUTCOME is missing
+	llmResponse := `
+TITLE: Some Title
+
+CONTENT:
+Some content
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "OUTCOME field is required")
+}
+
+func TestParseConsolidatedMemory_InvalidOutcome(t *testing.T) {
+	// Test error handling with invalid outcome value
+	llmResponse := `
+TITLE: Some Title
+
+CONTENT:
+Some content
+
+OUTCOME: maybe
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "invalid OUTCOME value")
+	assert.Contains(t, err.Error(), "maybe")
+}
+
+func TestParseConsolidatedMemory_EmptyResponse(t *testing.T) {
+	// Test error handling with empty LLM response
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory("", sourceIDs)
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "llm response cannot be empty")
+}
+
+func TestParseConsolidatedMemory_EmptySourceIDs(t *testing.T) {
+	// Test error handling with empty sourceIDs
+	llmResponse := `
+TITLE: Some Title
+
+CONTENT:
+Some content
+
+OUTCOME: success
+`
+
+	memory, err := parseConsolidatedMemory(llmResponse, []string{})
+	assert.Error(t, err)
+	assert.Nil(t, memory)
+	assert.Contains(t, err.Error(), "sourceIDs cannot be empty")
+}
+
+func TestParseConsolidatedMemory_TagsWithSpaces(t *testing.T) {
+	// Test parsing tags with various spacing
+	llmResponse := `
+TITLE: Test Title
+
+CONTENT:
+Test content
+
+TAGS: go, api,  error-handling  ,rest,   kubernetes
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	// Tags should be trimmed
+	assert.Equal(t, []string{"go", "api", "error-handling", "rest", "kubernetes"}, memory.Tags)
+}
+
+func TestParseConsolidatedMemory_MultiLineContent(t *testing.T) {
+	// Test parsing multi-line content with formatting
+	llmResponse := `
+TITLE: Multi-line Example
+
+CONTENT:
+This is a multi-line content block.
+
+It has multiple paragraphs and should preserve structure.
+
+- Bullet point 1
+- Bullet point 2
+
+Code example:
+  func example() {
+      return nil
+  }
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	// Content should preserve multiple lines
+	assert.Contains(t, memory.Content, "multi-line content block")
+	assert.Contains(t, memory.Content, "multiple paragraphs")
+	assert.Contains(t, memory.Content, "Bullet point 1")
+	assert.Contains(t, memory.Content, "func example()")
+}
+
+func TestParseConsolidatedMemory_WithCodeBlockMarkers(t *testing.T) {
+	// Test parsing response with markdown code block markers
+	llmResponse := "```\n" + `
+TITLE: Example With Code Blocks
+
+CONTENT:
+Content inside code blocks
+
+OUTCOME: success
+` + "\n```"
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	assert.Equal(t, "Example With Code Blocks", memory.Title)
+	assert.Contains(t, memory.Content, "Content inside code blocks")
+}
+
+func TestParseConsolidatedMemory_CaseInsensitiveOutcome(t *testing.T) {
+	// Test that outcome parsing is case-insensitive
+	testCases := []struct {
+		name     string
+		outcome  string
+		expected Outcome
+	}{
+		{"lowercase success", "success", OutcomeSuccess},
+		{"uppercase success", "SUCCESS", OutcomeSuccess},
+		{"mixed case success", "SuCcEsS", OutcomeSuccess},
+		{"lowercase failure", "failure", OutcomeFailure},
+		{"uppercase failure", "FAILURE", OutcomeFailure},
+		{"mixed case failure", "FaIlUrE", OutcomeFailure},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			llmResponse := fmt.Sprintf(`
+TITLE: Test Title
+
+CONTENT:
+Test content
+
+OUTCOME: %s
+`, tc.outcome)
+
+			sourceIDs := []string{"mem-1"}
+
+			memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, memory.Outcome)
+		})
+	}
+}
+
+func TestParseConsolidatedMemory_ProjectIDAndIDNotSet(t *testing.T) {
+	// Test that ID and ProjectID are not set (must be set by caller)
+	llmResponse := `
+TITLE: Test Title
+
+CONTENT:
+Test content
+
+OUTCOME: success
+`
+
+	sourceIDs := []string{"mem-1"}
+
+	memory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	require.NoError(t, err)
+	assert.NotNil(t, memory)
+
+	// ID and ProjectID should be empty (caller sets them)
+	assert.Empty(t, memory.ID)
+	assert.Empty(t, memory.ProjectID)
+}
+
+func TestExtractField_BasicExtraction(t *testing.T) {
+	// Test basic field extraction
+	text := `
+TITLE: Example Title
+
+CONTENT:
+Example content here
+`
+
+	title := extractField(text, "TITLE:")
+	assert.Equal(t, "Example Title", title)
+
+	content := extractField(text, "CONTENT:")
+	assert.Equal(t, "Example content here", content)
+}
+
+func TestExtractField_FieldNotFound(t *testing.T) {
+	// Test extraction when field doesn't exist
+	text := `
+TITLE: Example Title
+`
+
+	content := extractField(text, "CONTENT:")
+	assert.Empty(t, content)
+}
+
+func TestExtractField_MultiLineValue(t *testing.T) {
+	// Test extraction of multi-line field values
+	text := `
+CONTENT:
+Line 1
+Line 2
+Line 3
+
+TAGS: test
+`
+
+	content := extractField(text, "CONTENT:")
+	assert.Contains(t, content, "Line 1")
+	assert.Contains(t, content, "Line 2")
+	assert.Contains(t, content, "Line 3")
+}
+
 func TestCosineSimilarity_IdenticalVectors(t *testing.T) {
 	// Test that identical vectors have similarity of 1.0
 	vec1 := []float32{1.0, 2.0, 3.0, 4.0}
