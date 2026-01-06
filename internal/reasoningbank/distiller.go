@@ -72,12 +72,24 @@ type LLMClient interface {
 // FR-006: Distillation pipeline for async memory extraction
 // FR-009: Outcome differentiation (success vs failure)
 type Distiller struct {
-	service *Service
-	logger  *zap.Logger
+	service   *Service
+	logger    *zap.Logger
+	llmClient LLMClient // Optional LLM client for memory consolidation
+}
+
+// DistillerOption configures a Distiller.
+type DistillerOption func(*Distiller)
+
+// WithLLMClient sets the LLM client for memory consolidation.
+// This is required for MergeCluster to work.
+func WithLLMClient(client LLMClient) DistillerOption {
+	return func(d *Distiller) {
+		d.llmClient = client
+	}
 }
 
 // NewDistiller creates a new session distiller.
-func NewDistiller(service *Service, logger *zap.Logger) (*Distiller, error) {
+func NewDistiller(service *Service, logger *zap.Logger, opts ...DistillerOption) (*Distiller, error) {
 	if service == nil {
 		return nil, fmt.Errorf("service cannot be nil")
 	}
@@ -85,10 +97,17 @@ func NewDistiller(service *Service, logger *zap.Logger) (*Distiller, error) {
 		return nil, fmt.Errorf("logger cannot be nil")
 	}
 
-	return &Distiller{
+	d := &Distiller{
 		service: service,
 		logger:  logger,
-	}, nil
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(d)
+	}
+
+	return d, nil
 }
 
 // DistillSession extracts learnings from a completed session and creates memories.
@@ -786,4 +805,203 @@ func extractField(text, fieldLabel string) string {
 	value = strings.TrimSpace(value)
 
 	return value
+}
+
+// MergeCluster synthesizes a cluster of similar memories into one consolidated memory.
+//
+// This method uses the configured LLM client to analyze the cluster members and create
+// a synthesized memory that captures their common themes and key insights. The process:
+//   1. Validates the cluster has at least 2 members and LLM client is configured
+//   2. Builds a consolidation prompt from cluster members
+//   3. Calls the LLM to synthesize the memories
+//   4. Parses the LLM response into a Memory struct
+//   5. Calculates consolidated confidence from source memories
+//   6. Stores the new consolidated memory
+//   7. Links source memories to the consolidated version
+//
+// The consolidated memory includes source attribution and links back to the original
+// memories via their ConsolidationID fields.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - cluster: Similarity cluster to merge (must have >= 2 members)
+//
+// Returns:
+//   - The newly created consolidated memory
+//   - Error if LLM client not configured, synthesis fails, or storage fails
+func (d *Distiller) MergeCluster(ctx context.Context, cluster *SimilarityCluster) (*Memory, error) {
+	// Validate inputs
+	if cluster == nil {
+		return nil, fmt.Errorf("cluster cannot be nil")
+	}
+	if len(cluster.Members) < 2 {
+		return nil, fmt.Errorf("cluster must have at least 2 members, got %d", len(cluster.Members))
+	}
+	if d.llmClient == nil {
+		return nil, fmt.Errorf("LLM client not configured for memory consolidation")
+	}
+
+	// All members should belong to the same project - use first member's projectID
+	projectID := cluster.Members[0].ProjectID
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID cannot be empty")
+	}
+
+	d.logger.Info("merging memory cluster",
+		zap.String("project_id", projectID),
+		zap.Int("cluster_size", len(cluster.Members)),
+		zap.Float64("avg_similarity", cluster.AverageSimilarity))
+
+	// Build consolidation prompt
+	prompt := buildConsolidationPrompt(cluster.Members)
+
+	// Call LLM to synthesize memories
+	d.logger.Debug("calling LLM for memory synthesis",
+		zap.String("project_id", projectID),
+		zap.Int("prompt_length", len(prompt)))
+
+	llmResponse, err := d.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM synthesis failed: %w", err)
+	}
+
+	d.logger.Debug("received LLM synthesis response",
+		zap.String("project_id", projectID),
+		zap.Int("response_length", len(llmResponse)))
+
+	// Extract source IDs
+	sourceIDs := make([]string, len(cluster.Members))
+	for i, mem := range cluster.Members {
+		sourceIDs[i] = mem.ID
+	}
+
+	// Parse LLM response into Memory
+	consolidatedMemory, err := parseConsolidatedMemory(llmResponse, sourceIDs)
+	if err != nil {
+		return nil, fmt.Errorf("parsing LLM response: %w", err)
+	}
+
+	// Set project ID (parseConsolidatedMemory leaves it empty)
+	consolidatedMemory.ProjectID = projectID
+
+	// Calculate merged confidence from source memories
+	consolidatedMemory.Confidence = d.calculateMergedConfidence(cluster.Members)
+
+	d.logger.Debug("calculated merged confidence",
+		zap.String("project_id", projectID),
+		zap.Float64("confidence", consolidatedMemory.Confidence))
+
+	// Store the consolidated memory
+	if err := d.service.Record(ctx, consolidatedMemory); err != nil {
+		return nil, fmt.Errorf("storing consolidated memory: %w", err)
+	}
+
+	d.logger.Info("consolidated memory created",
+		zap.String("id", consolidatedMemory.ID),
+		zap.String("project_id", projectID),
+		zap.String("title", consolidatedMemory.Title),
+		zap.Float64("confidence", consolidatedMemory.Confidence))
+
+	// Link source memories to consolidated version
+	if err := d.linkMemoriesToConsolidated(ctx, projectID, sourceIDs, consolidatedMemory.ID); err != nil {
+		// Log error but don't fail - the consolidated memory was created successfully
+		d.logger.Warn("failed to link source memories to consolidated version",
+			zap.String("consolidated_id", consolidatedMemory.ID),
+			zap.Error(err))
+	}
+
+	return consolidatedMemory, nil
+}
+
+// calculateMergedConfidence computes the confidence score for a consolidated memory.
+//
+// The confidence is calculated as a weighted average of source memory confidences,
+// where the weights are based on usage counts. Memories that have been used more
+// frequently contribute more to the final confidence score.
+//
+// Formula: confidence = sum(confidence_i * weight_i) / sum(weight_i)
+// where weight_i = usageCount_i + 1 (add 1 to avoid zero weights)
+//
+// This ensures that:
+//   - Frequently used, high-confidence memories dominate the score
+//   - Rarely used memories still contribute (via the +1)
+//   - The result is bounded by [min_confidence, max_confidence] of sources
+func (d *Distiller) calculateMergedConfidence(sources []*Memory) float64 {
+	if len(sources) == 0 {
+		return DistilledConfidence // Default if no sources
+	}
+
+	var weightedSum float64
+	var totalWeight float64
+
+	for _, mem := range sources {
+		// Weight by usage count + 1 (to avoid zero weights)
+		weight := float64(mem.UsageCount + 1)
+		weightedSum += mem.Confidence * weight
+		totalWeight += weight
+	}
+
+	if totalWeight == 0 {
+		// Shouldn't happen due to +1, but guard against division by zero
+		return DistilledConfidence
+	}
+
+	confidence := weightedSum / totalWeight
+
+	// Ensure confidence is in valid range [0.0, 1.0]
+	if confidence < 0.0 {
+		confidence = 0.0
+	}
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
+
+	return confidence
+}
+
+// linkMemoriesToConsolidated updates source memories to link them to the consolidated version.
+//
+// This method updates each source memory's ConsolidationID field to point to the
+// consolidated memory. The source memories are preserved with their original content
+// for attribution and traceability.
+//
+// Note: This is a helper method and errors are logged but not propagated to avoid
+// failing the consolidation if linking fails (the consolidated memory is already created).
+func (d *Distiller) linkMemoriesToConsolidated(ctx context.Context, projectID string, sourceIDs []string, consolidatedID string) error {
+	for _, sourceID := range sourceIDs {
+		// Get the source memory
+		memory, err := d.service.GetByProjectID(ctx, projectID, sourceID)
+		if err != nil {
+			d.logger.Warn("failed to get source memory for linking",
+				zap.String("source_id", sourceID),
+				zap.Error(err))
+			continue
+		}
+
+		// Set consolidation ID
+		memory.ConsolidationID = &consolidatedID
+		memory.UpdatedAt = time.Now()
+
+		// Update the memory in storage
+		// We need to delete and re-add to update the ConsolidationID field
+		if err := d.service.DeleteByProjectID(ctx, projectID, sourceID); err != nil {
+			d.logger.Warn("failed to delete source memory for update",
+				zap.String("source_id", sourceID),
+				zap.Error(err))
+			continue
+		}
+
+		if err := d.service.Record(ctx, memory); err != nil {
+			d.logger.Warn("failed to re-add source memory with consolidation link",
+				zap.String("source_id", sourceID),
+				zap.Error(err))
+			continue
+		}
+
+		d.logger.Debug("linked source memory to consolidated version",
+			zap.String("source_id", sourceID),
+			zap.String("consolidated_id", consolidatedID))
+	}
+
+	return nil
 }
