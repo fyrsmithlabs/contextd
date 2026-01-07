@@ -1,7 +1,7 @@
 # Memory Distiller Implementation - Build Progress
 
-## Status: IN PROGRESS - Phase 5
-**Last Updated**: 2026-01-06
+## Status: IN PROGRESS - Phase 6
+**Last Updated**: 2026-01-07
 
 ## Overview
 Implementing real memory consolidation to replace the stub distiller. The system will:
@@ -62,11 +62,11 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] ConsolidateAll() for bulk runs (commit 40fd93b)
 - [x] Integration tests (comprehensive suite created)
 
-### Phase 6: MCP Tool Integration [PENDING]
-- [ ] memory_consolidate tool schema
-- [ ] MemoryConsolidateHandler
-- [ ] Register in handlers Registry
-- [ ] Register in MCP server
+### Phase 6: MCP Tool Integration [IN PROGRESS]
+- [x] memory_consolidate tool schema (commit be19340)
+- [x] MemoryConsolidateHandler (commit 9716882)
+- [x] Register in handlers Registry (commit 2fce156)
+- [x] Register in MCP server - tools.go (commit be19340 + 9716882)
 - [ ] Handler tests
 
 ### Phase 7: Background Scheduler [PENDING]
