@@ -26,13 +26,19 @@ type MemoryConsolidateOutput struct {
 	DurationSeconds  float64  `json:"duration_seconds"`
 }
 
+// MemoryConsolidator defines the interface for memory consolidation operations.
+// Using an interface here allows for easier testing and mocking.
+type MemoryConsolidator interface {
+	Consolidate(ctx context.Context, projectID string, opts reasoningbank.ConsolidationOptions) (*reasoningbank.ConsolidationResult, error)
+}
+
 // MemoryHandler handles memory-related tools.
 type MemoryHandler struct {
-	distiller *reasoningbank.Distiller
+	distiller MemoryConsolidator
 }
 
 // NewMemoryHandler creates a new memory handler.
-func NewMemoryHandler(distiller *reasoningbank.Distiller) *MemoryHandler {
+func NewMemoryHandler(distiller MemoryConsolidator) *MemoryHandler {
 	return &MemoryHandler{distiller: distiller}
 }
 
