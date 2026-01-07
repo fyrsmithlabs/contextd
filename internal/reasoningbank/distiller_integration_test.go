@@ -1009,3 +1009,220 @@ func TestConsolidation_Integration_OriginalContentPreservation(t *testing.T) {
 	t.Log("✓ ConsolidationID links correctly set on all archived memories")
 	t.Log("✓ No data loss occurs during consolidation process")
 }
+
+// TestConsolidation_Integration_ConfidenceCalculation verifies that consolidated
+// memory confidence is calculated correctly from source memories using the weighted
+// average formula: confidence = sum(conf_i * weight_i) / sum(weight_i)
+// where weight_i = usageCount_i + 1
+//
+// This integration test covers Acceptance Criteria: "Confidence scores are updated based on consolidation"
+//
+// Test scenarios:
+// 1. Equal confidence and usage - should return simple average
+// 2. High usage dominates - weighted average favors high-usage memories
+// 3. Mixed confidence and usage - complex realistic scenario
+// 4. All same confidence - should return that confidence
+// 5. Edge case: varying confidence with zero usage counts
+func TestConsolidation_Integration_ConfidenceCalculation(t *testing.T) {
+	testCases := []struct {
+		name               string
+		memories           []struct {
+			title      string
+			content    string
+			confidence float64
+			usageCount int
+		}
+		expectedConfidenceMin float64
+		expectedConfidenceMax float64
+		description           string
+	}{
+		{
+			name: "equal confidence and usage",
+			memories: []struct {
+				title      string
+				content    string
+				confidence float64
+				usageCount int
+			}{
+				{"Pattern A", "Content A", 0.8, 5},
+				{"Pattern B", "Content B", 0.8, 5},
+				{"Pattern C", "Content C", 0.8, 5},
+			},
+			// (0.8*6 + 0.8*6 + 0.8*6) / (6+6+6) = 14.4 / 18 = 0.8
+			expectedConfidenceMin: 0.799,
+			expectedConfidenceMax: 0.801,
+			description:           "equal confidence and usage should return simple average",
+		},
+		{
+			name: "high usage dominates",
+			memories: []struct {
+				title      string
+				content    string
+				confidence float64
+				usageCount int
+			}{
+				{"Pattern X", "Content X", 0.9, 50}, // high usage, high confidence
+				{"Pattern Y", "Content Y", 0.3, 1},  // low usage, low confidence
+				{"Pattern Z", "Content Z", 0.4, 2},  // low usage, low confidence
+			},
+			// (0.9*51 + 0.3*2 + 0.4*3) / (51+2+3) = (45.9 + 0.6 + 1.2) / 56 = 47.7 / 56 = 0.8517...
+			expectedConfidenceMin: 0.85,
+			expectedConfidenceMax: 0.86,
+			description:           "high-usage high-confidence memory should dominate the score",
+		},
+		{
+			name: "mixed confidence and usage",
+			memories: []struct {
+				title      string
+				content    string
+				confidence float64
+				usageCount int
+			}{
+				{"Pattern Alpha", "Content Alpha", 0.75, 10},
+				{"Pattern Beta", "Content Beta", 0.85, 5},
+				{"Pattern Gamma", "Content Gamma", 0.65, 15},
+			},
+			// (0.75*11 + 0.85*6 + 0.65*16) / (11+6+16) = (8.25 + 5.1 + 10.4) / 33 = 23.75 / 33 = 0.7196...
+			expectedConfidenceMin: 0.71,
+			expectedConfidenceMax: 0.73,
+			description:           "realistic mixed scenario should compute weighted average",
+		},
+		{
+			name: "all same confidence",
+			memories: []struct {
+				title      string
+				content    string
+				confidence float64
+				usageCount int
+			}{
+				{"Pattern 1", "Content 1", 0.7, 0},
+				{"Pattern 2", "Content 2", 0.7, 100},
+				{"Pattern 3", "Content 3", 0.7, 50},
+			},
+			// All 0.7, so result should be 0.7 regardless of usage
+			expectedConfidenceMin: 0.699,
+			expectedConfidenceMax: 0.701,
+			description:           "all same confidence should return that confidence",
+		},
+		{
+			name: "varying confidence with zero usage",
+			memories: []struct {
+				title      string
+				content    string
+				confidence float64
+				usageCount int
+			}{
+				{"Pattern One", "Content One", 0.9, 0},
+				{"Pattern Two", "Content Two", 0.6, 0},
+				{"Pattern Three", "Content Three", 0.8, 0},
+			},
+			// (0.9*1 + 0.6*1 + 0.8*1) / (1+1+1) = 2.3 / 3 = 0.7666...
+			expectedConfidenceMin: 0.76,
+			expectedConfidenceMax: 0.77,
+			description:           "zero usage should use weight of 1 for all memories",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newMockStore()
+			embedder := newMockEmbedder(384)
+			llmClient := newMockLLMClient()
+			logger := zap.NewNop()
+
+			// Create service with embedder
+			svc, err := NewService(store, logger,
+				WithDefaultTenant("test-tenant"),
+				WithEmbedder(embedder))
+			require.NoError(t, err)
+
+			// Create distiller with LLM client
+			distiller, err := NewDistiller(svc, logger, WithLLMClient(llmClient))
+			require.NoError(t, err)
+
+			projectID := fmt.Sprintf("confidence-test-%s", tc.name)
+
+			// Create memories with specified confidence and usage counts
+			var createdMemories []*Memory
+			for i, memSpec := range tc.memories {
+				mem, err := NewMemory(projectID, memSpec.title, memSpec.content,
+					OutcomeSuccess, []string{"confidence-test"})
+				require.NoError(t, err)
+
+				// Set confidence and usage count
+				mem.Confidence = memSpec.confidence
+				mem.UsageCount = memSpec.usageCount
+
+				// Record memory
+				err = svc.Record(ctx, mem)
+				require.NoError(t, err)
+
+				createdMemories = append(createdMemories, mem)
+
+				t.Logf("Created memory %d: confidence=%.2f, usage=%d",
+					i+1, mem.Confidence, mem.UsageCount)
+			}
+
+			// Run consolidation
+			opts := ConsolidationOptions{
+				SimilarityThreshold: 0.8, // Will cluster all similar titles
+				DryRun:              false,
+				ForceAll:            true,
+			}
+
+			result, err := distiller.Consolidate(ctx, projectID, opts)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			// Verify exactly 1 consolidated memory was created
+			require.Len(t, result.CreatedMemories, 1,
+				"should create exactly 1 consolidated memory")
+
+			// Get the consolidated memory
+			consolidatedID := result.CreatedMemories[0]
+			consolidatedMem, err := svc.GetByProjectID(ctx, projectID, consolidatedID)
+			require.NoError(t, err)
+
+			// Verify confidence is calculated correctly
+			actualConfidence := consolidatedMem.Confidence
+			t.Logf("Consolidated memory confidence: %.4f (expected range: %.4f - %.4f)",
+				actualConfidence, tc.expectedConfidenceMin, tc.expectedConfidenceMax)
+
+			assert.GreaterOrEqual(t, actualConfidence, tc.expectedConfidenceMin,
+				"%s: confidence %.4f should be >= %.4f", tc.description, actualConfidence, tc.expectedConfidenceMin)
+			assert.LessOrEqual(t, actualConfidence, tc.expectedConfidenceMax,
+				"%s: confidence %.4f should be <= %.4f", tc.description, actualConfidence, tc.expectedConfidenceMax)
+
+			// Verify confidence is in valid range [0.0, 1.0]
+			assert.GreaterOrEqual(t, actualConfidence, 0.0,
+				"confidence should be >= 0.0")
+			assert.LessOrEqual(t, actualConfidence, 1.0,
+				"confidence should be <= 1.0")
+
+			// Manually calculate expected confidence for verification
+			var weightedSum, totalWeight float64
+			for _, mem := range createdMemories {
+				weight := float64(mem.UsageCount + 1)
+				weightedSum += mem.Confidence * weight
+				totalWeight += weight
+			}
+			manualConfidence := weightedSum / totalWeight
+
+			t.Logf("Manual calculation: %.4f = %.2f / %.2f",
+				manualConfidence, weightedSum, totalWeight)
+			assert.InDelta(t, manualConfidence, actualConfidence, 0.01,
+				"consolidated confidence should match manual weighted average calculation")
+
+			// Log verification details
+			t.Logf("✓ Confidence formula verified: sum(conf*weight) / sum(weight)")
+			t.Logf("✓ Weighted average: %.4f", actualConfidence)
+			t.Logf("✓ In valid range [0.0, 1.0]: true")
+			t.Logf("✓ %s", tc.description)
+		})
+	}
+
+	t.Log("✓ All confidence calculation scenarios passed")
+	t.Log("✓ Weighted average formula: sum(conf_i * (usage_i + 1)) / sum(usage_i + 1)")
+	t.Log("✓ Acceptance Criteria verified: Confidence scores updated correctly from sources")
+}
