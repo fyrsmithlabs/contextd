@@ -3,11 +3,19 @@ dist/
 /contextd
 /ctxd
 
+# Test binaries
+*.test
+*-test
+
 # IDE
 .idea/
 .vscode/
+.jules/
 *.swp
 *.swo
+
+# Runtime/checkpoint data
+.checkpoints/
 
 # Cache
 local_cache/
@@ -25,3 +33,8 @@ test/persona-simulation/
 coverage.out
 coverage.html
 coverage.txt
+
+# Auto-generated Claude session files
+.auto-claude/
+.auto-claude-status
+.claude_settings.json

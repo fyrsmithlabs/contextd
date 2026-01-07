@@ -1,8 +1,13 @@
 # Collection Architecture Specification
 
 **Feature**: Collection Architecture
-**Status**: Draft
+**Status**: DEPRECATED
 **Created**: 2025-11-22
+**Updated**: 2026-01-06
+**deprecated**: true
+**deprecated_reason**: "contextd v2 uses payload-based tenant isolation with shared collections, not database-per-org or physical collection separation. See docs/spec/vector-storage/security.md for current multi-tenancy architecture."
+
+**⚠️ DEPRECATED**: This specification describes a database-per-org architecture that was never implemented. contextd v2 uses **payload-based tenant isolation** where all tenants share collections with automatic metadata filtering. See `docs/spec/vector-storage/security.md` for the current architecture.
 
 ## Overview
 

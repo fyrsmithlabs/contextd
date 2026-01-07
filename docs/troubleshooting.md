@@ -397,3 +397,12 @@ docker inspect <container_id>
 # Recent logs
 docker logs --tail 200 <container_id> 2>&1
 ```
+
+---
+
+## Related Documentation
+
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Architecture Overview](./architecture.md) - Detailed component descriptions
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [Configuration Reference](./configuration.md) - All configuration options

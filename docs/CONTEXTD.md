@@ -165,7 +165,7 @@ Claude Code / AI Agent
 
 ## Claude Code Integration
 
-Add to `~/.claude.json`:
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -176,7 +176,7 @@ Add to `~/.claude.json`:
         "run", "-i", "--rm",
         "-v", "contextd-data:/data",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }

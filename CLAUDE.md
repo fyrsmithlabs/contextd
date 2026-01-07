@@ -1,7 +1,7 @@
 # CLAUDE.md - contextd
 
-**Status**: Active Development (Phase 5 complete, Phase 6 pending)
-**Last Updated**: 2025-12-23
+**Status**: Active Development (Phase 6 complete)
+**Last Updated**: 2026-01-06
 
 ---
 
@@ -77,6 +77,72 @@ Simplified MCP server for AI agent memory and context management. Calls internal
 - Vectorstore: chromem (embedded, default) or Qdrant (external) with payload-based tenant isolation
 - Compression: Extractive, abstractive, and hybrid context compression
 - Hooks: Lifecycle hooks for session management and auto-checkpoint
+- Context-Folding: Isolate complex sub-tasks with dedicated token budgets
+
+---
+
+## Context-Folding
+
+Context-Folding provides **active context management** within a single agent session using `branch_create`, `branch_return`, and `branch_status` MCP tools. This enables **90%+ context compression** by isolating subtask reasoning from the main context.
+
+### How It Works
+
+When you need to perform a complex sub-task (file exploration, research, trial-and-error debugging), create a **branch** with its own token budget. The branch executes in isolation, and only a scrubbed summary returns to the main context.
+
+```
+Main Context (16K tokens used)
+    │
+    ├─► Branch: "Search 10 files for function definition" (4K budget)
+    │       • Reads 10 files (3.5K tokens consumed)
+    │       • Finds target function
+    │       • Returns: "Function found in src/auth.go:42"
+    │       ✓ Main context grows by ~50 tokens (not 3.5K!)
+    │
+    └─► Main context continues with clean, focused state
+```
+
+### Use Cases
+
+| Scenario | Without Context-Folding | With Context-Folding |
+|----------|------------------------|---------------------|
+| **File Exploration** | Agent reads 10 files into main context (10K+ tokens) | Branch reads files, returns summary only (~200 tokens) |
+| **API Research** | Agent fetches 5 docs, clutters context (8K+ tokens) | Branch fetches docs, returns relevant excerpts (~500 tokens) |
+| **Trial-and-Error Debugging** | Agent tries 3 fixes, all attempts stay in context | Branch tries fixes in isolation, returns only successful approach |
+
+### When to Use
+
+✅ **Use context-folding when:**
+- Exploring multiple files to find a specific function/class
+- Researching API documentation or web sources
+- Trying multiple debugging approaches
+- Running experiments that might fail
+- Any task where the **process is verbose** but the **result is concise**
+
+❌ **Don't use context-folding when:**
+- Implementing a single file change (no benefit)
+- User needs to see the full reasoning (defeats the purpose)
+- Task is already simple and focused
+
+### Tools
+
+| Tool | Purpose | Example |
+|------|---------|---------|
+| `branch_create` | Create isolated branch with token budget | `branch_create("Find auth function", "Search src/ for authenticate()", 4000)` |
+| `branch_return` | Return from branch with scrubbed results | `branch_return("Found in src/auth.go:42")` |
+| `branch_status` | Check branch budget and status | `branch_status()` → `{used: 3500, budget: 4000, depth: 1}` |
+
+### Security
+
+- **Secret Scrubbing**: All `branch_return()` content is automatically scrubbed for secrets using gitleaks
+- **Budget Enforcement**: Branches are force-terminated when budget is exhausted
+- **Nested Limits**: Max 3 levels of nesting (configurable)
+- **Rate Limiting**: Max 10 concurrent branches per session
+
+### See Also
+
+- Specification: `docs/spec/context-folding/SPEC.md`
+- Architecture: `docs/spec/context-folding/ARCH.md`
+- Research Paper: [arXiv:2510.11967](https://arxiv.org/abs/2510.11967) (ByteDance, Oct 2025)
 
 ---
 
@@ -155,6 +221,63 @@ config.Isolation = vectorstore.NewNoIsolation()         // Testing only!
 
 ## Architecture
 
+### Visual Overview
+
+```
++-----------------------------------------------------------------------+
+|                      Claude Code / AI Agent                           |
+|                               |                                       |
+|                       MCP Protocol (stdio)                            |
+|                               |                                       |
+|  +----------------------------------------------------------------+   |
+|  |                         contextd                                |   |
+|  |                                                                 |   |
+|  |  +-----------------------------------------------------------+  |   |
+|  |  |                    MCP Server Layer                        |  |   |
+|  |  |  +----------+ +----------+ +----------+ +---------------+  |  |   |
+|  |  |  | Memory   | |Checkpoint| |Remediate | | Repository/   |  |  |   |
+|  |  |  | Tools    | | Tools    | | Tools    | | Troubleshoot  |  |  |   |
+|  |  |  +----+-----+ +----+-----+ +----+-----+ +-------+-------+  |  |   |
+|  |  |  | Context- |                                             |  |  |   |
+|  |  |  | Folding  |  branch_create, branch_return, branch_status |  |  |   |
+|  |  |  +----------+                                             |  |  |   |
+|  |  +-------|------------|------------|---------------|----------+  |   |
+|  |          |            |            |               |             |   |
+|  |  +-------v------------v------------v---------------v----------+  |   |
+|  |  |                  Service Registry                          |  |   |
+|  |  |  +-------------+ +-------------+ +-------------+ +--------+ |  |   |
+|  |  |  | Reasoning   | | Checkpoint  | | Remediation | | Repo   | |  |   |
+|  |  |  | Bank        | | Service     | | Service     | | Service| |  |   |
+|  |  |  +------+------+ +------+------+ +------+------+ +----+---+ |  |   |
+|  |  +---------|---------------|---------------|--------------|----+  |   |
+|  |            |               |               |              |       |   |
+|  |  +---------v---------------v---------------v--------------v----+  |   |
+|  |  |                Infrastructure Layer                          |  |   |
+|  |  |  +-------------+  +-------------+  +---------------------+   |  |   |
+|  |  |  | VectorStore |  | Embeddings  |  |   Secret Scrubber   |   |  |   |
+|  |  |  |  (chromem   |  | (FastEmbed  |  |     (gitleaks)      |   |  |   |
+|  |  |  |   default)  |  | local ONNX) |  +---------------------+   |  |   |
+|  |  |  +-------------+  +-------------+                            |  |   |
+|  |  |  | Qdrant opt. |                                             |  |   |
+|  |  |  +-------------+                                             |  |   |
+|  |  +--------------------------------------------------------------+  |   |
+|  |                                                                    |   |
+|  |  +--------------------------------------------------------------+  |   |
+|  |  |                      Hooks Manager                           |  |   |
+|  |  |  session_start, session_end, before_clear, after_clear,      |  |   |
+|  |  |  context_threshold (auto-checkpoint, auto-resume)             |  |   |
+|  |  +--------------------------------------------------------------+  |   |
+|  +--------------------------------------------------------------------+   |
+|                               |                                          |
+|                               v                                          |
+|  +--------------------------------------------------------------------+   |
+|  |              Local Storage (~/.local/share/contextd)                |   |
+|  +--------------------------------------------------------------------+   |
++------------------------------------------------------------------------+
+```
+
+### Directory Structure
+
 ```
 cmd/contextd/          # Entry point (stdio MCP server + HTTP server)
 cmd/ctxd/              # CLI binary for manual operations
@@ -199,17 +322,23 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `memory_search` | ReasoningBank | Find relevant past strategies |
 | `memory_record` | ReasoningBank | Save new memory explicitly |
 | `memory_feedback` | ReasoningBank | Rate memory helpfulness |
+| `memory_outcome` | ReasoningBank | Report task success/failure after using memory |
 | `checkpoint_save` | Checkpoint | Save context snapshot |
 | `checkpoint_list` | Checkpoint | List available checkpoints |
 | `checkpoint_resume` | Checkpoint | Resume from checkpoint |
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
+| `semantic_search` | Repository | Smart search with semantic understanding + grep fallback |
 | `repository_index` | Repository | Index repo for semantic search |
 | `repository_search` | Repository | Semantic search over indexed code |
 | `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
 | `branch_create` | Context-Folding | Create isolated context branch with token budget |
 | `branch_return` | Context-Folding | Return from branch with scrubbed results |
 | `branch_status` | Context-Folding | Get branch status and budget usage |
+| `conversation_index` | Conversation | Index Claude Code conversation files |
+| `conversation_search` | Conversation | Search indexed conversations |
+| `reflect_report` | Reflection | Generate self-reflection report on memories and patterns |
+| `reflect_analyze` | Reflection | Analyze behavioral patterns in memories |
 
 ---
 
@@ -220,6 +349,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 3. **MCP Integration** - simplified server, tool handlers, scrubbing
 4. **ReasoningBank** - memory package, MCP tools, distiller stub
 5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/scrub`, `/api/v1/threshold`, `/api/v1/status` endpoints; `ctxd` CLI binary
+6. **Documentation** - CONTEXTD.md briefing doc, spec updates for new architecture, Claude Code hook setup guide
 
 ---
 
@@ -262,15 +392,6 @@ open http://localhost:8080
 ```
 
 **See:** `internal/workflows/README.md` for complete documentation
-
----
-
-## Pending Phases
-
-### Phase 6: Documentation
-- CONTEXTD.md briefing doc
-- Spec updates for new architecture
-- Claude Code hook setup guide
 
 ---
 

@@ -237,5 +237,5 @@ No manual configuration required beyond standard webhook setup.
 
 - `scripts/sync-version.sh` - Script to sync versions across files
 - `scripts/sync-version_test.sh` - Test suite for sync script
-- `VERSIONING.md` - Complete version management documentation
+- `docs/VERSIONING.md` - Complete version management documentation
 - `VERSION` - Single source of truth for version

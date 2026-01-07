@@ -74,48 +74,44 @@ var DefaultSampling = map[zapcore.Level]LevelSamplingConfig{
 ## Sampled Core Implementation
 
 ```go
-func NewSampledCore(core zapcore.Core, cfg SamplingConfig) zapcore.Core {
+// newSampledCore wraps core with level-aware sampling.
+// Error and above are never sampled.
+func newSampledCore(core zapcore.Core, cfg SamplingConfig) zapcore.Core {
     if !cfg.Enabled {
         return core
     }
 
-    // Error and above bypass sampling
+    // Errors and above always pass through
     errorCore := &levelFilterCore{
         Core:     core,
         minLevel: zapcore.ErrorLevel,
     }
 
     // Below error gets sampled
+    belowErrorCore := &levelFilterCore{
+        Core:     core,
+        maxLevel: zapcore.WarnLevel,
+    }
+
+    // Get sampling config for Info level (default)
+    infoSampling := cfg.Levels[zapcore.InfoLevel]
+
     sampledCore := zapcore.NewSamplerWithOptions(
-        &levelFilterCore{Core: core, maxLevel: zapcore.WarnLevel},
-        cfg.Tick,
-        cfg.Levels[zapcore.InfoLevel].Initial,
-        cfg.Levels[zapcore.InfoLevel].Thereafter,
-        zapcore.SamplerHook(func(entry zapcore.Entry, dec zapcore.SamplingDecision) {
-            if dec == zapcore.LogDropped {
-                sampledDroppedTotal.WithLabelValues(entry.Level.String()).Inc()
-            }
-        }),
+        belowErrorCore,
+        cfg.Tick.Duration(),
+        infoSampling.Initial,
+        infoSampling.Thereafter,
     )
 
     return zapcore.NewTee(errorCore, sampledCore)
 }
-```
 
----
-
-## Sampling Metrics
-
-Track dropped logs for observability:
-
-```go
-var sampledDroppedTotal = prometheus.NewCounterVec(
-    prometheus.CounterOpts{
-        Name: "contextd_log_sampled_dropped_total",
-        Help: "Total log entries dropped by sampling",
-    },
-    []string{"level"},
-)
+// levelFilterCore filters logs by level range.
+type levelFilterCore struct {
+    zapcore.Core
+    minLevel zapcore.Level // only log >= minLevel (0 = no min)
+    maxLevel zapcore.Level // only log <= maxLevel (0 = no max)
+}
 ```
 
 ---
@@ -141,7 +137,7 @@ CONTEXTD_LOGGING_SAMPLING_ENABLED=false
 1. **Error+ never dropped**: All error, dpanic, and fatal logs pass through
 2. **Burst handling**: Initial quota handles burst starts
 3. **Steady state**: Thereafter rate controls ongoing volume
-4. **Metrics visibility**: Dropped count exposed for monitoring
+4. **Level filtering**: Separate cores for error+ and below-error levels
 
 ---
 

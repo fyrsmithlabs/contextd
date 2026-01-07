@@ -23,14 +23,17 @@ type TestLogger struct {
 func NewTestLogger() *TestLogger {
     core, observed := observer.New(TraceLevel)
     return &TestLogger{
-        Logger:   &Logger{zap: zap.New(core), config: &Config{}},
+        Logger: &Logger{
+            zap:    zap.New(core),
+            config: NewDefaultConfig(),
+        },
         observed: observed,
     }
 }
 
 func (t *TestLogger) All() []observer.LoggedEntry { return t.observed.All() }
-func (t *TestLogger) FilterMessage(msg string) []observer.LoggedEntry {
-    return t.observed.FilterMessage(msg).All()
+func (t *TestLogger) FilterMessage(msg string) *observer.ObservedLogs {
+    return t.observed.FilterMessage(msg)
 }
 func (t *TestLogger) Reset() { t.observed.TakeAll() }
 ```
@@ -69,12 +72,18 @@ func (t *TestLogger) AssertField(tb testing.TB, msg, key string, expected interf
     tb.Helper()
     for _, entry := range t.observed.FilterMessage(msg).All() {
         for _, field := range entry.Context {
-            if field.Key == key && reflect.DeepEqual(field.Interface, expected) {
-                return
+            if field.Key == key {
+                // Compare based on field type
+                if field.Type == zapcore.StringType && field.String == expected {
+                    return
+                }
+                if reflect.DeepEqual(field.Interface, expected) {
+                    return
+                }
             }
         }
     }
-    tb.Errorf("field %q not found in message %q", key, msg)
+    tb.Errorf("field %q=%v not found in message %q", key, expected, msg)
 }
 ```
 
@@ -83,26 +92,39 @@ func (t *TestLogger) AssertField(tb testing.TB, msg, key string, expected interf
 ```go
 func (t *TestLogger) AssertNoSecrets(tb testing.TB) {
     tb.Helper()
-    sensitiveKeys := []string{"password", "secret", "token", "api_key", "authorization"}
+    sensitiveKeys := []string{"password", "secret", "token", "api_key", "authorization", "bearer", "credential", "private_key"}
     sensitivePatterns := []*regexp.Regexp{
         regexp.MustCompile(`(?i)bearer\s+\S+`),
         regexp.MustCompile(`(?i)api[_-]?key[=:]\s*\S+`),
     }
 
     for _, entry := range t.observed.All() {
+        // Check message for patterns
+        for _, re := range sensitivePatterns {
+            if re.MatchString(entry.Message) {
+                tb.Errorf("sensitive pattern in message: %q", entry.Message)
+            }
+        }
+
+        // Check fields
         for _, field := range entry.Context {
             keyLower := strings.ToLower(field.Key)
             for _, sensitive := range sensitiveKeys {
                 if strings.Contains(keyLower, sensitive) {
-                    if str, ok := field.Interface.(string); ok && !strings.Contains(str, "[REDACTED]") {
-                        tb.Errorf("sensitive field %q not redacted", field.Key)
+                    // If field is string and NOT redacted, fail
+                    if field.Type == zapcore.StringType {
+                        if !strings.Contains(field.String, "[REDACTED]") && field.String != "" {
+                            tb.Errorf("sensitive field %q not redacted: %q", field.Key, field.String)
+                        }
                     }
                 }
             }
-            if str, ok := field.Interface.(string); ok {
+
+            // Check string values for patterns
+            if field.Type == zapcore.StringType {
                 for _, re := range sensitivePatterns {
-                    if re.MatchString(str) {
-                        tb.Errorf("sensitive pattern in field %q", field.Key)
+                    if re.MatchString(field.String) {
+                        tb.Errorf("sensitive pattern in field %q: %q", field.Key, field.String)
                     }
                 }
             }
@@ -118,10 +140,12 @@ func (t *TestLogger) AssertTraceCorrelation(tb testing.TB, msg string) {
     tb.Helper()
     for _, entry := range t.observed.FilterMessage(msg).All() {
         for _, field := range entry.Context {
-            if field.Key == "trace_id" { return }
+            if field.Key == "trace_id" {
+                return
+            }
         }
-        tb.Errorf("message %q missing trace_id", msg)
     }
+    tb.Errorf("message %q missing trace_id", msg)
 }
 ```
 
@@ -155,10 +179,8 @@ func TestLogger_RedactsSensitiveFields(t *testing.T) {
     tl := logging.NewTestLogger()
 
     tl.Info(context.Background(), "config loaded",
-        zap.Object("database", &DatabaseConfig{
-            Host:     "localhost",
-            Password: logging.Secret("super-secret"),
-        }),
+        logging.RedactedString("password", "super-secret"),
+        zap.String("host", "localhost"),
     )
 
     tl.AssertNoSecrets(t)

@@ -21,7 +21,7 @@ docker run -i --rm \
   --mcp --no-http
 ```
 
-Add to your Claude Code MCP config (`~/.claude.json`):
+Add to your Claude Code MCP config (`~/.claude/settings.json`):
 
 ```json
 {
@@ -37,7 +37,7 @@ Add to your Claude Code MCP config (`~/.claude.json`):
         "-w", "${PWD}",
         "--user", "1000:1000",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp --no-http"
+        "--mcp", "--no-http"
       ],
       "env": {}
     }
@@ -144,7 +144,7 @@ docker run -d \
       "args": [
         "exec", "-i", "-w", "${PWD}",
         "contextd-server",
-        "contextd", "--mcp"
+        "contextd", "--mcp", "--no-http"
       ],
       "env": {}
     }
