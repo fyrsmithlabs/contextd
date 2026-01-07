@@ -21,10 +21,20 @@
 ## Custom Trace Level
 
 ```go
+// TraceLevel is a custom level below Debug for ultra-verbose logging.
+// Value: -2 (Debug is -1, Info is 0)
 const TraceLevel = zapcore.Level(-2)
 
-func init() {
-    zap.RegisterLevel("trace", TraceLevel)
+// LevelFromString parses a string into a zapcore.Level, supporting "trace".
+func LevelFromString(level string) (zapcore.Level, error) {
+    if level == "trace" {
+        return TraceLevel, nil
+    }
+    var l zapcore.Level
+    if err := l.UnmarshalText([]byte(level)); err != nil {
+        return zapcore.InfoLevel, err
+    }
+    return l, nil
 }
 ```
 

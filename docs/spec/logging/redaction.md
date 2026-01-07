@@ -12,47 +12,40 @@ All log output passes through redaction to prevent secret leakage. Two mechanism
 
 ---
 
-## Domain Primitives
+## Domain Primitives (config.Secret)
+
+The `config.Secret` type from `internal/config` provides automatic redaction:
 
 ```go
-type Secret string
+// From internal/config package
+type Secret struct {
+    value string
+}
 
-func (s Secret) String() string      { return "[REDACTED]" }
-func (s Secret) GoString() string    { return "[REDACTED]" }
+func (s Secret) Value() string { return s.value }
+func (s Secret) String() string { return "[REDACTED]" }
+func (s Secret) GoString() string { return "[REDACTED]" }
 func (s Secret) MarshalJSON() ([]byte, error) { return []byte(`"[REDACTED]"`), nil }
-func (s Secret) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-    enc.AddString("value", "[REDACTED]")
-    enc.AddInt("length", len(s))
-    return nil
-}
 ```
 
 ---
 
-## Secret Type Usage
+## Zap Field Helpers
 
 ```go
-type DatabaseConfig struct {
-    Host     string `json:"host"`
-    Password Secret `json:"password"`  // Auto-redacted
+// Secret creates a Zap field for config.Secret with redaction indicator
+func Secret(key string, val config.Secret) zap.Field {
+    return zap.Object(key, &secretMarshaler{key: key, val: val})
 }
 
-logger.Info(ctx, "database configured", zap.Object("config", &dbConfig))
-```
-
-Output: `{"config": {"host": "localhost", "password": "[REDACTED]"}}`
-
----
-
-## Zap Field Helper
-
-```go
-func RedactedString(key string, val string) zap.Field {
+// RedactedString creates a Zap field with redacted value and length
+func RedactedString(key, val string) zap.Field {
     return zap.String(key, "[REDACTED:"+strconv.Itoa(len(val))+"]")
 }
 
 // Usage
 logger.Debug(ctx, "auth header received", RedactedString("authorization", authHeader))
+logger.Info(ctx, "secret loaded", Secret("api_key", mySecret))
 ```
 
 ---
@@ -66,22 +59,41 @@ type RedactingEncoder struct {
     redactRegex  []*regexp.Regexp
 }
 
-func NewRedactingEncoder(base zapcore.Encoder, cfg RedactionConfig) *RedactingEncoder {
+// NewRedactingEncoder wraps an encoder with redaction rules.
+// Returns error if any redaction pattern fails to compile.
+func NewRedactingEncoder(base zapcore.Encoder, cfg RedactionConfig) (*RedactingEncoder, error) {
+    if !cfg.Enabled {
+        return &RedactingEncoder{Encoder: base}, nil
+    }
+
     fields := make(map[string]bool)
     for _, f := range cfg.Fields {
         fields[strings.ToLower(f)] = true
     }
+
+    // Compile patterns, fail fast on error
     var patterns []*regexp.Regexp
     for _, p := range cfg.Patterns {
-        if re, err := regexp.Compile(p); err == nil {
-            patterns = append(patterns, re)
+        re, err := regexp.Compile(p)
+        if err != nil {
+            return nil, fmt.Errorf("invalid redaction pattern %q: %w", p, err)
         }
+        // Basic ReDoS protection: reject patterns longer than 200 chars
+        if len(p) > 200 {
+            return nil, fmt.Errorf("redaction pattern too long (max 200 chars): %q", p)
+        }
+        patterns = append(patterns, re)
     }
-    return &RedactingEncoder{Encoder: base, redactFields: fields, redactRegex: patterns}
+
+    return &RedactingEncoder{
+        Encoder:      base,
+        redactFields: fields,
+        redactRegex:  patterns,
+    }, nil
 }
 
 func (e *RedactingEncoder) AddString(key, val string) {
-    if e.redactFields[strings.ToLower(key)] {
+    if e.shouldRedactKey(key) {
         e.Encoder.AddString(key, "[REDACTED]")
         return
     }
@@ -140,7 +152,8 @@ redaction:
 func TestLogger_RedactsSensitiveFields(t *testing.T) {
     tl := logging.NewTestLogger()
     tl.Info(context.Background(), "config loaded",
-        zap.Object("database", &DatabaseConfig{Host: "localhost", Password: logging.Secret("secret")}))
+        logging.RedactedString("password", "secret123"),
+        zap.String("host", "localhost"))
     tl.AssertNoSecrets(t)
 }
 ```

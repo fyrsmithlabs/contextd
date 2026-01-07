@@ -1,17 +1,23 @@
 ---
 title: contextd Interface
-status: Draft
+status: DEPRECATED
 created: 2025-11-23
-updated: 2025-11-25
+updated: 2026-01-06
 author: contextd team
 version: 2.0.0
+deprecated: true
+deprecated_reason: "contextd v2 uses MCP (Model Context Protocol) via stdio transport, not gRPC. See internal/mcp/ for current implementation."
 ---
 
 # contextd Interface Specification
 
+**⚠️ DEPRECATED**: This specification describes a gRPC-based interface that was planned but never implemented. contextd v2 uses the **MCP (Model Context Protocol)** with stdio transport instead. See `internal/mcp/server.go` for the current implementation.
+
 ## Overview
 
-gRPC interface for contextd server enabling Claude to use secure, scrubbed tools via programmatic code execution.
+~~gRPC interface for contextd server enabling Claude to use secure, scrubbed tools via programmatic code execution.~~
+
+**Current Architecture**: MCP server with stdio transport providing all memory, checkpoint, remediation, repository, and context-folding tools.
 
 **Purpose**: Replace built-in agent tools (Bash, Read, Write) with secure alternatives that scrub secrets and enforce capabilities.
 

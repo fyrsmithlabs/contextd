@@ -25,40 +25,46 @@ Vector storage infrastructure for contextd semantic search over memories, remedi
 | Qdrant | gRPC on port 6334, external service |
 | Embedding | FastEmbed (local ONNX) for both providers |
 | Default Dims | 384 (bge-small-en-v1.5) |
-| Multi-tenant | Context-based routing (from validated session) |
+| Multi-tenant | Payload-based filtering (default) or filesystem isolation |
+| Isolation | PayloadIsolation (default), FilesystemIsolation, NoIsolation |
+| Security | Fail-closed: ErrMissingTenant if no tenant context |
 | Client wrapper | Interface-based (provider-agnostic) |
-| Code parsing | tree-sitter (semantic units, not chunks) |
-| Index scope | Per-branch, per-worktree, delta updates |
-| Git integration | go-git ref watching + 10 min poll fallback |
+| Code parsing | Repository service with semantic indexing |
+| Index scope | Per-repository with tenant isolation |
+| Telemetry | OpenTelemetry instrumentation on all operations |
 
 ## Provider Comparison
 
 | Feature | chromem (Default) | Qdrant |
 |---------|-------------------|--------|
 | Installation | `brew install contextd` - just works | External service required |
-| Storage | `~/.config/contextd/vectorstore/` (gob files) | External Qdrant server |
+| Storage | `~/.config/contextd/vectorstore` (gob files) | External Qdrant server |
 | Dependencies | Pure Go, zero CGO | Qdrant server + gRPC |
 | Embeddings | FastEmbed (local ONNX) | FastEmbed (local ONNX) |
+| Embedding Source | Local embedder (both use FastEmbed) | Local embedder (both use FastEmbed) |
 | Default Dims | 384 | 384 |
 | Performance | 1K docs in 0.3ms, 100K in 40ms | Better for millions of docs |
 | Use Case | Local dev, simple setups, `brew install` | Production, high scale |
 | Persistence | Automatic gob files with optional gzip | External DB manages |
+| Isolation | PayloadIsolation or FilesystemIsolation | PayloadIsolation (recommended) |
 
 ## Package Structure
 
 ```
 internal/
-├── vectordb/           # Qdrant client wrapper
-│   ├── client.go       # Interface + implementation
-│   ├── context.go      # Tenant context helpers
-│   └── testing.go      # Mock client
+├── vectorstore/        # Vector storage implementations
+│   ├── interface.go    # Store interface
+│   ├── chromem.go      # chromem (embedded) implementation
+│   ├── qdrant.go       # Qdrant (gRPC) implementation
+│   ├── factory.go      # Provider factory
+│   ├── isolation.go    # Tenant isolation modes
+│   ├── tenant.go       # Tenant context helpers
+│   └── filter.go       # Filter utilities
 │
-└── codeindex/          # Codebase indexing
-    ├── indexer.go      # Main indexing logic
-    ├── parser.go       # tree-sitter AST parsing
-    ├── textify.go      # Code → natural language
-    ├── git.go          # go-git integration
-    └── watcher.go      # Ref watcher + polling
+└── repository/         # Repository indexing & semantic search
+    ├── service.go      # Main service logic
+    ├── adapter.go      # Indexing adapter
+    └── types.go        # Core types
 ```
 
 ## Requirements Summary
@@ -87,22 +93,24 @@ internal/
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-Q01 | gRPC connection with TLS | P1 |
-| FR-Q02 | Context-based tenant routing | P1 |
+| FR-Q01 | gRPC connection with TLS support | P1 |
+| FR-Q02 | Payload-based tenant isolation | P1 |
 | FR-Q03 | Fail closed on missing tenant | P1 |
-| FR-Q04 | Document-based inference (Qdrant embeds) | P1 |
+| FR-Q04 | Local embedding via FastEmbed | P1 |
 | FR-Q05 | Collection + point CRUD | P1 |
+| FR-Q06 | Circuit breaker and retry logic | P1 |
+| FR-Q07 | Configurable message size limits | P1 |
 
-### Code Indexer
+### Repository Indexer
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-I01 | AST extraction via tree-sitter | P1 |
-| FR-I02 | Dual embedding (NLP + code model) | P1 |
-| FR-I03 | BM25 for large functions (>512 tokens) | P1 |
-| FR-I04 | Per-branch delta updates | P1 |
-| FR-I05 | go-git ref watching | P2 |
-| FR-I06 | `ctxd index` CLI command | P1 |
+| FR-R01 | Semantic code search with grep fallback | P1 |
+| FR-R02 | Repository indexing via MCP tools | P1 |
+| FR-R03 | Tenant-isolated repository access | P1 |
+| FR-R04 | Chunked document processing | P1 |
+| FR-R05 | Metadata tracking (file path, repo info) | P1 |
+| FR-R06 | Integration with vectorstore abstraction | P1 |
 
 ### Performance
 
@@ -114,11 +122,45 @@ internal/
 
 ## Detailed Documentation
 
-@./architecture.md - System design, multi-tenant routing, data flow
-@./api.md - VectorDB client interface, code indexer interface
-@./codeindex.md - AST parsing, textify, git integration, delta updates
-@./security.md - Tenant isolation, credential protection, validation
-@./testing.md - Unit tests, integration tests, security tests
+@./security.md - Tenant isolation (PayloadIsolation, FilesystemIsolation), credential protection, validation
+
+## Multi-Tenant Isolation
+
+contextd uses **payload-based tenant isolation** as the default strategy:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `PayloadIsolation` | Single collection with metadata filtering | **Default, recommended** |
+| `FilesystemIsolation` | Separate database per tenant/project | Legacy, migration available |
+| `NoIsolation` | No tenant filtering | **Testing only** |
+
+### Tenant Context
+
+All operations require tenant context via Go's `context.Context`:
+
+```go
+import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
+
+// Create tenant-scoped context (REQUIRED)
+ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+    TenantID:  "org-123",      // Required
+    TeamID:    "platform",     // Optional
+    ProjectID: "contextd",     // Optional
+})
+
+// All operations automatically filtered by tenant
+results, err := store.Search(ctx, "query", 10)
+```
+
+### Security Guarantees
+
+| Behavior | Description |
+|----------|-------------|
+| **Fail-closed** | Missing tenant context returns `ErrMissingTenant` |
+| **Filter injection blocked** | User-provided tenant filters rejected with `ErrTenantFilterInUserFilters` |
+| **Metadata enforced** | Tenant fields always set from context, never from user input |
+
+See @./security.md for complete details.
 
 ## Configuration
 
@@ -133,38 +175,35 @@ vectorstore:
     compress: true                    # Enable gzip compression
     default_collection: contextd_default
     vector_size: 384                  # Must match embedder output
+    # isolation: payload              # Default: PayloadIsolation
 
   # Qdrant Configuration (external service)
   qdrant:
     host: ${QDRANT_HOST:-localhost}
-    port: ${QDRANT_PORT:-6334}
+    port: ${QDRANT_PORT:-6334}        # gRPC port (NOT 6333 HTTP)
     api_key: ${QDRANT_API_KEY}
     use_tls: ${QDRANT_TLS:-false}
     vector_size: 384                  # Default for FastEmbed
+    max_message_size: 52428800        # 50MB for large documents
+    # isolation: payload              # Default: PayloadIsolation
 
-# Embeddings (shared by all providers)
+# Embeddings (shared by all providers - both chromem and Qdrant use local FastEmbed)
 embeddings:
-  provider: fastembed                 # fastembed or tei
-  model: BAAI/bge-small-en-v1.5       # 384 dims
-
-codeindex:
-  enabled: true
-  languages: [go, typescript, python, rust]
-  large_function_threshold: 512
-  watch:
-    enabled: true
-    poll_interval: 10m
+  provider: fastembed                 # fastembed (local ONNX) or tei (external)
+  model: BAAI/bge-small-en-v1.5       # 384 dims (default)
 ```
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CONTEXTD_VECTORSTORE_PROVIDER` | `chromem` | Provider selection |
+| `CONTEXTD_VECTORSTORE_PROVIDER` | `chromem` | Provider selection (`chromem` or `qdrant`) |
 | `CONTEXTD_VECTORSTORE_CHROMEM_PATH` | `~/.config/contextd/vectorstore` | chromem storage directory |
 | `CONTEXTD_VECTORSTORE_CHROMEM_COMPRESS` | `true` | Enable gzip compression |
-| `CONTEXTD_QDRANT_HOST` | `localhost` | Qdrant host |
-| `CONTEXTD_QDRANT_PORT` | `6334` | Qdrant gRPC port |
+| `QDRANT_HOST` | `localhost` | Qdrant host |
+| `QDRANT_PORT` | `6334` | Qdrant gRPC port (NOT 6333 HTTP) |
+| `QDRANT_API_KEY` | - | Qdrant API key (optional) |
+| `QDRANT_TLS` | `false` | Enable TLS for Qdrant connection |
 
 ### Supported Embedding Models
 
@@ -174,42 +213,48 @@ codeindex:
 | `BAAI/bge-base-en-v1.5` | 768 | Higher quality, slower |
 | `sentence-transformers/all-MiniLM-L6-v2` | 384 | Alternative |
 
-## Implementation Phases
+## Implementation Status
 
-| Phase | Scope | Duration |
-|-------|-------|----------|
-| 1 | VectorDB client + tenant routing | Week 1 |
-| 2 | Code indexer core (Go only) | Week 2 |
-| 3 | Git integration + watcher | Week 2-3 |
-| 4 | CLI + session hook | Week 3 |
-| 5 | Additional languages | Week 4 |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| chromem provider | ✅ Complete | Default embedded database |
+| Qdrant provider | ✅ Complete | gRPC client with retry/circuit breaker |
+| PayloadIsolation | ✅ Complete | Default tenant isolation mode |
+| FilesystemIsolation | ✅ Complete | Legacy mode for backward compatibility |
+| FastEmbed integration | ✅ Complete | Local ONNX embeddings for both providers |
+| Repository indexing | ✅ Complete | Semantic search with grep fallback |
+| MCP tools | ✅ Complete | All tools registered and functional |
+| Security tests | ✅ Complete | Multi-tenant isolation verified |
 
 ## Acceptance Criteria
 
-- [ ] Qdrant gRPC connection with TLS
-- [ ] Context-based tenant routing (fail closed)
-- [ ] Document-based inference works
-- [ ] tree-sitter extracts Go semantic units
-- [ ] Delta indexing via git diff
-- [ ] `ctxd index` CLI command
-- [ ] Multi-tenant isolation tests pass
-- [ ] Test coverage ≥80%
+- [x] chromem embedded database with gob persistence
+- [x] Qdrant gRPC connection with TLS support
+- [x] Payload-based tenant isolation (fail closed)
+- [x] FastEmbed local embeddings for both providers
+- [x] Repository semantic search with grep fallback
+- [x] Multi-tenant isolation tests pass
+- [x] Filter injection prevention (ErrTenantFilterInUserFilters)
+- [x] OpenTelemetry instrumentation
+- [x] Test coverage ≥80%
 
 ## Dependencies
 
 **External**:
 - `github.com/philippgille/chromem-go` - Embedded vector database (default)
-- `github.com/qdrant/go-client` - Qdrant gRPC (optional)
-- `github.com/go-git/go-git/v5` - Git operations
-- `github.com/smacker/go-tree-sitter` - AST parsing
+- `github.com/qdrant/go-client` - Qdrant gRPC client (optional)
+- FastEmbed SDK - Local ONNX embeddings
+- OpenTelemetry - Instrumentation and tracing
 
 **Internal**:
-- `internal/config` - Configuration
-- `internal/logging` - Structured logging
-- `internal/embeddings` - FastEmbed integration
+- `internal/config` - Koanf configuration
+- `internal/logging` - Zap structured logging
+- `internal/embeddings` - FastEmbed provider
+- `internal/repository` - Repository indexing and semantic search
 
 ## References
 
-- [Qdrant Code Search Tutorial](https://qdrant.tech/documentation/advanced-tutorials/code-search/)
-- [Collection Architecture Spec](../collection-architecture/SPEC.md)
-- [ReasoningBank Spec](../reasoning-bank/SPEC.md)
+- [chromem-go](https://github.com/philippgille/chromem-go) - Embedded vector database
+- [Qdrant Go Client](https://github.com/qdrant/go-client) - Official gRPC client
+- [Security Spec](./security.md) - Multi-tenant isolation and security
+- [ReasoningBank Spec](../reasoning-bank/SPEC.md) - Memory service using vectorstore

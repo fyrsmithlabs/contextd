@@ -8,7 +8,9 @@
 
 ## Overview
 
-Full-stack observability for contextd using OpenTelemetry instrumentation with unified VictoriaMetrics backend. Provides distributed tracing, metrics collection, and structured logging for debugging, performance analysis, and security validation.
+Full-stack observability for contextd using OpenTelemetry instrumentation with OTLP export. Provides distributed tracing, metrics collection, and structured logging for debugging, performance analysis, and security validation.
+
+**Note**: This spec reflects the current simplified MCP-based architecture (post-v2 migration). The previous gRPC-based architecture has been deprecated.
 
 ---
 
@@ -17,10 +19,12 @@ Full-stack observability for contextd using OpenTelemetry instrumentation with u
 | Aspect | Choice |
 |--------|--------|
 | **Instrumentation** | OpenTelemetry Go SDK |
-| **Collector** | OTEL Collector (decouples app from backends) |
-| **Backend** | VictoriaMetrics (metrics, logs, traces) |
-| **Visualization** | Grafana |
-| **Logging** | Zap (structured, trace ID injection) |
+| **Transport** | MCP over stdio (no gRPC) |
+| **Export Protocol** | OTLP (gRPC or HTTP/protobuf) |
+| **Collector** | OTEL Collector (optional, for backend flexibility) |
+| **Backend** | Any OTLP-compatible backend (e.g., VictoriaMetrics, Prometheus, Jaeger) |
+| **Visualization** | Backend-dependent (e.g., Grafana) |
+| **Logging** | Zap (structured, with OTEL bridge support) |
 | **Config** | Koanf (file + env + flags) |
 
 ---
@@ -28,14 +32,20 @@ Full-stack observability for contextd using OpenTelemetry instrumentation with u
 ## Architecture
 
 ```
-contextd → OTLP (4317) → OTEL Collector
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-        VictoriaMetrics  VictoriaLogs   VictoriaTraces
-              └───────────────┼───────────────┘
-                              ▼
-                           Grafana
+contextd (MCP Server)
+    ├── Internal Services (reasoningbank, remediation, checkpoint, etc.)
+    │   └── OpenTelemetry Instrumentation (traces, metrics)
+    │
+    └── OTLP Export (port 4317 gRPC or 4318 HTTP)
+            │
+            ▼
+      OTEL Collector (optional)
+            │
+            ▼
+      Backend (VictoriaMetrics, Prometheus, Jaeger, etc.)
+            │
+            ▼
+      Visualization (Grafana, etc.)
 ```
 
 @./architecture.md
@@ -79,7 +89,7 @@ contextd → OTLP (4317) → OTEL Collector
 | ID | Requirement |
 |----|-------------|
 | FR-001 | Use OpenTelemetry Go SDK for all instrumentation |
-| FR-002 | Create spans for gRPC, tool execution, Qdrant, scrubbing |
+| FR-002 | Create spans for service operations, tool execution, vectorstore ops, scrubbing |
 | FR-003 | Include tenant context (org, team, project) on all telemetry |
 | FR-004 | Include session_id for correlation |
 | FR-005 | No secret content in telemetry (rule IDs, types, counts only) |
@@ -111,7 +121,7 @@ contextd → OTLP (4317) → OTEL Collector
 
 | ID | Criteria |
 |----|----------|
-| SC-001 | 100% of gRPC requests produce complete traces |
+| SC-001 | 100% of MCP tool calls produce complete traces |
 | SC-002 | Metrics match actual counts/durations within 1% |
 | SC-003 | 0 instances of secret content in telemetry |
 | SC-004 | >99% pending telemetry exported on shutdown |
@@ -124,8 +134,8 @@ contextd → OTLP (4317) → OTEL Collector
 
 | Phase | Scope |
 |-------|-------|
-| **1: Core Setup** | TracerProvider, MeterProvider, gRPC stats handlers, dev stack |
-| **2: Full Instrumentation** | All service spans, all metrics, debug logging, graceful shutdown |
+| **1: Core Setup** | TracerProvider, MeterProvider, OTLP exporters, graceful shutdown |
+| **2: Full Instrumentation** | All service spans, all metrics, structured logging with Zap |
 | **3: Scrubber Observability** | Scrubber metrics, rule tracking, user feedback API, security dashboard |
 | **4: Experience Metrics** | Opt-in config, session outcomes, memory effectiveness, privacy guarantees |
 | **5: Alerting** | Prometheus rules, dashboard provisioning, runbooks |
@@ -136,11 +146,12 @@ contextd → OTLP (4317) → OTEL Collector
 
 | Decision | Rationale |
 |----------|-----------|
-| VictoriaMetrics unified stack | Single ecosystem, lower operational complexity |
-| OTEL Collector middleware | Backend flexibility, sampling control |
-| Stats handlers over interceptors | Modern approach, better integration |
-| Zap over slog | Performance, trace ID injection support |
+| MCP over stdio (no gRPC) | Simplified architecture, direct SDK integration |
+| OTLP export with multiple protocols | Backend flexibility, supports gRPC and HTTP/protobuf |
+| OTEL Collector (optional) | Decouples app from backends, enables sampling control |
+| Zap with OTEL bridge | Performance, structured logging, trace ID injection |
 | Koanf over viper | Lighter weight, cleaner API |
+| Telemetry disabled by default | Non-intrusive for new users without OTEL infrastructure |
 
 ---
 

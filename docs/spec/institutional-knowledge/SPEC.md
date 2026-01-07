@@ -1,8 +1,11 @@
 # Institutional Knowledge Specification
 
 **Feature**: Institutional Knowledge (Layer 3)
-**Status**: Draft
+**Status**: ⏸️ FUTURE - Not Implemented
 **Created**: 2025-11-22
+**Updated**: 2026-01-06
+
+**⚠️ NOT IMPLEMENTED**: This feature is planned for a future release. Current ReasoningBank implementation supports **project-level scope only**. Team and organization-level knowledge consolidation is not yet implemented.
 
 ## Overview
 

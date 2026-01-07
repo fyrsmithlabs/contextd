@@ -1,0 +1,24 @@
+# Qdrant vector database for contextd (Homebrew/binary installations)
+# Usage: docker compose -f docker-compose.qdrant.yml up -d
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: contextd-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC API (used by contextd)
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant-data:
+    name: contextd-qdrant-data

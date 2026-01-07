@@ -480,8 +480,9 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 	}
 	d.vectorStore = store
 
-	// Create reasoning bank service
-	svc, err := reasoningbank.NewService(store, d.logger)
+	// Create reasoning bank service with tenant ID configured
+	// The service requires defaultTenant for payload-based tenant isolation
+	svc, err := reasoningbank.NewService(store, d.logger, reasoningbank.WithDefaultTenant(d.tenantID))
 	if err != nil {
 		return fmt.Errorf("creating reasoning bank: %w", err)
 	}

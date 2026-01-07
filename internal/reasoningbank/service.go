@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -827,6 +828,43 @@ func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
 	return info.PointCount, nil
 }
 
+// parseFloat64 extracts a float64 from metadata, handling both float64 and string types.
+// chromem-go stores metadata as JSON and may deserialize numbers as strings.
+func parseFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+// parseInt64 extracts an int64 from metadata, handling both numeric and string types.
+func parseInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case int64:
+		return val
+	case int:
+		return int64(val)
+	case float64:
+		return int64(val)
+	case string:
+		i, _ := strconv.ParseInt(val, 10, 64)
+		return i
+	default:
+		return 0
+	}
+}
+
 // resultToMemory converts a vectorstore SearchResult to a Memory.
 func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, error) {
 	// Extract fields from metadata
@@ -839,8 +877,8 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	title, _ := result.Metadata["title"].(string)
 	description, _ := result.Metadata["description"].(string)
 	outcomeStr, _ := result.Metadata["outcome"].(string)
-	confidence, _ := result.Metadata["confidence"].(float64)
-	usageCount, _ := result.Metadata["usage_count"].(int)
+	confidence := parseFloat64(result.Metadata["confidence"])
+	usageCount := int(parseInt64(result.Metadata["usage_count"]))
 
 	// Parse tags
 	tags := []string{}
@@ -854,9 +892,9 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 		}
 	}
 
-	// Parse timestamps
-	createdAtUnix, _ := result.Metadata["created_at"].(int64)
-	updatedAtUnix, _ := result.Metadata["updated_at"].(int64)
+	// Parse timestamps (handle both int64 and string from chromem)
+	createdAtUnix := parseInt64(result.Metadata["created_at"])
+	updatedAtUnix := parseInt64(result.Metadata["updated_at"])
 
 	createdAt := time.Unix(createdAtUnix, 0)
 	updatedAt := time.Unix(updatedAtUnix, 0)

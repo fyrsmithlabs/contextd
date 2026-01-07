@@ -1,8 +1,11 @@
 # contextd Installation & Deployment Specification
 
-**Status**: Draft
+**Status**: Partially Outdated
 **Created**: 2024-12-02
+**Updated**: 2026-01-06
 **Author**: Claude + dahendel
+
+**⚠️ NOTE**: This spec is partially outdated. contextd v2 uses **chromem** (embedded) as the default vector store, with Qdrant as an optional external provider. The Docker and deployment patterns described here need updating.
 
 ---
 
@@ -10,7 +13,7 @@
 
 contextd is distributed as an all-in-one Docker container that includes:
 - contextd MCP server
-- Qdrant vector database (embedded)
+- **chromem vector store (embedded, default)** or Qdrant (optional external)
 - FastEmbed for local embeddings (no external API needed)
 
 Users need only Docker to run contextd. All data persists in a named volume.
@@ -59,15 +62,20 @@ All configuration is optional. Sensible defaults are provided.
 | `CONTEXTD_DATA_PATH` | `/data` | Base path for all persistent data |
 | `CONTEXTD_LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 
-### Qdrant Settings
+### Vector Store Settings
+
+**Default**: chromem (embedded, no configuration needed)
+
+**Qdrant (Optional External)**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QDRANT_HOST` | `localhost` | Qdrant host (internal in container) |
+| `VECTORSTORE_PROVIDER` | `chromem` | Provider: `chromem` (default) or `qdrant` |
+| `QDRANT_HOST` | `localhost` | Qdrant host (if using Qdrant) |
 | `QDRANT_PORT` | `6334` | Qdrant gRPC port |
 | `QDRANT_HTTP_PORT` | `6333` | Qdrant HTTP port |
-| `QDRANT_COLLECTION` | `contextd_default` | Default collection name |
-| `QDRANT_VECTOR_SIZE` | `384` | Vector dimensions (FastEmbed default) |
+| `VECTORSTORE_DEFAULT_COLLECTION` | `memories` | Default collection name |
+| `VECTORSTORE_VECTOR_SIZE` | `384` | Vector dimensions (FastEmbed default) |
 
 ### Embeddings Settings
 

@@ -137,32 +137,32 @@ Zero secrets detected in stored conversation content when audited.
 ### SC-005: Cross-Reference Accuracy
 90%+ of file references correctly link to actual files discussed in conversations.
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Core Indexing
-- JSONL parser
-- Secret scrubbing integration
-- `_conversations` collection
-- `conversation_index` MCP tool
-- `conversation_search` MCP tool
-- Heuristic decision detection
-- Tag extraction
-- File/commit cross-references
+### ✅ Phase 1: Core Indexing (Complete)
+- ✅ JSONL parser (`internal/conversation/parser.go`)
+- ✅ Secret scrubbing integration
+- ✅ `_conversations` collection
+- ✅ `conversation_index` MCP tool
+- ✅ `conversation_search` MCP tool
+- ✅ Heuristic decision detection (`internal/conversation/extractor.go`)
+- ✅ Tag extraction
+- ✅ File/commit cross-references
 
-### Phase 2: LLM + CLI
-- langchain-go integration
-- Provider configs (Anthropic, OpenAI)
-- Templated config
-- CLI commands
-- Configurable patterns and tags
+### ⏸️ Phase 2: LLM + CLI (Not Implemented)
+- ⏸️ langchain-go integration
+- ⏸️ Provider configs (Anthropic, OpenAI)
+- ⏸️ Templated config
+- ⏸️ CLI commands
+- ⏸️ Configurable patterns and tags
 
-### Phase 3: ReasoningBank Integration
-- Decision to memory distillation
-- Smart filtering
-- Marketplace skill updates
+### ⏸️ Phase 3: ReasoningBank Integration (Not Implemented)
+- ⏸️ Decision to memory distillation
+- ⏸️ Smart filtering
+- ⏸️ Marketplace skill updates
 
-### Phase 4: Polish
-- Session piggyback prompts
-- First-use detection
-- Bidirectional search
-- Performance optimization
+### ⏸️ Phase 4: Polish (Not Implemented)
+- ⏸️ Session piggyback prompts
+- ⏸️ First-use detection
+- ⏸️ Bidirectional search
+- ⏸️ Performance optimization

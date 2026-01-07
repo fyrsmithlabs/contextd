@@ -40,8 +40,8 @@ Structured logging for contextd using Zap with dual output (stdout + OpenTelemet
 │  │  ├── redact.go      (Sensitive field redaction)         │    │
 │  │  ├── sampling.go    (Level-aware sampling)              │    │
 │  │  ├── otel.go        (OTEL bridge integration)           │    │
-│  │  ├── middleware.go  (gRPC interceptor)                  │    │
-│  │  └── testing.go     (Test helpers, assertions)          │    │
+│  │  ├── testing.go     (Test helpers, assertions)          │    │
+│  │  └── doc.go         (Package documentation)             │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │              │                         │                         │
 │      ┌───────┴───────┐         ┌───────┴───────┐                │
@@ -117,12 +117,12 @@ Structured logging for contextd using Zap with dual output (stdout + OpenTelemet
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Core Logger (wrapper, Trace level, JSON, stdout) | Pending |
-| 2 | Redaction (Secret type, encoder, patterns) | Pending |
-| 3 | Context Integration (trace/tenant/session extraction) | Pending |
-| 4 | OTEL Bridge (otelzap, dual output) | Pending |
-| 5 | Sampling (level-aware, metrics) | Pending |
-| 6 | Middleware (gRPC interceptors) | Pending |
+| 1 | Core Logger (wrapper, Trace level, JSON, stdout) | ✅ Complete |
+| 2 | Redaction (Secret type, encoder, patterns) | ✅ Complete |
+| 3 | Context Integration (trace/tenant/session extraction) | ✅ Complete |
+| 4 | OTEL Bridge (otelzap, dual output) | ✅ Complete |
+| 5 | Sampling (level-aware, metrics) | ✅ Complete |
+| 6 | Testing (helpers, assertions, observers) | ✅ Complete |
 
 ---
 

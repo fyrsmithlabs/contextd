@@ -8,7 +8,7 @@ This guide covers integrating contextd with Claude Code using lifecycle hooks fo
 
 ### 1. Add contextd to Claude Code MCP Configuration
 
-**Claude Code CLI** (`~/.claude.json`):
+**Claude Code CLI** (`~/.claude/settings.json`):
 
 ```json
 {
@@ -20,7 +20,7 @@ This guide covers integrating contextd with Claude Code using lifecycle hooks fo
         "-v", "contextd-data:/data",
         "-e", "CONTEXTD_EMBEDDINGS_PROVIDER=fastembed",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -39,7 +39,7 @@ This guide covers integrating contextd with Claude Code using lifecycle hooks fo
         "-v", "contextd-data:/data",
         "-e", "CONTEXTD_EMBEDDINGS_PROVIDER=fastembed",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -113,7 +113,7 @@ Save checkpoints automatically when context reaches 70%:
         "-e", "CONTEXTD_CHECKPOINT_THRESHOLD=70",
         "-e", "CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR=true",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -137,7 +137,7 @@ Enable auto-resume and auto-checkpoint:
         "-e", "CONTEXTD_AUTO_RESUME_ON_START=true",
         "-e", "CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR=true",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -164,7 +164,7 @@ Prompt before all actions (safer for new users):
         "-e", "CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR=false",
         "-e", "CONTEXTD_VERIFY_BEFORE_CLEAR=true",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -188,7 +188,7 @@ For long debugging sessions (50% threshold):
         "-e", "CONTEXTD_CHECKPOINT_THRESHOLD=50",
         "-e", "CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR=true",
         "ghcr.io/fyrsmithlabs/contextd:latest",
-        "--mcp"
+        "--mcp", "--no-http"
       ]
     }
   }
@@ -242,7 +242,7 @@ go build -o contextd ./cmd/contextd
   "mcpServers": {
     "contextd": {
       "command": "/path/to/contextd",
-      "args": ["--mcp"],
+      "args": ["--mcp", "--no-http"],
       "env": {
         "CONTEXTD_EMBEDDINGS_PROVIDER": "fastembed",
         "CONTEXTD_VECTORSTORE_CHROMEM_PATH": "~/.local/share/contextd"
