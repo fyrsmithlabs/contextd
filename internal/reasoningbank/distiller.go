@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -75,6 +76,11 @@ type Distiller struct {
 	service   *Service
 	logger    *zap.Logger
 	llmClient LLMClient // Optional LLM client for memory consolidation
+
+	// Consolidation tracking
+	lastConsolidation   map[string]time.Time // projectID -> last consolidation time
+	consolidationMu     sync.RWMutex         // protects lastConsolidation
+	consolidationWindow time.Duration        // minimum time between consolidations (default: 24h)
 }
 
 // DistillerOption configures a Distiller.
@@ -88,6 +94,14 @@ func WithLLMClient(client LLMClient) DistillerOption {
 	}
 }
 
+// WithConsolidationWindow sets the minimum time between consolidations.
+// If not set, defaults to 24 hours.
+func WithConsolidationWindow(window time.Duration) DistillerOption {
+	return func(d *Distiller) {
+		d.consolidationWindow = window
+	}
+}
+
 // NewDistiller creates a new session distiller.
 func NewDistiller(service *Service, logger *zap.Logger, opts ...DistillerOption) (*Distiller, error) {
 	if service == nil {
@@ -98,8 +112,10 @@ func NewDistiller(service *Service, logger *zap.Logger, opts ...DistillerOption)
 	}
 
 	d := &Distiller{
-		service: service,
-		logger:  logger,
+		service:             service,
+		logger:              logger,
+		lastConsolidation:   make(map[string]time.Time),
+		consolidationWindow: 24 * time.Hour, // Default: 24 hours
 	}
 
 	// Apply options
@@ -1059,14 +1075,61 @@ func clampConfidence(confidence float64) float64 {
 	return confidence
 }
 
+// getLastConsolidationTime returns the last consolidation time for a project.
+// Returns zero time if the project has never been consolidated.
+func (d *Distiller) getLastConsolidationTime(projectID string) time.Time {
+	d.consolidationMu.RLock()
+	defer d.consolidationMu.RUnlock()
+	return d.lastConsolidation[projectID]
+}
+
+// setLastConsolidationTime updates the last consolidation time for a project.
+func (d *Distiller) setLastConsolidationTime(projectID string, t time.Time) {
+	d.consolidationMu.Lock()
+	defer d.consolidationMu.Unlock()
+	d.lastConsolidation[projectID] = t
+}
+
+// shouldSkipConsolidation determines if consolidation should be skipped for a project.
+// Returns true if:
+//   - ForceAll is false AND
+//   - The project was consolidated within the consolidation window (default: 24h)
+//
+// This prevents re-processing recently consolidated memories and reduces unnecessary
+// LLM API calls.
+func (d *Distiller) shouldSkipConsolidation(projectID string, forceAll bool) (bool, time.Duration) {
+	// If ForceAll is set, never skip
+	if forceAll {
+		return false, 0
+	}
+
+	lastTime := d.getLastConsolidationTime(projectID)
+
+	// If never consolidated, don't skip
+	if lastTime.IsZero() {
+		return false, 0
+	}
+
+	// Check if within consolidation window
+	elapsed := time.Since(lastTime)
+	if elapsed < d.consolidationWindow {
+		remaining := d.consolidationWindow - elapsed
+		return true, remaining
+	}
+
+	return false, 0
+}
+
 // Consolidate runs the full memory consolidation process for a project.
 //
 // This method orchestrates the complete consolidation workflow:
-//  1. Find all similarity clusters above the specified threshold
-//  2. Limit to MaxClustersPerRun if specified (0 = no limit)
-//  3. For each cluster, merge into a consolidated memory
-//  4. Link source memories to their consolidated versions
-//  5. Return statistics about the consolidation run
+//  1. Check if consolidation was run recently (unless ForceAll is set)
+//  2. Find all similarity clusters above the specified threshold
+//  3. Limit to MaxClustersPerRun if specified (0 = no limit)
+//  4. For each cluster, merge into a consolidated memory
+//  5. Link source memories to their consolidated versions
+//  6. Track last consolidation time to avoid re-processing
+//  7. Return statistics about the consolidation run
 //
 // In DryRun mode, the method performs similarity detection and reports what would
 // be consolidated without actually creating consolidated memories or archiving
@@ -1087,6 +1150,23 @@ func (d *Distiller) Consolidate(ctx context.Context, projectID string, opts Cons
 	}
 	if opts.SimilarityThreshold < 0.0 || opts.SimilarityThreshold > 1.0 {
 		return nil, fmt.Errorf("similarity threshold must be between 0.0 and 1.0, got %f", opts.SimilarityThreshold)
+	}
+
+	// Check if consolidation should be skipped (recently consolidated)
+	if skip, remaining := d.shouldSkipConsolidation(projectID, opts.ForceAll); skip {
+		d.logger.Info("skipping consolidation - recently consolidated",
+			zap.String("project_id", projectID),
+			zap.Duration("time_remaining", remaining),
+			zap.Time("last_consolidation", d.getLastConsolidationTime(projectID)))
+
+		// Return empty result indicating no work was done
+		return &ConsolidationResult{
+			CreatedMemories:  []string{},
+			ArchivedMemories: []string{},
+			SkippedCount:     0,
+			TotalProcessed:   0,
+			Duration:         0,
+		}, nil
 	}
 
 	// Use default threshold if not set
@@ -1185,6 +1265,14 @@ func (d *Distiller) Consolidate(ctx context.Context, projectID string, opts Cons
 
 	// Calculate duration
 	result.Duration = time.Since(startTime)
+
+	// Update last consolidation time (unless dry run)
+	if !opts.DryRun {
+		d.setLastConsolidationTime(projectID, time.Now())
+		d.logger.Debug("updated last consolidation time",
+			zap.String("project_id", projectID),
+			zap.Time("consolidation_time", time.Now()))
+	}
 
 	d.logger.Info("consolidation completed",
 		zap.String("project_id", projectID),
