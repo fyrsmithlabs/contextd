@@ -6,14 +6,17 @@ ContextD exposes its functionality through the Model Context Protocol (MCP). Thi
 
 ## Overview
 
-ContextD provides 10 MCP tools organized into four categories:
+ContextD provides 20 MCP tools organized into seven categories:
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| **Memory** | `memory_search`, `memory_record`, `memory_feedback` | Cross-session learning and strategies |
+| **Memory** | `memory_search`, `memory_record`, `memory_feedback`, `memory_outcome` | Cross-session learning and strategies |
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context persistence and recovery |
 | **Remediation** | `remediation_search`, `remediation_record` | Error pattern tracking and fixes |
-| **Utility** | `repository_index`, `repository_search`, `semantic_search`, `troubleshoot_diagnose` | Code indexing and diagnostics |
+| **Context-Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-task execution with token budgets |
+| **Repository** | `repository_index`, `repository_search`, `semantic_search` | Code indexing and semantic search |
+| **Conversation** | `conversation_index`, `conversation_search` | Claude Code conversation indexing and search |
+| **Utility** | `troubleshoot_diagnose`, `reflect_report`, `reflect_analyze` | Diagnostics and self-reflection |
 
 ---
 
@@ -141,6 +144,57 @@ Provide feedback on a memory to adjust its confidence score.
 - Positive feedback: +0.1 (capped at 1.0)
 - Negative feedback: -0.15 (floored at 0.0)
 - Memories below 0.1 confidence are deprioritized in search
+
+---
+
+### memory_outcome
+
+Report whether a task succeeded after using a memory.
+
+**Use Case**: After completing a task where you used a retrieved memory, call this to report whether the task succeeded. This helps the system learn which memories are actually useful in practice.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `memory_id` | string | Yes | ID of the memory that was used |
+| `succeeded` | boolean | Yes | `true` if the task succeeded, `false` if it failed |
+| `session_id` | string | No | Optional session ID for correlation |
+
+#### Response
+
+```json
+{
+  "recorded": true,
+  "new_confidence": 0.87,
+  "message": "Outcome recorded"
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "memory_outcome",
+  "arguments": {
+    "memory_id": "mem_abc123",
+    "succeeded": true,
+    "session_id": "sess_xyz"
+  }
+}
+```
+
+#### How It Works
+
+- **Success**: When `succeeded=true`, the memory's confidence score increases, making it more likely to appear in future searches
+- **Failure**: When `succeeded=false`, the memory's confidence score decreases, deprioritizing it in search results
+- **Learning**: Over time, the system learns which memories lead to successful outcomes and surfaces them more prominently
+
+#### When to Use
+
+1. **After task completion**: Once you've finished a task using a memory's strategy
+2. **Both success and failure**: Report outcomes whether the task succeeded or failed
+3. **Before session end**: Ideally report outcomes before the session ends for best tracking
 
 ---
 
@@ -353,7 +407,173 @@ Record a new remediation after fixing an error.
 
 ---
 
-## Utility Tools
+## Context-Folding Tools
+
+Context-folding enables **active context management** by isolating complex sub-tasks with dedicated token budgets. Branches execute in isolation and return only scrubbed summaries to the main context, achieving **90%+ context compression**.
+
+### branch_create
+
+Create a new context-folding branch for isolated sub-task execution.
+
+**Use Case**: When you need to perform complex operations (file exploration, research, debugging) without cluttering the main context. The branch gets its own token budget and only a summary returns to the parent context.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | Yes | Session identifier |
+| `description` | string | Yes | Brief description of what the branch will do |
+| `prompt` | string | No | Detailed prompt/instructions for the branch |
+| `budget` | integer | No | Token budget for this branch (default: 8192) |
+| `timeout_seconds` | integer | No | Timeout in seconds (default: 300) |
+
+#### Response
+
+```json
+{
+  "branch_id": "br_abc123",
+  "budget_allocated": 8192,
+  "depth": 0
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "branch_create",
+  "arguments": {
+    "session_id": "sess_xyz",
+    "description": "Search 10 files for authentication function",
+    "prompt": "Find the authenticate() function by searching through src/ directory",
+    "budget": 4096,
+    "timeout_seconds": 120
+  }
+}
+```
+
+#### Notes
+
+- **Nesting**: Branches can be nested up to a configurable depth (default: 3 levels)
+- **Budget**: If budget is exceeded, the branch is force-terminated
+- **Isolation**: Each branch has its own context and token budget
+- **Cleanup**: Child branches are automatically force-returned when parent returns
+
+---
+
+### branch_return
+
+Return from a context-folding branch with results.
+
+**Use Case**: After completing work in a branch, return a concise summary to the parent context. The message is automatically scrubbed for secrets before being passed to the parent.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `branch_id` | string | Yes | Branch ID to return from |
+| `message` | string | Yes | Result message/summary from the branch |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "tokens_used": 3542,
+  "message": "Found authenticate() function in src/auth/handler.go:42"
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "branch_return",
+  "arguments": {
+    "branch_id": "br_abc123",
+    "message": "Found authenticate() function in src/auth/handler.go:42. Uses JWT tokens with HS256 signing."
+  }
+}
+```
+
+#### Secret Scrubbing
+
+All return messages are automatically scrubbed for secrets using gitleaks patterns. Detected secrets are replaced with `[REDACTED]`.
+
+**Example:**
+```
+Input:  "API key is sk_live_abc123xyz"
+Output: "API key is [REDACTED]"
+```
+
+---
+
+### branch_status
+
+Get the status of a specific branch or the active branch for a session.
+
+**Use Case**: Check branch state, budget usage, and depth information. Useful for monitoring progress and budget consumption during long-running operations.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `branch_id` | string | No* | Specific branch ID to check |
+| `session_id` | string | No* | Session ID to get active branch for |
+
+*Either `branch_id` or `session_id` must be provided (not both).
+
+#### Response
+
+```json
+{
+  "branch_id": "br_abc123",
+  "session_id": "sess_xyz",
+  "status": "active",
+  "depth": 1,
+  "budget_used": 2341,
+  "budget_total": 8192,
+  "budget_remaining": 5851
+}
+```
+
+#### Status Values
+
+| Status | Description |
+|--------|-------------|
+| `active` | Branch is currently executing |
+| `completed` | Branch successfully returned |
+| `failed` | Branch execution failed |
+| `timeout` | Branch exceeded timeout limit |
+| `none` | No active branch found (when querying by session_id) |
+
+#### Example
+
+```json
+{
+  "tool": "branch_status",
+  "arguments": {
+    "branch_id": "br_abc123"
+  }
+}
+```
+
+Or query by session to get the active branch:
+
+```json
+{
+  "tool": "branch_status",
+  "arguments": {
+    "session_id": "sess_xyz"
+  }
+}
+```
+
+---
+
+## Repository Tools
+
+Repository tools enable semantic indexing and search of codebases, allowing agents to find relevant code by meaning rather than exact keyword matches.
 
 ### repository_index
 
@@ -389,6 +609,8 @@ Fallback exclusions if no ignore files found:
 ```json
 {
   "path": "/home/user/projects/myapp",
+  "branch": "main",
+  "collection_name": "myapp_codebase",
   "files_indexed": 156,
   "include_patterns": ["*"],
   "exclude_patterns": [".git/**", "node_modules/**"],
@@ -400,22 +622,68 @@ Fallback exclusions if no ignore files found:
 
 ### repository_search
 
-Semantic search over indexed repository code.
+Semantic search over indexed repository code in _codebase collection.
 
-**Use Case**: Find code by meaning rather than exact keyword match.
+**Use Case**: Find code by meaning rather than exact keyword match. Prefer using `collection_name` from `repository_index` output.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | Yes | Semantic search query |
-| `project_path` | string | Yes | Project path to search within |
-| `tenant_id` | string | No | Tenant identifier |
-| `branch` | string | No | Filter by branch |
+| `project_path` | string | Yes | Project path to search within (required for tenant context) |
+| `collection_name` | string | No | Collection name from `repository_index` (preferred - avoids tenant_id derivation issues) |
+| `tenant_id` | string | No | Tenant identifier (auto-derived from project_path if not provided) |
+| `branch` | string | No | Filter by branch (empty = all branches) |
 | `limit` | integer | No | Maximum results (default: 10) |
+| `content_mode` | string | No | Content mode: `"minimal"` (default), `"preview"`, or `"full"` |
+
+#### Content Modes
+
+| Mode | Description | Response Fields |
+|------|-------------|----------------|
+| `minimal` | File paths and scores only (lowest token cost) | `file_path`, `score`, `branch` |
+| `preview` | First 200 characters of content | Above + `content_preview` |
+| `full` | Complete file content and metadata | Above + `content`, `metadata` |
 
 #### Response
 
+**Minimal mode (default):**
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "score": 0.89,
+      "branch": "main"
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "branch": "main",
+  "content_mode": "minimal"
+}
+```
+
+**Preview mode:**
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "content_preview": "func main() {\n\tctx := context.Background()\n\t// Initialize config\n\tcfg, err := config.Load()\n\tif err != nil {\n\t\tlog.Fatal(\"config load failed\", zap.Error(err))\n\t}\n...",
+      "score": 0.89,
+      "branch": "main"
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "branch": "main",
+  "content_mode": "preview"
+}
+```
+
+**Full mode:**
 ```json
 {
   "results": [
@@ -429,7 +697,8 @@ Semantic search over indexed repository code.
   ],
   "count": 1,
   "query": "entry point",
-  "branch": "main"
+  "branch": "main",
+  "content_mode": "full"
 }
 ```
 
@@ -471,6 +740,128 @@ Smart search that uses semantic understanding, falling back to grep if needed.
 
 ---
 
+## Conversation Tools
+
+Conversation tools enable indexing and searching of Claude Code conversation history. This allows agents to learn from past interactions, decisions, and patterns across sessions.
+
+### conversation_index
+
+Index Claude Code conversation files for semantic search.
+
+**Use Case**: Before working on a project, index conversation history to enable searching for past decisions, discussions, and patterns.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | Yes | Path to project to index conversations for |
+| `tenant_id` | string | No | Tenant identifier (auto-derived from project_path via git remote if not provided) |
+| `session_ids` | array | No | Specific session IDs to index (empty = all sessions) |
+| `enable_llm` | boolean | No | Enable LLM-based decision extraction (default: false). **NOTE**: LLM summarization is not yet implemented - this flag is reserved for future use. Currently uses heuristic extraction only. |
+| `force` | boolean | No | Force reindexing of existing sessions (default: false) |
+
+#### Response
+
+```json
+{
+  "sessions_indexed": 5,
+  "messages_indexed": 234,
+  "decisions_extracted": 12,
+  "files_referenced": ["internal/mcp/server.go", "cmd/contextd/main.go"],
+  "error_count": 0
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "conversation_index",
+  "arguments": {
+    "project_path": "/home/user/projects/contextd",
+    "force": false
+  }
+}
+```
+
+#### Notes
+
+- Conversation files are read from `<project_path>/.claude/conversations/*.jsonl`
+- Documents are indexed as type `message`, `decision`, or `summary`
+- Heuristic decision extraction uses pattern matching for words like "decided", "choosing", "approach"
+- LLM-based extraction (when implemented) will provide more accurate decision identification
+
+---
+
+### conversation_search
+
+Search indexed Claude Code conversations for relevant past context.
+
+**Use Case**: Find relevant past discussions, decisions, and patterns from conversation history to inform current work.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | Semantic search query |
+| `project_path` | string | Yes | Project path to search within |
+| `tenant_id` | string | No | Tenant identifier (auto-derived from project_path via git remote if not provided) |
+| `types` | array | No | Filter by document types: `"message"`, `"decision"`, or `"summary"` |
+| `tags` | array | No | Filter by tags |
+| `file_path` | string | No | Filter by file path discussed |
+| `domain` | string | No | Filter by domain (e.g., `"kubernetes"`, `"frontend"`, `"database"`) |
+| `limit` | integer | No | Maximum results to return (default: 10) |
+
+#### Response
+
+```json
+{
+  "query": "authentication implementation",
+  "results": [
+    {
+      "id": "doc_abc123",
+      "session_id": "sess_xyz",
+      "type": "decision",
+      "content": "Decided to use JWT tokens with HS256 signing for API authentication...",
+      "score": 0.92,
+      "timestamp": 1701234567,
+      "tags": ["auth", "api"],
+      "domain": "backend"
+    }
+  ],
+  "total": 1,
+  "took_ms": 45
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "conversation_search",
+  "arguments": {
+    "query": "how did we implement user authentication",
+    "project_path": "/home/user/projects/myapp",
+    "types": ["decision", "message"],
+    "limit": 5
+  }
+}
+```
+
+#### Document Types
+
+| Type | Description |
+|------|-------------|
+| `message` | Individual conversation messages |
+| `decision` | Extracted decisions (e.g., "decided to use X", "choosing Y approach") |
+| `summary` | Conversation summaries (future) |
+
+---
+
+## Utility Tools
+
+Utility tools provide diagnostics, troubleshooting, and self-reflection capabilities.
+
 ### troubleshoot_diagnose
 
 Diagnose an error using AI and known patterns.
@@ -511,6 +902,142 @@ Diagnose an error using AI and known patterns.
   "confidence": 0.75
 }
 ```
+
+---
+
+### reflect_report
+
+Generate a self-reflection report analyzing memories and patterns for a project.
+
+**Use Case**: Periodically generate reports to understand behavioral patterns, success/failure trends, and get recommendations based on accumulated memories.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project identifier |
+| `project_path` | string | No | Project path for repository context (optional - enables saving report to disk) |
+| `period_days` | integer | No | Number of days to analyze (default: 30) |
+| `include_patterns` | boolean | No | Include pattern analysis (default: true) |
+| `include_correlations` | boolean | No | Include correlation analysis (default: true) |
+| `include_insights` | boolean | No | Include insights (default: true) |
+| `max_insights` | integer | No | Maximum insights to include (default: 10) |
+| `format` | string | No | Output format: `"json"` (default), `"text"`, or `"markdown"` |
+
+#### Response
+
+```json
+{
+  "report_id": "report_abc123",
+  "project_id": "contextd",
+  "generated_at": "2024-12-02T10:30:00Z",
+  "period_days": 30,
+  "summary": "Analysis of 42 memories shows 85% success rate with strong patterns in Go testing and API design",
+  "statistics": {
+    "total_memories": 42,
+    "success_count": 36,
+    "failure_count": 6,
+    "avg_confidence": 0.78
+  },
+  "pattern_count": 8,
+  "insight_count": 10,
+  "format": "json",
+  "formatted_text": "",
+  "report_path": "/home/user/projects/contextd/.claude/reflections/reflection-20241202-103000.json"
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "reflect_report",
+  "arguments": {
+    "project_id": "contextd",
+    "project_path": "/home/user/projects/contextd",
+    "period_days": 30,
+    "format": "markdown",
+    "max_insights": 5
+  }
+}
+```
+
+#### Notes
+
+- If `project_path` is provided, the report will be saved to `<project_path>/.claude/reflections/`
+- `formatted_text` is only populated for `text` and `markdown` formats
+- Default behavior includes all sections (patterns, correlations, insights) unless explicitly disabled
+
+---
+
+### reflect_analyze
+
+Analyze memories for behavioral patterns.
+
+**Use Case**: Identify recurring patterns in your work - what strategies consistently work, what approaches fail, and how behaviors are trending over time.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project identifier |
+| `min_confidence` | float | No | Minimum confidence threshold (default: 0.3) |
+| `min_frequency` | integer | No | Minimum pattern frequency (default: 2) |
+| `include_tags` | array | No | Filter to specific tags |
+| `exclude_tags` | array | No | Exclude specific tags |
+| `max_patterns` | integer | No | Maximum patterns to return (default: 20) |
+
+#### Response
+
+```json
+{
+  "project_id": "contextd",
+  "pattern_count": 5,
+  "patterns": [
+    {
+      "category": "success",
+      "description": "Table-driven tests in Go provide better coverage",
+      "frequency": 8,
+      "confidence": 0.92,
+      "examples": ["mem_abc123", "mem_def456"],
+      "tags": ["go", "testing"]
+    },
+    {
+      "category": "recurring",
+      "description": "JWT token validation requires careful error handling",
+      "frequency": 5,
+      "confidence": 0.78,
+      "examples": ["mem_xyz789"],
+      "tags": ["auth", "security"]
+    }
+  ]
+}
+```
+
+#### Example
+
+```json
+{
+  "tool": "reflect_analyze",
+  "arguments": {
+    "project_id": "contextd",
+    "min_confidence": 0.5,
+    "min_frequency": 3,
+    "include_tags": ["go", "testing"],
+    "max_patterns": 10
+  }
+}
+```
+
+#### Pattern Categories
+
+| Category | Description |
+|----------|-------------|
+| `success` | Patterns from consistently successful strategies |
+| `failure` | Patterns from repeatedly failing approaches |
+| `recurring` | Patterns that appear frequently regardless of outcome |
+| `improving` | Patterns with increasing confidence over time |
+| `declining` | Patterns with decreasing confidence over time |
 
 ---
 

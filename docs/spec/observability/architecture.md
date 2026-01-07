@@ -7,29 +7,50 @@
 
 ## Overview
 
-Full-stack observability using OpenTelemetry with unified VictoriaMetrics backend.
+Full-stack observability using OpenTelemetry with flexible OTLP export to any compatible backend.
+
+**Current Architecture (Post-v2 Simplification)**:
+- MCP server over stdio (no gRPC)
+- Direct service calls within the process
+- OTLP export for traces and metrics
+- Structured logging with Zap
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        contextd                             │
+│                    contextd MCP Server                      │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Internal Services                                   │   │
+│  │  • reasoningbank (memory)                            │   │
+│  │  • remediation (error patterns)                      │   │
+│  │  • checkpoint (context snapshots)                    │   │
+│  │  • repository (semantic search)                      │   │
+│  │  • troubleshoot (diagnostics)                        │   │
+│  │  • folding (context management)                      │   │
+│  │                                                       │   │
+│  │  Each service:                                       │   │
+│  │  • Creates spans (otel.Tracer)                       │   │
+│  │  • Records metrics (otel.Meter)                      │   │
+│  │  • Logs with Zap                                     │   │
+│  └──────────────────────────────────────────────────────┘   │
 │                           │                                 │
-│                     OTLP (4317)                             │
-│                           ▼                                 │
-│                   ┌───────────────┐                         │
-│                   │ OTEL Collector│                         │
-│                   └───────┬───────┘                         │
-│            ┌──────────────┼──────────────┐                  │
-│            ▼              ▼              ▼                  │
-│   ┌────────────┐  ┌────────────┐  ┌────────────┐           │
-│   │ Victoria   │  │ Victoria   │  │ Victoria   │           │
-│   │ Metrics    │  │ Logs       │  │ Traces     │           │
-│   └─────┬──────┘  └─────┬──────┘  └─────┬──────┘           │
-│         └───────────────┼───────────────┘                   │
-│                         ▼                                   │
-│                   ┌───────────┐                             │
-│                   │  Grafana  │                             │
-│                   └───────────┘                             │
-└─────────────────────────────────────────────────────────────┘
+│                     OTLP Export                             │
+│              (gRPC :4317 or HTTP :4318)                     │
+└───────────────────────────┼─────────────────────────────────┘
+                            ▼
+                    ┌───────────────┐
+                    │ OTEL Collector│ (optional)
+                    └───────┬───────┘
+             ┌──────────────┼──────────────┐
+             ▼              ▼              ▼
+    ┌────────────┐  ┌────────────┐  ┌────────────┐
+    │  Metrics   │  │   Logs     │  │   Traces   │
+    │  Backend   │  │  Backend   │  │  Backend   │
+    └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
+          └───────────────┼───────────────┘
+                          ▼
+                    ┌───────────┐
+                    │Visualization│
+                    └───────────┘
 ```
 
 ---
@@ -39,12 +60,12 @@ Full-stack observability using OpenTelemetry with unified VictoriaMetrics backen
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
 | **Instrumentation** | OpenTelemetry Go SDK | Industry standard, vendor-agnostic |
-| **Collector** | OTEL Collector | Decouples app from backends |
-| **Metrics** | VictoriaMetrics | Prometheus-compatible, efficient |
-| **Logs** | VictoriaLogs | High cardinality support, fast queries |
-| **Traces** | VictoriaTraces | Unified ecosystem, low resource usage |
-| **Visualization** | Grafana | Universal dashboards, correlation |
-| **Logging** | Zap | Structured, fast, trace ID injection |
+| **Transport** | MCP over stdio | Simplified architecture, no gRPC overhead |
+| **Export** | OTLP (gRPC/HTTP) | Flexible backend support, standard protocol |
+| **Collector** | OTEL Collector (optional) | Decouples app from backends, sampling control |
+| **Backend Examples** | VictoriaMetrics, Prometheus, Jaeger | User choice, OTLP-compatible |
+| **Visualization** | Grafana (typical) | Universal dashboards, correlation |
+| **Logging** | Zap | Structured, fast, OTEL bridge support |
 | **Config** | Koanf | Lightweight, supports file + env + flags |
 
 ---
@@ -55,14 +76,20 @@ Full-stack observability using OpenTelemetry with unified VictoriaMetrics backen
 internal/
 ├── config/
 │   ├── config.go           # Root config struct, Koanf setup
-│   ├── telemetry.go        # TelemetryConfig sub-struct
-│   └── validation.go       # Startup validation
-└── telemetry/
-    ├── provider.go         # TracerProvider, MeterProvider setup
-    ├── attributes.go       # Standard attribute builders
-    ├── metrics.go          # Metric definitions
-    ├── middleware.go       # gRPC stats handlers
-    └── testing.go          # In-memory exporter, assertions
+│   └── duration.go         # Duration type for config parsing
+├── telemetry/
+│   ├── telemetry.go        # Main Telemetry type with providers
+│   ├── config.go           # Telemetry configuration
+│   ├── provider.go         # TracerProvider, MeterProvider setup
+│   └── doc.go              # Package documentation
+├── logging/
+│   ├── logger.go           # Zap logger wrapper
+│   ├── config.go           # Logging configuration
+│   ├── context.go          # Context-aware logging helpers
+│   ├── otel.go             # OTEL bridge integration
+│   └── redact.go           # Secret redaction for logs
+└── [services]/             # Each service instruments itself
+    └── service.go          # Uses otel.Tracer() and otel.Meter()
 ```
 
 ---
@@ -70,54 +97,107 @@ internal/
 ## Configuration
 
 ```yaml
-telemetry:
-  enabled: true
-  endpoint: "localhost:4317"
+observability:
   service_name: "contextd"
+  enable_telemetry: false        # Disabled by default
+  otlp_endpoint: "localhost:4317"
+  otlp_protocol: "grpc"          # "grpc" or "http/protobuf"
+  otlp_insecure: true            # For localhost, use false for remote
+  otlp_tls_skip_verify: false    # For internal CAs
+
+# Telemetry package config (internal/telemetry)
+telemetry:
+  enabled: false                 # Synced with observability.enable_telemetry
+  endpoint: "localhost:4317"
+  protocol: "grpc"
+  insecure: true
+  service_name: "contextd"
+  service_version: "0.1.0"
 
   sampling:
     rate: 1.0                    # 100% in dev, lower in prod
     always_on_errors: true       # Always keep error traces
 
-  logging:
-    level: "info"                # debug, info, warn, error
-    format: "json"               # json, console
-    trace_debug: false           # Log span lifecycle at debug level
-
   metrics:
     enabled: true
     export_interval: "15s"
 
-  experience_metrics:
-    enabled: false               # Opt-in user experience tracking
-    retention_days: 30
+  shutdown:
+    timeout: "5s"
+
+# Logging config (internal/logging)
+logging:
+  level: "info"                  # trace, debug, info, warn, error
+  format: "json"                 # json, console
+  caller:
+    enabled: true
+    skip: 0
+  stacktrace:
+    level: "error"               # Level at which to add stacktraces
 ```
 
 ### Environment Overrides
 
 ```bash
+# Main observability config
+CONTEXTD_OBSERVABILITY_ENABLE_TELEMETRY=true
+CONTEXTD_OBSERVABILITY_OTLP_ENDPOINT=collector.prod:4317
+CONTEXTD_OBSERVABILITY_OTLP_PROTOCOL=grpc
+
+# Telemetry-specific overrides
+CONTEXTD_TELEMETRY_ENABLED=true
 CONTEXTD_TELEMETRY_ENDPOINT=collector.prod:4317
 CONTEXTD_TELEMETRY_SAMPLING_RATE=0.1
-CONTEXTD_TELEMETRY_LOGGING_LEVEL=warn
+
+# Logging
+CONTEXTD_LOGGING_LEVEL=warn
+CONTEXTD_LOGGING_FORMAT=json
 ```
 
 ---
 
-## gRPC Integration
+## Service Instrumentation
 
-### Stats Handlers (Recommended)
+### Pattern for Internal Services
+
+Each service initializes its own tracer and meter from the global OTEL registry:
 
 ```go
-import "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+package myservice
 
-// Server
-grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+import (
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/metric"
+    "go.opentelemetry.io/otel/trace"
+)
 
-// Client
-grpc.NewClient(addr, grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/myservice"
+
+type Service struct {
+    tracer trace.Tracer
+    meter  metric.Meter
+    // ...
+}
+
+func NewService(...) (*Service, error) {
+    return &Service{
+        tracer: otel.Tracer(instrumentationName),
+        meter:  otel.Meter(instrumentationName),
+    }, nil
+}
+
+func (s *Service) SomeOperation(ctx context.Context, ...) error {
+    ctx, span := s.tracer.Start(ctx, "myservice.operation")
+    defer span.End()
+
+    // Record metrics
+    s.counter.Add(ctx, 1)
+
+    // ... business logic ...
+
+    return nil
+}
 ```
-
-Note: Interceptors are deprecated in favor of stats handlers.
 
 ---
 
@@ -209,10 +289,12 @@ func (t *Telemetry) Health() HealthStatus {
 
 | Decision | Rationale |
 |----------|-----------|
-| VictoriaMetrics unified stack | Single ecosystem, lower operational complexity |
-| OTEL Collector middleware | Backend flexibility, sampling control |
-| Stats handlers over interceptors | Modern approach, better integration |
-| Zap over slog | Performance, trace ID injection support |
+| MCP over stdio (no gRPC) | Simplified architecture, eliminates RPC overhead |
+| OTLP export with protocol flexibility | Backend-agnostic, supports gRPC and HTTP/protobuf |
+| OTEL Collector optional | Users can export directly to backends or use collector for flexibility |
+| Telemetry disabled by default | Non-intrusive for users without OTLP infrastructure |
+| Per-service instrumentation | Each service owns its tracer/meter, clean separation |
+| Zap with OTEL bridge | Performance, structured logging, optional OTEL integration |
 | Koanf over viper | Lighter weight, cleaner API |
 
 ---

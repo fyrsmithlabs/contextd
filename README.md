@@ -1,6 +1,8 @@
 # ContextD
 
 [![Release](https://img.shields.io/github/v/release/fyrsmithlabs/contextd?include_prereleases)](https://github.com/fyrsmithlabs/contextd/releases)
+[![Test](https://github.com/fyrsmithlabs/contextd/actions/workflows/test.yml/badge.svg)](https://github.com/fyrsmithlabs/contextd/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/fyrsmithlabs/contextd/branch/main/graph/badge.svg)](https://codecov.io/gh/fyrsmithlabs/contextd)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Ffyrsmithlabs%2Fcontextd-blue)](https://ghcr.io/fyrsmithlabs/contextd)
 [![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Ftap-orange)](https://github.com/fyrsmithlabs/homebrew-tap)
 

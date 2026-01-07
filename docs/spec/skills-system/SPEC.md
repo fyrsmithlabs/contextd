@@ -1,8 +1,11 @@
 # contextd Skills System Specification
 
-**Status**: Draft
+**Status**: ⏸️ FUTURE - Not Implemented
 **Created**: 2024-12-02
+**Updated**: 2026-01-06
 **Author**: Claude + dahendel
+
+**⚠️ NOT IMPLEMENTED**: This specification describes a planned skills system for contextd. The MCP tools (`skills_get`, `skills_search`, `skills_index`, `skills_create`) are not yet implemented. Refer to `contextd-marketplace` repository for Claude Code-specific plugin and skills.
 
 ---
 

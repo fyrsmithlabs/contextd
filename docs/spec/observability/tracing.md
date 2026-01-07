@@ -15,9 +15,9 @@ Distributed tracing for contextd using OpenTelemetry spans with standardized nam
 
 | Layer | Operations |
 |-------|-----------|
-| **gRPC services** | SafeExec, Memory, Checkpoint, Policy, Skill, Agent, Remediation, Ref, Session |
-| **Tool execution** | safe_bash, safe_read, safe_write (process isolation boundary) |
-| **Qdrant operations** | Vector search, store, collection management |
+| **MCP tool handlers** | memory_search, memory_record, checkpoint_save, remediation_search, repository_search, etc. |
+| **Internal services** | ReasoningBank, Remediation, Checkpoint, Repository, Troubleshoot, Folding |
+| **Vectorstore operations** | Vector search, store, collection management (chromem or Qdrant) |
 | **Secret scrubbing** | gitleaks pipeline (timing only, no content) |
 
 ---
@@ -26,10 +26,11 @@ Distributed tracing for contextd using OpenTelemetry spans with standardized nam
 
 | Service | Pattern | Example |
 |---------|---------|---------|
-| gRPC | `{service}/{method}` | `contextd.SafeExec/Bash` |
-| Qdrant | `qdrant.{operation}` | `qdrant.search` |
+| Internal Services | `{service}.{operation}` | `remediation.search`, `reasoningbank.record` |
+| Vectorstore | `{provider}.{operation}` | `chromem.search`, `qdrant.add_documents` |
 | Scrubber | `scrubber.{stage}` | `scrubber.scan` |
-| Executor | `executor.{tool}` | `executor.bash` |
+| Repository | `repository.{operation}` | `repository.index`, `repository.search` |
+| Troubleshoot | `Service.{operation}` | `Service.Diagnose`, `Service.SavePattern` |
 
 ---
 
@@ -56,11 +57,11 @@ attribute.String("session.task", taskDescription)
 
 | Operation | Attributes |
 |-----------|------------|
-| **Bash** | `tool.cmd` (scrubbed), `tool.timeout`, `exit_code` |
-| **Read** | `file.path`, `file.lines`, `file.bytes` |
-| **Write** | `file.path`, `file.bytes`, `file.append` |
-| **Memory search** | `query.scope`, `query.limit`, `results.count` |
-| **Qdrant** | `qdrant.collection`, `qdrant.operation`, `qdrant.points` |
+| **Memory search** | `query.text`, `query.limit`, `results.count`, `avg_confidence` |
+| **Remediation** | `error_type`, `scope`, `limit`, `results.count` |
+| **Repository** | `project_path`, `query`, `limit`, `results.count` |
+| **Vectorstore** | `store.provider` (chromem/qdrant), `collection`, `operation`, `doc_count` |
+| **Checkpoint** | `checkpoint.id`, `checkpoint.size`, `metadata_keys` |
 | **Scrubber** | `scrubber.rules_matched`, `scrubber.action`, `scrubber.confidence_min` |
 
 ---
@@ -68,12 +69,16 @@ attribute.String("session.task", taskDescription)
 ## Example Trace
 
 ```
-contextd.SafeExec/Bash (server span)
+remediation.search (service operation)
+├── chromem.search (vectorstore query)
+│   └── [embedding generation + similarity search]
+└── remediation.score_results (confidence calculation)
+
+reasoningbank.record (service operation)
 ├── scrubber.scan (input validation)
-├── executor.bash (process isolation)
-│   └── [child process execution]
-└── scrubber.redact (output scrubbing)
-    └── gitleaks.detect
+├── chromem.add_documents (vectorstore insert)
+│   └── [embedding generation + document insert]
+└── signal_store.update (confidence tracking)
 ```
 
 ---
@@ -109,11 +114,11 @@ func WithSessionAttributes(ctx context.Context, sessionID, task string) context.
 
 ## Debug Logging
 
-When `logging.level: debug` or `logging.trace_debug: true`:
+When `logging.level: debug`:
 
 ```json
-{"level":"debug","msg":"span.start","span.name":"contextd.SafeExec/Bash","span.id":"abc123","trace.id":"xyz789","parent.id":""}
-{"level":"debug","msg":"span.end","span.name":"contextd.SafeExec/Bash","span.id":"abc123","duration":"45.2ms","has_error":false}
+{"level":"debug","msg":"span.start","span.name":"remediation.search","span.id":"abc123","trace.id":"xyz789","parent.id":""}
+{"level":"debug","msg":"span.end","span.name":"remediation.search","span.id":"abc123","duration":"45.2ms","has_error":false}
 ```
 
 ---

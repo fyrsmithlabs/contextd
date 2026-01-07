@@ -1,5 +1,9 @@
 # ONNX Runtime Auto-Download Specification
 
+**Status**: ✅ Implemented
+**Updated**: 2026-01-06
+**Implementation**: `internal/embeddings/onnx_setup.go`, `cmd/ctxd/init.go`
+
 **Related Documents:**
 - [DESIGN.md](DESIGN.md) - Architecture and components
 
@@ -74,11 +78,19 @@ Running `ctxd init` multiple times is safe. Use `--force` to re-download.
 
 ## Success Criteria
 
-- SC-001: `ctxd init` downloads and installs ONNX runtime
-- SC-002: FastEmbed auto-downloads when runtime missing
-- SC-003: `ONNX_PATH` override works correctly
-- SC-004: All supported platforms can download correct binary
-- SC-005: Embedding tests pass without pre-installed ONNX
+- ✅ SC-001: `ctxd init` downloads and installs ONNX runtime
+- ✅ SC-002: FastEmbed auto-downloads when runtime missing
+- ✅ SC-003: `ONNX_PATH` override works correctly
+- ✅ SC-004: All supported platforms can download correct binary
+- ✅ SC-005: Embedding tests pass without pre-installed ONNX
+
+## Implementation Notes
+
+All success criteria have been met. The implementation includes:
+- `internal/embeddings/onnx_setup.go` - Download and extraction logic
+- `cmd/ctxd/init.go` - CLI command for manual initialization
+- Auto-download fallback on first FastEmbed use
+- Platform detection and appropriate binary selection
 
 ## Out of Scope
 

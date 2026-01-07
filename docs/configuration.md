@@ -304,3 +304,12 @@ curl http://localhost:9090/health
 # Check Qdrant connection
 curl http://localhost:6333/health
 ```
+
+---
+
+## Related Documentation
+
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Architecture Overview](./architecture.md) - Detailed component descriptions
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [Troubleshooting](./troubleshooting.md) - Common issues and fixes

@@ -453,3 +453,12 @@ Implement the `Store` interface for alternative backends.
 ### Custom Ignore Patterns
 
 Create `.contextdignore` in project root for repository indexing.
+
+---
+
+## Related Documentation
+
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [Configuration Reference](./configuration.md) - All configuration options
+- [Troubleshooting](./troubleshooting.md) - Common issues and fixes

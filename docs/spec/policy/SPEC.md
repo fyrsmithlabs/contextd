@@ -1,8 +1,11 @@
 # Policy Specification
 
 **Feature**: Policy Management
-**Status**: Draft
+**Status**: ⏸️ FUTURE - Not Implemented
 **Created**: 2025-12-20
+**Updated**: 2026-01-06
+
+**⚠️ NOT IMPLEMENTED**: This feature is planned for a future release. Policy management tools and hierarchical scoping are not yet implemented in contextd.
 
 ## Overview
 

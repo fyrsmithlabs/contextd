@@ -25,3 +25,7 @@ test/persona-simulation/
 coverage.out
 coverage.html
 coverage.txt
+
+# Auto-generated Claude session files
+.auto-claude/
+.auto-claude-status

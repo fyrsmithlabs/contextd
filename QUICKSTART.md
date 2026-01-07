@@ -85,7 +85,7 @@ ctxd mcp status     # Verify configuration
     "contextd": {
       "type": "stdio",
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-v", "${HOME}/.config/contextd:/root/.config/contextd", "ghcr.io/fyrsmithlabs/contextd:latest", "--mcp"]
+      "args": ["run", "-i", "--rm", "-v", "${HOME}/.config/contextd:/root/.config/contextd", "ghcr.io/fyrsmithlabs/contextd:latest", "--mcp", "--no-http"]
     }
   }
 }
