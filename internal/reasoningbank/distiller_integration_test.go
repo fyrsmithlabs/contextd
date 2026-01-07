@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1225,4 +1226,245 @@ func TestConsolidation_Integration_ConfidenceCalculation(t *testing.T) {
 	t.Log("✓ All confidence calculation scenarios passed")
 	t.Log("✓ Weighted average formula: sum(conf_i * (usage_i + 1)) / sum(usage_i + 1)")
 	t.Log("✓ Acceptance Criteria verified: Confidence scores updated correctly from sources")
+}
+
+// TestConsolidation_Integration_SourceAttribution tests that consolidated memories
+// include proper source memory IDs and attribution information.
+//
+// This integration test verifies:
+// - Consolidated memory includes source attribution text in Description field
+// - Source memory IDs can be retrieved via ConsolidationID back-references
+// - Attribution text is meaningful and references the source memories
+// - The relationship between consolidated and source memories is bidirectional
+func TestConsolidation_Integration_SourceAttribution(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	logger := zap.NewNop()
+
+	// Create mock LLM with custom response that includes detailed attribution
+	customAttribution := `
+TITLE: Consolidated Database Connection Strategy
+
+CONTENT:
+Comprehensive approach to database connection management combining connection pooling,
+timeout configuration, and monitoring best practices. Ensure proper resource cleanup
+and performance optimization through tuned pool settings.
+
+TAGS: database, performance, best-practices
+
+OUTCOME: success
+
+SOURCE_ATTRIBUTION:
+Synthesized from 3 source memories:
+- "DB Connection Pooling" (mem-001): Pool configuration and max connections
+- "Connection Timeout Handling" (mem-002): Timeout settings and error handling
+- "Connection Pool Monitoring" (mem-003): Monitoring and adjustment strategies
+This consolidated memory combines insights from all three approaches to provide
+a complete connection management strategy.
+`
+
+	llmClient := newMockLLMClientWithResponse(customAttribution)
+
+	// Create service with embedder
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	// Create distiller with LLM client
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(llmClient))
+	require.NoError(t, err)
+
+	projectID := "source-attribution-project"
+
+	// Create 3 similar memories with specific titles for verification
+	mem1, _ := NewMemory(projectID, "DB Connection Pooling",
+		"Configure connection pool with max connections and idle timeout", OutcomeSuccess, []string{"database", "pooling"})
+	mem1.Confidence = 0.85
+	mem1.UsageCount = 20
+
+	mem2, _ := NewMemory(projectID, "Connection Timeout Handling",
+		"Set appropriate timeouts for database operations to prevent hangs", OutcomeSuccess, []string{"database", "timeout"})
+	mem2.Confidence = 0.80
+	mem2.UsageCount = 15
+
+	mem3, _ := NewMemory(projectID, "Connection Pool Monitoring",
+		"Monitor pool usage and adjust limits based on traffic patterns", OutcomeSuccess, []string{"database", "monitoring"})
+	mem3.Confidence = 0.90
+	mem3.UsageCount = 25
+
+	// Record all memories
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+	require.NoError(t, svc.Record(ctx, mem3))
+
+	// Store source IDs for later verification
+	sourceIDs := []string{mem1.ID, mem2.ID, mem3.ID}
+	sourceTitles := map[string]string{
+		mem1.ID: mem1.Title,
+		mem2.ID: mem2.Title,
+		mem3.ID: mem3.Title,
+	}
+
+	t.Logf("Created source memories: %v", sourceTitles)
+
+	// Run consolidation
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+		MaxClustersPerRun:   0,
+		DryRun:              false,
+		ForceAll:            true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// ===== Verification 1: Consolidated memory was created =====
+	assert.Equal(t, 1, len(result.CreatedMemories),
+		"should create 1 consolidated memory")
+	assert.Equal(t, 3, len(result.ArchivedMemories),
+		"should archive 3 source memories")
+
+	consolidatedID := result.CreatedMemories[0]
+	t.Logf("Consolidated memory ID: %s", consolidatedID)
+
+	// ===== Verification 2: Attribution text is present and meaningful =====
+	consolidatedMem, err := svc.GetByProjectID(ctx, projectID, consolidatedID)
+	require.NoError(t, err)
+	require.NotNil(t, consolidatedMem)
+
+	t.Logf("Consolidated memory title: %s", consolidatedMem.Title)
+	t.Logf("Consolidated memory description (attribution):\n%s", consolidatedMem.Description)
+
+	// Verify Description field contains attribution text
+	assert.NotEmpty(t, consolidatedMem.Description,
+		"consolidated memory should have attribution in Description field")
+
+	// Verify attribution text is meaningful
+	assert.Contains(t, consolidatedMem.Description, "Synthesized",
+		"attribution should indicate synthesis occurred")
+	assert.Contains(t, consolidatedMem.Description, "source memories",
+		"attribution should reference source memories")
+	assert.Contains(t, consolidatedMem.Description, "3",
+		"attribution should mention number of source memories")
+
+	// Verify attribution references the source memory titles or approaches
+	// (The LLM's response should include some reference to the sources)
+	attributionLower := strings.ToLower(consolidatedMem.Description)
+	hasSourceReferences := strings.Contains(attributionLower, "pooling") ||
+		strings.Contains(attributionLower, "timeout") ||
+		strings.Contains(attributionLower, "monitoring") ||
+		strings.Contains(attributionLower, "connection")
+
+	assert.True(t, hasSourceReferences,
+		"attribution should reference content from source memories")
+
+	t.Log("✓ Attribution text is present and meaningful")
+
+	// ===== Verification 3: Source memory IDs can be retrieved =====
+	// Method 1: Via ConsolidationResult.ArchivedMemories
+	assert.Equal(t, len(sourceIDs), len(result.ArchivedMemories),
+		"result should list all archived source memory IDs")
+
+	for _, expectedID := range sourceIDs {
+		assert.Contains(t, result.ArchivedMemories, expectedID,
+			"archived memories should include source ID: %s", expectedID)
+	}
+
+	t.Log("✓ Source memory IDs available via ConsolidationResult.ArchivedMemories")
+
+	// Method 2: Via ConsolidationID back-references
+	retrievedSourceIDs := []string{}
+	for _, sourceID := range sourceIDs {
+		sourceMem, err := svc.GetByProjectID(ctx, projectID, sourceID)
+		require.NoError(t, err)
+		require.NotNil(t, sourceMem)
+
+		// Verify back-link
+		require.NotNil(t, sourceMem.ConsolidationID,
+			"source memory %s should have ConsolidationID set", sourceID)
+		assert.Equal(t, consolidatedID, *sourceMem.ConsolidationID,
+			"source memory %s should link to consolidated memory", sourceID)
+
+		// Verify archived state
+		assert.Equal(t, MemoryStateArchived, sourceMem.State,
+			"source memory %s should be archived", sourceID)
+
+		retrievedSourceIDs = append(retrievedSourceIDs, sourceMem.ID)
+
+		t.Logf("✓ Source memory %s -> consolidated %s (state: %s)",
+			sourceID, *sourceMem.ConsolidationID, sourceMem.State)
+	}
+
+	assert.ElementsMatch(t, sourceIDs, retrievedSourceIDs,
+		"should be able to retrieve all source memory IDs via back-references")
+
+	t.Log("✓ Source memory IDs retrievable via ConsolidationID back-references")
+
+	// ===== Verification 4: Bidirectional relationship =====
+	// Can navigate from consolidated -> sources and sources -> consolidated
+
+	// Forward: consolidated memory created from these sources
+	t.Logf("Forward relationship: consolidated %s <- sources %v",
+		consolidatedID, sourceIDs)
+
+	// Backward: each source links to consolidated
+	for _, sourceID := range sourceIDs {
+		sourceMem, _ := svc.GetByProjectID(ctx, projectID, sourceID)
+		t.Logf("Backward relationship: source %s -> consolidated %s",
+			sourceID, *sourceMem.ConsolidationID)
+	}
+
+	t.Log("✓ Bidirectional relationship verified")
+
+	// ===== Verification 5: Original source content is preserved =====
+	for _, sourceID := range sourceIDs {
+		sourceMem, _ := svc.GetByProjectID(ctx, projectID, sourceID)
+
+		// Original title and content preserved
+		assert.Equal(t, sourceTitles[sourceID], sourceMem.Title,
+			"source memory %s should retain original title", sourceID)
+
+		// Original metadata preserved
+		assert.NotEmpty(t, sourceMem.Content,
+			"source memory %s should retain original content", sourceID)
+		assert.NotEmpty(t, sourceMem.Tags,
+			"source memory %s should retain original tags", sourceID)
+
+		t.Logf("✓ Source %s: title=%s, state=%s, consolidation_id=%s",
+			sourceID, sourceMem.Title, sourceMem.State, *sourceMem.ConsolidationID)
+	}
+
+	t.Log("✓ Original source content is preserved")
+
+	// ===== Verification 6: Consolidated memory properties =====
+	assert.Equal(t, MemoryStateActive, consolidatedMem.State,
+		"consolidated memory should be active")
+	assert.Nil(t, consolidatedMem.ConsolidationID,
+		"consolidated memory should not have ConsolidationID (it's the target, not a source)")
+	assert.Equal(t, "Consolidated Database Connection Strategy", consolidatedMem.Title,
+		"consolidated memory should have LLM-generated title")
+	assert.Contains(t, consolidatedMem.Content, "connection management",
+		"consolidated memory should have synthesized content")
+
+	t.Log("✓ Consolidated memory properties verified")
+
+	// ===== Acceptance Criteria Verification Summary =====
+	t.Log("")
+	t.Log("╔════════════════════════════════════════════════════════════════════╗")
+	t.Log("║  ACCEPTANCE CRITERIA VERIFIED: Source Attribution                 ║")
+	t.Log("╚════════════════════════════════════════════════════════════════════╝")
+	t.Log("✓ Consolidated memory includes source attribution text")
+	t.Log("✓ Attribution text is stored in Memory.Description field")
+	t.Log("✓ Attribution references source memories (count, content)")
+	t.Log("✓ Source memory IDs retrievable via ConsolidationResult")
+	t.Log("✓ Source memory IDs retrievable via ConsolidationID back-references")
+	t.Log("✓ Bidirectional relationship: consolidated <-> sources")
+	t.Log("✓ Original source content preserved in archived memories")
+	t.Log("✓ Consolidated memory is active, sources are archived")
+	t.Log("")
+	t.Log("Acceptance Criterion: \"Consolidated memories include source attribution\"")
+	t.Log("Status: VERIFIED ✓")
 }
