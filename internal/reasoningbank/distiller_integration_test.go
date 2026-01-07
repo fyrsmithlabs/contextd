@@ -817,3 +817,195 @@ func TestConsolidation_Integration_SimilarityThreshold(t *testing.T) {
 
 	t.Log("Similarity threshold (0.8) correctly applied: >0.8 consolidated, <0.8 not consolidated")
 }
+
+// TestConsolidation_Integration_OriginalContentPreservation tests that original
+// memories retain all their content after being consolidated and archived.
+//
+// This integration test verifies:
+// - Original memories are archived (State = Archived)
+// - Original memories have ConsolidationID link set
+// - Original memories RETAIN their original content (title, content, tags, confidence, usage, etc.)
+// - No data loss occurs during the consolidation process
+func TestConsolidation_Integration_OriginalContentPreservation(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	llmClient := newMockLLMClient()
+	logger := zap.NewNop()
+
+	// Create service with embedder
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	// Create distiller with LLM client
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(llmClient))
+	require.NoError(t, err)
+
+	projectID := "integration-project-7"
+
+	// Create similar memories with distinct, verifiable content
+	// These will be consolidated into a single memory
+	mem1, _ := NewMemory(projectID, "Authentication using JWT tokens pattern",
+		"Use JWT tokens for stateless authentication with refresh token rotation", OutcomeSuccess, []string{"auth", "jwt", "security"})
+	mem1.Description = "Original description for memory 1 about JWT"
+	mem1.Confidence = 0.85
+	mem1.UsageCount = 12
+
+	mem2, _ := NewMemory(projectID, "Authentication using JWT tokens approach",
+		"Implement JWT authentication with secure token storage and validation", OutcomeSuccess, []string{"auth", "jwt", "tokens"})
+	mem2.Description = "Original description for memory 2 about JWT"
+	mem2.Confidence = 0.72
+	mem2.UsageCount = 8
+
+	mem3, _ := NewMemory(projectID, "Authentication using JWT tokens strategy",
+		"JWT tokens provide secure stateless auth with expiration and signing", OutcomeSuccess, []string{"auth", "jwt", "api"})
+	mem3.Description = "Original description for memory 3 about JWT"
+	mem3.Confidence = 0.91
+	mem3.UsageCount = 20
+
+	// Store original values BEFORE consolidation for later comparison
+	originalMemories := map[string]struct {
+		Title       string
+		Description string
+		Content     string
+		Outcome     Outcome
+		Confidence  float64
+		UsageCount  int
+		Tags        []string
+		State       MemoryState
+	}{
+		mem1.ID: {
+			Title:       mem1.Title,
+			Description: mem1.Description,
+			Content:     mem1.Content,
+			Outcome:     mem1.Outcome,
+			Confidence:  mem1.Confidence,
+			UsageCount:  mem1.UsageCount,
+			Tags:        append([]string{}, mem1.Tags...),
+			State:       mem1.State,
+		},
+		mem2.ID: {
+			Title:       mem2.Title,
+			Description: mem2.Description,
+			Content:     mem2.Content,
+			Outcome:     mem2.Outcome,
+			Confidence:  mem2.Confidence,
+			UsageCount:  mem2.UsageCount,
+			Tags:        append([]string{}, mem2.Tags...),
+			State:       mem2.State,
+		},
+		mem3.ID: {
+			Title:       mem3.Title,
+			Description: mem3.Description,
+			Content:     mem3.Content,
+			Outcome:     mem3.Outcome,
+			Confidence:  mem3.Confidence,
+			UsageCount:  mem3.UsageCount,
+			Tags:        append([]string{}, mem3.Tags...),
+			State:       mem3.State,
+		},
+	}
+
+	// Record all memories
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+	require.NoError(t, svc.Record(ctx, mem3))
+
+	// Verify initial state - all memories should be active
+	for id := range originalMemories {
+		mem, err := svc.GetByProjectID(ctx, projectID, id)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateActive, mem.State,
+			"memory %s should be active before consolidation", id)
+		assert.Nil(t, mem.ConsolidationID,
+			"memory %s should not have consolidation link before consolidation", id)
+	}
+
+	// Run consolidation
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+		MaxClustersPerRun:   0,
+		DryRun:              false,
+		ForceAll:            true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	t.Logf("Consolidation result: created=%d, archived=%d, skipped=%d, total=%d",
+		len(result.CreatedMemories), len(result.ArchivedMemories),
+		result.SkippedCount, result.TotalProcessed)
+
+	// Verify consolidation occurred
+	assert.Equal(t, 1, len(result.CreatedMemories),
+		"should create 1 consolidated memory")
+	assert.Equal(t, 3, len(result.ArchivedMemories),
+		"should archive 3 source memories")
+
+	consolidatedID := result.CreatedMemories[0]
+
+	// **KEY VERIFICATION**: Check that original memories retain ALL their original content
+	for _, archivedID := range result.ArchivedMemories {
+		// Get the archived memory from storage
+		archivedMem, err := svc.GetByProjectID(ctx, projectID, archivedID)
+		require.NoError(t, err, "should be able to retrieve archived memory %s", archivedID)
+
+		// Get the original values we stored before consolidation
+		original, exists := originalMemories[archivedID]
+		require.True(t, exists, "archived memory %s should be one of our original memories", archivedID)
+
+		// Verify STATE is now Archived
+		assert.Equal(t, MemoryStateArchived, archivedMem.State,
+			"memory %s should be archived after consolidation", archivedID)
+
+		// Verify ConsolidationID link is set
+		require.NotNil(t, archivedMem.ConsolidationID,
+			"archived memory %s should have consolidation link", archivedID)
+		assert.Equal(t, consolidatedID, *archivedMem.ConsolidationID,
+			"archived memory %s should link to consolidated memory %s", archivedID, consolidatedID)
+
+		// **CRITICAL VERIFICATION**: Original content is PRESERVED
+		assert.Equal(t, original.Title, archivedMem.Title,
+			"archived memory %s should retain original title", archivedID)
+		assert.Equal(t, original.Description, archivedMem.Description,
+			"archived memory %s should retain original description", archivedID)
+		assert.Equal(t, original.Content, archivedMem.Content,
+			"archived memory %s should retain original content", archivedID)
+		assert.Equal(t, original.Outcome, archivedMem.Outcome,
+			"archived memory %s should retain original outcome", archivedID)
+		assert.Equal(t, original.Confidence, archivedMem.Confidence,
+			"archived memory %s should retain original confidence", archivedID)
+		assert.Equal(t, original.UsageCount, archivedMem.UsageCount,
+			"archived memory %s should retain original usage count", archivedID)
+		assert.Equal(t, original.Tags, archivedMem.Tags,
+			"archived memory %s should retain original tags", archivedID)
+
+		t.Logf("Verified memory %s retains all original content:", archivedID)
+		t.Logf("  - Title: %s", archivedMem.Title)
+		t.Logf("  - Content: %s", archivedMem.Content)
+		t.Logf("  - Confidence: %.2f", archivedMem.Confidence)
+		t.Logf("  - UsageCount: %d", archivedMem.UsageCount)
+		t.Logf("  - Tags: %v", archivedMem.Tags)
+		t.Logf("  - State: %s", archivedMem.State)
+		t.Logf("  - ConsolidationID: %s", *archivedMem.ConsolidationID)
+	}
+
+	// Verify the consolidated memory exists and is active
+	consolidatedMem, err := svc.GetByProjectID(ctx, projectID, consolidatedID)
+	require.NoError(t, err)
+	assert.Equal(t, MemoryStateActive, consolidatedMem.State,
+		"consolidated memory should be active")
+	assert.Nil(t, consolidatedMem.ConsolidationID,
+		"consolidated memory should not have consolidation link (it's the target, not a source)")
+
+	// Verify the consolidated memory has different content (synthesized)
+	assert.NotEqual(t, originalMemories[mem1.ID].Title, consolidatedMem.Title,
+		"consolidated memory should have synthesized content, not original")
+
+	t.Log("✓ Original memories preserve all content after consolidation and archival")
+	t.Log("✓ ConsolidationID links correctly set on all archived memories")
+	t.Log("✓ No data loss occurs during consolidation process")
+}

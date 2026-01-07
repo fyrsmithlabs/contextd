@@ -360,15 +360,17 @@
           "id": "8.1",
           "title": "Integration test: full consolidation flow",
           "description": "End-to-end test: create similar memories, run consolidation, verify merged result, check back-links, test search preference",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "End-to-end integration test already exists in distiller_integration_test.go (TestConsolidation_Integration_EndToEnd). Test comprehensively covers all requirements: 1) Creates 3 similar memories with varying confidence/usage, 2) Runs consolidation with threshold 0.8, 3) Verifies consolidated memory properties and weighted confidence calculation, 4) Checks ConsolidationID back-links on all source memories, 5) Validates search filters archived memories and returns only consolidated/active memories. Test was implemented in Phase 5 (subtask 5.5) as part of integration test suite. Created test-verification.md documenting complete coverage mapping.",
+          "updated_at": "2026-01-07T01:01:39.192571+00:00"
         },
         {
           "id": "8.2",
           "title": "Verify AC: >0.8 similarity consolidation",
           "description": "Test that memories with >0.8 similarity are consolidated, <0.8 are not",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created TestConsolidation_Integration_SimilarityThreshold test that verifies the 0.8 similarity threshold behavior.\n\n**Test Implementation:**\n- Creates 3 high-similarity memories with similar text lengths (45 chars each)\n- Creates 2 low-similarity memories with very different text lengths (1 char and 163 chars)\n- Mock embedder generates deterministic embeddings based on text length, ensuring similar lengths produce >0.8 cosine similarity\n\n**Verification Coverage:**\n1. Exactly 1 consolidated memory created from high-similarity cluster (3 memories with >0.8 similarity)\n2. Exactly 3 high-similarity source memories archived with ConsolidationID back-links\n3. 2 low-similarity memories remain active (State=Active, ConsolidationID=nil)\n4. Search filters archived memories and returns only active/consolidated memories\n5. LLM called exactly once for the single high-similarity cluster\n6. All 5 memories processed, proper statistics tracking\n\n**Key Assertions:**\n\u2705 Memories with >0.8 similarity are detected and consolidated into a cluster\n\u2705 Memories with <0.8 similarity are NOT clustered together\n\u2705 Only similar memories are archived, dissimilar memories remain active\n\u2705 The 0.8 threshold is correctly applied in FindSimilarClusters logic\n\nCommit 9a0205d passed golangci-lint validation. Test added to distiller_integration_test.go (208 lines).",
+          "updated_at": "2026-01-07T01:04:42.138284+00:00"
         },
         {
           "id": "8.3",
@@ -420,5 +422,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T00:58:50.696608+00:00"
+  "last_updated": "2026-01-07T01:04:42.138293+00:00"
 }

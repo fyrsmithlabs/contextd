@@ -407,11 +407,59 @@
         }
       ],
       "status": "completed"
+    },
+    "7.5": {
+      "attempts": [
+        {
+          "session": 36,
+          "timestamp": "2026-01-06T18:56:30.416934",
+          "approach": "Implemented: Initialize and start scheduler in main.go if enabled in config, ensure proper shutdown",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
+    },
+    "7.6": {
+      "attempts": [
+        {
+          "session": 37,
+          "timestamp": "2026-01-06T18:59:33.418781",
+          "approach": "Implemented: Test scheduler start/stop, interval triggering, graceful shutdown",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
+    },
+    "8.1": {
+      "attempts": [
+        {
+          "session": 38,
+          "timestamp": "2026-01-06T19:02:33.513916",
+          "approach": "Implemented: End-to-end test: create similar memories, run consolidation, verify merged result, check back-links,",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
+    },
+    "8.2": {
+      "attempts": [
+        {
+          "session": 39,
+          "timestamp": "2026-01-06T19:04:52.107645",
+          "approach": "Implemented: Test that memories with >0.8 similarity are consolidated, <0.8 are not",
+          "success": true,
+          "error": null
+        }
+      ],
+      "status": "completed"
     }
   },
   "stuck_subtasks": [],
   "metadata": {
     "created_at": "2026-01-06T16:58:46.596202",
-    "last_updated": "2026-01-06T18:54:13.489540"
+    "last_updated": "2026-01-06T19:04:52.107653"
   }
 }
