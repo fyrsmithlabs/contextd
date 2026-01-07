@@ -55,12 +55,12 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] Search boost for consolidated memories (commit d14edcf)
 - [x] Comprehensive test suite (commit ad0ffea)
 
-### Phase 5: Consolidate Method & Scheduling [PENDING]
-- [ ] ConsolidationOptions struct
-- [ ] Consolidate() orchestration method
-- [ ] Consolidation metadata tracking
-- [ ] ConsolidateAll() for bulk runs
-- [ ] Integration tests
+### Phase 5: Consolidate Method & Scheduling [COMPLETED]
+- [x] ConsolidationOptions struct (commit 4329517)
+- [x] Consolidate() orchestration method (commit 93ec468)
+- [x] Consolidation metadata tracking (commit e42018d)
+- [x] ConsolidateAll() for bulk runs (commit 40fd93b)
+- [x] Integration tests (comprehensive suite created)
 
 ### Phase 6: MCP Tool Integration [PENDING]
 - [ ] memory_consolidate tool schema
