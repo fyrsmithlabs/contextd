@@ -336,15 +336,17 @@
           "id": "7.5",
           "title": "Wire scheduler into cmd/contextd",
           "description": "Initialize and start scheduler in main.go if enabled in config, ensure proper shutdown",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully integrated consolidation scheduler into cmd/contextd/main.go with the following implementation:\n\n**Distiller Initialization:**\n- Created distiller when reasoningbank service is available\n- Initialized with NewDistiller(reasoningbankSvc, logger)\n- Updated services registry to use distillerSvc instead of nil\n- Added proper logging for initialization status\n\n**Scheduler Initialization (if enabled in config):**\n- Checks cfg.ConsolidationScheduler.Enabled flag\n- Creates ConsolidationOptions from config (SimilarityThreshold, DryRun=false, ForceAll=false, MaxClustersPerRun=0)\n- Initializes scheduler with NewConsolidationScheduler using:\n  * WithInterval(cfg.ConsolidationScheduler.Interval) option\n  * WithConsolidationOptions(consolidationOpts) option\n  * Note: WithProjectIDs should be configured via config file or MCP (not hardcoded)\n- Logs initialization with interval and threshold parameters\n- Calls scheduler.Start() to begin background consolidation\n- Logs startup status\n- Warns if enabled but distiller unavailable\n\n**Graceful Shutdown:**\n- Added consolidation scheduler shutdown before HTTP server shutdown\n- Calls consolidationScheduler.Stop() if scheduler is running\n- Logs shutdown status (success or error)\n- Ensures clean termination of background goroutine\n\n**Error Handling:**\n- Warns (doesn't fail) if distiller initialization fails\n- Warns if scheduler initialization fails\n- Warns if scheduler start fails\n- Logs all errors with zap structured logging\n\nCommit a1a8c5c passed golangci-lint validation. Implementation follows existing patterns (similar to HTTP server lifecycle management) and provides proper lifecycle management with initialization, startup, and graceful shutdown.",
+          "updated_at": "2026-01-07T00:56:19.501358+00:00"
         },
         {
           "id": "7.6",
           "title": "Write scheduler tests",
           "description": "Test scheduler start/stop, interval triggering, graceful shutdown",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Comprehensive scheduler test suite already implemented and committed in subtasks 7.2 and 7.3. Total of 15 test functions covering:\n\n\u2705 Start/Stop lifecycle (5 tests):\n- TestScheduler_Start, TestScheduler_Start_AlreadyRunning, TestScheduler_Stop, TestScheduler_Stop_NotRunning, TestScheduler_StartStopCycle\n\n\u2705 Interval triggering (3 tests):\n- TestScheduler_ConsolidationRuns (verifies consolidation runs at configured interval with timing validation)\n- TestScheduler_MultipleIntervalRuns (verifies multiple runs over time)\n- TestScheduler_NoProjectsConfigured (edge case: no consolidation without projects)\n\n\u2705 Graceful shutdown (1 test):\n- TestScheduler_GracefulShutdown (timeout-based verification that shutdown doesn't hang)\n\n\u2705 Additional coverage (6 tests):\n- Constructor validation, error handling, configuration options, resilience testing\n\nAll tests use mock distiller with call tracking for verification. Tests follow existing patterns (testify, zap.NewNop()) and provide comprehensive coverage of scheduler functionality.\n\nCommits: 32f1a9e (initial tests), 9214ad4 (additional tests). Total: 390 lines, 15 test functions.",
+          "updated_at": "2026-01-07T00:58:50.696592+00:00"
         }
       ]
     },
@@ -418,5 +420,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T00:54:05.906880+00:00"
+  "last_updated": "2026-01-07T00:58:50.696608+00:00"
 }

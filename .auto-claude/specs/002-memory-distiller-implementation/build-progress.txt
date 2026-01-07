@@ -69,13 +69,13 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] Register in MCP server - tools.go (commit be19340 + 9716882)
 - [ ] Handler tests
 
-### Phase 7: Background Scheduler [PENDING]
-- [ ] ConsolidationScheduler struct
-- [ ] Start/Stop lifecycle methods
-- [ ] Scheduler loop implementation
-- [ ] Configuration options
-- [ ] Wire into cmd/contextd
-- [ ] Scheduler tests
+### Phase 7: Background Scheduler [COMPLETED]
+- [x] ConsolidationScheduler struct (commit d285c04)
+- [x] Start/Stop lifecycle methods (commit 32f1a9e)
+- [x] Scheduler loop implementation (commit 9214ad4)
+- [x] Configuration options (commit cf34cbe)
+- [x] Wire into cmd/contextd (commit a1a8c5c)
+- [x] Scheduler tests (commits 32f1a9e, 9214ad4 - 15 comprehensive tests)
 
 ### Phase 8: QA & Documentation [PENDING]
 - [ ] Full integration test
