@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,6 +14,9 @@ import (
 // The scheduler runs consolidation periodically in the background for configured
 // projects. It provides lifecycle management (Start/Stop) with graceful shutdown
 // and ensures consolidation runs on a predictable schedule.
+//
+// Thread Safety: All public methods are thread-safe. The running state is protected
+// by a mutex to prevent race conditions during Start/Stop operations.
 type ConsolidationScheduler struct {
 	// interval is the time between consolidation runs (e.g., 24 hours for daily consolidation)
 	interval time.Duration
@@ -25,6 +29,9 @@ type ConsolidationScheduler struct {
 
 	// opts are the consolidation options to use (threshold, dry run, etc.)
 	opts ConsolidationOptions
+
+	// mu protects running and stopCh from concurrent access
+	mu sync.Mutex
 
 	// running tracks whether the scheduler is currently running
 	running bool
@@ -113,14 +120,22 @@ func NewConsolidationScheduler(distiller *Distiller, logger *zap.Logger, opts ..
 // This method is idempotent - calling Start() on an already running scheduler
 // returns an error without starting a second goroutine.
 //
+// Thread Safety: This method is thread-safe and can be called concurrently.
+//
 // Returns:
 //   - Error if the scheduler is already running
 func (s *ConsolidationScheduler) Start() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.running {
 		return fmt.Errorf("scheduler is already running")
 	}
 
+	// Create a fresh stop channel for this run
+	s.stopCh = make(chan struct{})
 	s.running = true
+
 	s.logger.Info("consolidation scheduler started",
 		zap.Duration("interval", s.interval),
 	)
@@ -137,9 +152,14 @@ func (s *ConsolidationScheduler) Start() error {
 // This method is idempotent - calling Stop() on an already stopped scheduler
 // is a no-op.
 //
+// Thread Safety: This method is thread-safe and can be called concurrently.
+//
 // Returns:
 //   - Always returns nil (for interface compatibility and future error handling)
 func (s *ConsolidationScheduler) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.running {
 		s.logger.Debug("scheduler stop called but not running")
 		return nil
@@ -149,6 +169,7 @@ func (s *ConsolidationScheduler) Stop() error {
 	s.running = false
 
 	// Signal the goroutine to stop
+	// Note: stopCh is recreated in Start() so it can be safely closed here
 	close(s.stopCh)
 
 	return nil
@@ -160,7 +181,24 @@ func (s *ConsolidationScheduler) Stop() error {
 // The loop uses a ticker to trigger consolidation at regular intervals. Each consolidation
 // attempt is independent - errors are logged but do not stop the scheduler. The scheduler
 // continues running until Stop() is called.
+//
+// Panic Recovery: This method includes panic recovery to prevent a single consolidation
+// failure from crashing the scheduler. Panics are logged and the scheduler continues.
 func (s *ConsolidationScheduler) run() {
+	// Panic recovery to prevent scheduler crashes
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("scheduler goroutine panicked, recovering",
+				zap.Any("panic", r),
+				zap.Stack("stack"),
+			)
+			// Mark as not running so it can be restarted
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+		}
+	}()
+
 	s.logger.Debug("scheduler goroutine started")
 	defer s.logger.Debug("scheduler goroutine stopped")
 
@@ -172,8 +210,8 @@ func (s *ConsolidationScheduler) run() {
 	for {
 		select {
 		case <-ticker.C:
-			// Time to run consolidation
-			s.runConsolidation()
+			// Time to run consolidation - wrap in panic recovery
+			s.safeRunConsolidation()
 
 		case <-s.stopCh:
 			// Shutdown signal received
@@ -181,6 +219,20 @@ func (s *ConsolidationScheduler) run() {
 			return
 		}
 	}
+}
+
+// safeRunConsolidation wraps runConsolidation with panic recovery.
+// This ensures a single consolidation run that panics doesn't crash the scheduler.
+func (s *ConsolidationScheduler) safeRunConsolidation() {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("consolidation run panicked, continuing scheduler",
+				zap.Any("panic", r),
+				zap.Stack("stack"),
+			)
+		}
+	}()
+	s.runConsolidation()
 }
 
 // runConsolidation executes a single consolidation run.

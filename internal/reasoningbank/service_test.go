@@ -3,6 +3,10 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"math"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +18,9 @@ import (
 )
 
 // mockStore is a simple in-memory mock of vectorstore.Store for testing.
+// Thread-safe: uses mutex for concurrent access from scheduler goroutines.
 type mockStore struct {
+	mu               sync.RWMutex
 	collections      map[string][]vectorstore.Document
 	vectorSize       int
 	searchCalled     bool
@@ -45,6 +51,9 @@ func newMockStoreWithError() *mockStore {
 }
 
 func (m *mockStore) AddDocuments(ctx context.Context, docs []vectorstore.Document) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	ids := make([]string, len(docs))
 	for i, doc := range docs {
 		collectionName := doc.Collection
@@ -66,16 +75,20 @@ func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, 
 }
 
 func (m *mockStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	m.mu.Lock()
 	// Track search calls for testing
 	m.searchCalled = true
 	m.searchCallCount++
 
 	// Return error if configured to do so
 	if m.returnError {
+		m.mu.Unlock()
 		return nil, m.errorToReturn
 	}
 
 	docs, ok := m.collections[collectionName]
+	m.mu.Unlock()
+
 	if !ok {
 		return []vectorstore.SearchResult{}, nil
 	}
@@ -124,6 +137,9 @@ func (m *mockStore) SearchInCollection(ctx context.Context, collectionName strin
 }
 
 func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for collectionName, docs := range m.collections {
 		filtered := []vectorstore.Document{}
 		for _, doc := range docs {
@@ -144,6 +160,9 @@ func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
 }
 
 func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	docs, exists := m.collections[collectionName]
 	if !exists {
 		return nil
@@ -166,6 +185,9 @@ func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectio
 }
 
 func (m *mockStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.collections[collectionName]; exists {
 		return vectorstore.ErrCollectionExists
 	}
@@ -174,6 +196,9 @@ func (m *mockStore) CreateCollection(ctx context.Context, collectionName string,
 }
 
 func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.collections[collectionName]; !exists {
 		return vectorstore.ErrCollectionNotFound
 	}
@@ -182,11 +207,17 @@ func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string)
 }
 
 func (m *mockStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	_, exists := m.collections[collectionName]
 	return exists, nil
 }
 
 func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	names := make([]string, 0, len(m.collections))
 	for name := range m.collections {
 		names = append(names, name)
@@ -195,6 +226,9 @@ func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
 }
 
 func (m *mockStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	docs, exists := m.collections[collectionName]
 	if !exists {
 		return nil, vectorstore.ErrCollectionNotFound
@@ -220,6 +254,20 @@ func (m *mockStore) SetIsolationMode(mode vectorstore.IsolationMode) {
 
 func (m *mockStore) IsolationMode() vectorstore.IsolationMode {
 	return vectorstore.NewNoIsolation()
+}
+
+// SearchCalled returns whether SearchInCollection was called (thread-safe).
+func (m *mockStore) SearchCalled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCalled
+}
+
+// SearchCallCount returns the number of times SearchInCollection was called (thread-safe).
+func (m *mockStore) SearchCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCallCount
 }
 
 func TestNewService(t *testing.T) {
@@ -1289,22 +1337,84 @@ func newMockEmbedder(vectorSize int) *mockEmbedder {
 func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
 	embeddings := make([][]float32, len(texts))
 	for i := range texts {
-		embeddings[i] = make([]float32, m.vectorSize)
-		// Create deterministic embeddings based on text length
-		for j := 0; j < m.vectorSize; j++ {
-			embeddings[i][j] = float32(len(texts[i])+j) / 1000.0
-		}
+		embeddings[i] = m.createEmbedding(texts[i])
 	}
 	return embeddings, nil
 }
 
 func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return m.createEmbedding(text), nil
+}
+
+// createEmbedding creates a deterministic embedding based on text content.
+// Texts with the same first 2 significant words get similar embeddings (cosine sim > 0.9).
+// Texts with different starting words get distinct embeddings (cosine sim < 0.5).
+// Uses orthogonal category vectors with small within-category variation.
+func (m *mockEmbedder) createEmbedding(text string) []float32 {
 	embedding := make([]float32, m.vectorSize)
-	// Create deterministic embedding based on text length
-	for j := 0; j < m.vectorSize; j++ {
-		embedding[j] = float32(len(text)+j) / 1000.0
+
+	// Extract first 2 significant words as the "semantic category"
+	words := strings.Fields(strings.ToLower(text))
+	var categoryWords []string
+	for _, w := range words {
+		// Skip very short words (articles, etc)
+		if len(w) > 2 {
+			categoryWords = append(categoryWords, w)
+			if len(categoryWords) >= 2 {
+				break
+			}
+		}
 	}
-	return embedding, nil
+
+	// Create category hash from first 2 significant words
+	category := strings.Join(categoryWords, " ")
+	h := fnv.New32a()
+	h.Write([]byte(category))
+	categoryHash := h.Sum32()
+
+	// Create unique hash from full text for variation within category
+	h.Reset()
+	h.Write([]byte(text))
+	textHash := h.Sum32()
+
+	// Use category hash to select a "slot" in the vector space
+	// Different categories get mostly orthogonal vectors
+	// Same category gets nearly identical vectors with tiny variation
+	slotSize := 16
+	if m.vectorSize < 32 {
+		// For small vectors, use smaller slots
+		slotSize = max(1, m.vectorSize/4)
+	}
+	numSlots := max(1, m.vectorSize/slotSize)
+	categorySlot := int(categoryHash%uint32(numSlots)) * slotSize
+
+	// Set a block of dimensions to high values for this category
+	// This creates near-orthogonal vectors for different categories
+	for j := 0; j < m.vectorSize; j++ {
+		if j >= categorySlot && j < categorySlot+slotSize {
+			// Within the category's "slot" - high base value
+			variation := float32((textHash+uint32(j))%100) / 10000.0 // tiny variation: 0-0.01
+			embedding[j] = 0.8 + variation
+		} else {
+			// Outside the slot - small random noise based on text hash
+			noise := float32((textHash+uint32(j))%100) / 5000.0 // very small: 0-0.02
+			embedding[j] = noise
+		}
+	}
+
+	// Normalize the embedding
+	var norm float32
+	for _, v := range embedding {
+		norm += v * v
+	}
+	norm = float32(math.Sqrt(float64(norm)))
+	if norm > 0 {
+		for j := range embedding {
+			embedding[j] /= norm
+		}
+	}
+
+	return embedding
 }
 
 func TestGetMemoryVector(t *testing.T) {
@@ -1340,10 +1450,18 @@ func TestGetMemoryVector(t *testing.T) {
 		assert.NotNil(t, vector)
 		assert.Len(t, vector, 384)
 
-		// Verify vector is deterministic (based on content)
-		// Content is "Test Memory\n\nThis is test content" (33 chars)
-		expectedFirstValue := float32(33) / 1000.0
-		assert.Equal(t, expectedFirstValue, vector[0])
+		// Verify vector is normalized (magnitude ~= 1) and has non-trivial values
+		var magnitude float32
+		hasNonZero := false
+		for _, v := range vector {
+			magnitude += v * v
+			if v > 0.01 || v < -0.01 {
+				hasNonZero = true
+			}
+		}
+		magnitude = float32(math.Sqrt(float64(magnitude)))
+		assert.InDelta(t, 1.0, magnitude, 0.01, "vector should be normalized")
+		assert.True(t, hasNonZero, "vector should have non-trivial values")
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
@@ -1421,10 +1539,18 @@ func TestGetMemoryVectorByProjectID(t *testing.T) {
 		assert.NotNil(t, vector)
 		assert.Len(t, vector, 384)
 
-		// Verify vector is deterministic (based on content)
-		// Content is "Test Memory\n\nThis is test content" (33 chars)
-		expectedFirstValue := float32(33) / 1000.0
-		assert.Equal(t, expectedFirstValue, vector[0])
+		// Verify vector is normalized (magnitude ~= 1) and has non-trivial values
+		var magnitude float32
+		hasNonZero := false
+		for _, v := range vector {
+			magnitude += v * v
+			if v > 0.01 || v < -0.01 {
+				hasNonZero = true
+			}
+		}
+		magnitude = float32(math.Sqrt(float64(magnitude)))
+		assert.InDelta(t, 1.0, magnitude, 0.01, "vector should be normalized")
+		assert.True(t, hasNonZero, "vector should have non-trivial values")
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {

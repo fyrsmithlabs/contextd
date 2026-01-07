@@ -145,14 +145,15 @@ func TestConsolidationTracking_IntegrationWithConsolidate(t *testing.T) {
 
 	// Create mock dependencies
 	mockStore := newMockStore()
-	mockEmbedder := newMockEmbedder(10)
+	mockEmbedder := newMockEmbedder(384) // Use 384 for proper slot-based embeddings
 	mockLLM := newMockLLMClient()
 
 	// Create service and distiller with short window for testing
 	svc := &Service{
-		store:    mockStore,
-		embedder: mockEmbedder,
-		logger:   zap.NewNop(),
+		store:         mockStore,
+		embedder:      mockEmbedder,
+		logger:        zap.NewNop(),
+		defaultTenant: "test-tenant", // Required for tenant isolation
 	}
 
 	distiller, err := NewDistiller(svc, zap.NewNop(),
@@ -160,9 +161,9 @@ func TestConsolidationTracking_IntegrationWithConsolidate(t *testing.T) {
 		WithConsolidationWindow(1*time.Hour))
 	require.NoError(t, err)
 
-	// Create memories
-	mem1, _ := NewMemory(projectID, "Memory 1", "Content 1", OutcomeSuccess, []string{"test"})
-	mem2, _ := NewMemory(projectID, "Memory 2", "Content 2", OutcomeSuccess, []string{"test"})
+	// Create memories with same first 2 significant words for clustering
+	mem1, _ := NewMemory(projectID, "Tracking test memory one", "Content 1", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Tracking test memory two", "Content 2", OutcomeSuccess, []string{"test"})
 	require.NoError(t, svc.Record(ctx, mem1))
 	require.NoError(t, svc.Record(ctx, mem2))
 
@@ -220,17 +221,18 @@ func TestConsolidationTracking_DryRunNoUpdate(t *testing.T) {
 
 	// Create service and distiller
 	svc := &Service{
-		store:    mockStore,
-		embedder: mockEmbedder,
-		logger:   zap.NewNop(),
+		store:         mockStore,
+		embedder:      mockEmbedder,
+		logger:        zap.NewNop(),
+		defaultTenant: "test-tenant",
 	}
 
 	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
 	require.NoError(t, err)
 
-	// Create memories
-	mem1, _ := NewMemory(projectID, "Memory 1", "Content 1", OutcomeSuccess, []string{"test"})
-	mem2, _ := NewMemory(projectID, "Memory 2", "Content 2", OutcomeSuccess, []string{"test"})
+	// Create memories - use same first 2 words for clustering
+	mem1, _ := NewMemory(projectID, "Memory pattern one", "Content 1", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory pattern two", "Content 2", OutcomeSuccess, []string{"test"})
 	require.NoError(t, svc.Record(ctx, mem1))
 	require.NoError(t, svc.Record(ctx, mem2))
 

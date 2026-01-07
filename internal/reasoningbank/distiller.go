@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -60,11 +61,97 @@ type SessionSummary struct {
 // This interface allows pluggable LLM providers (Claude, OpenAI, local models)
 // to be used for memory synthesis and consolidation tasks. Implementations
 // should handle retries, rate limiting, and error handling internally.
+//
+// # Expected Prompt Format
+//
+// The Complete method will receive structured prompts from the distiller
+// containing memory consolidation instructions. The prompt format is:
+//
+//	You are a memory consolidation assistant...
+//	## Source Memories
+//	### Memory 1: [Title]
+//	**Description:** [Description]
+//	**Content:** [Content]
+//	...
+//	## Your Task
+//	...
+//	## Output Format
+//	```
+//	TITLE: [consolidated title]
+//	CONTENT: [consolidated content]
+//	TAGS: [comma-separated tags]
+//	OUTCOME: [success|failure]
+//	SOURCE_ATTRIBUTION: [attribution note]
+//	```
+//
+// # Expected Response Format
+//
+// The LLM response MUST include these fields in the exact format above:
+//   - TITLE: (required) A clear, concise title
+//   - CONTENT: (required) The synthesized content
+//   - TAGS: (optional) Comma-separated tags
+//   - OUTCOME: (required) Either "success" or "failure"
+//   - SOURCE_ATTRIBUTION: (optional) Attribution note
+//
+// # Example Implementation
+//
+//	type ClaudeLLMClient struct {
+//	    client *anthropic.Client
+//	    model  string
+//	}
+//
+//	func (c *ClaudeLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+//	    resp, err := c.client.CreateMessage(ctx, anthropic.MessageRequest{
+//	        Model:     c.model,
+//	        MaxTokens: 4096,
+//	        Messages: []anthropic.Message{
+//	            {Role: "user", Content: prompt},
+//	        },
+//	    })
+//	    if err != nil {
+//	        return "", fmt.Errorf("anthropic API error: %w", err)
+//	    }
+//	    return resp.Content[0].Text, nil
+//	}
+//
+//	type OpenAILLMClient struct {
+//	    client *openai.Client
+//	    model  string
+//	}
+//
+//	func (c *OpenAILLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+//	    resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+//	        Model: c.model,
+//	        Messages: []openai.ChatCompletionMessage{
+//	            {Role: "user", Content: prompt},
+//	        },
+//	    })
+//	    if err != nil {
+//	        return "", fmt.Errorf("openai API error: %w", err)
+//	    }
+//	    return resp.Choices[0].Message.Content, nil
+//	}
+//
+// # Implementation Requirements
+//
+//   - Handle rate limiting and retries internally
+//   - Respect context cancellation and deadlines
+//   - Return meaningful errors for debugging
+//   - Support prompts up to ~32K tokens (for large memory clusters)
+//   - Use temperature ~0.3-0.5 for consistent, factual outputs
 type LLMClient interface {
 	// Complete generates a completion from the given prompt.
 	//
 	// The context can be used for cancellation and deadline control.
-	// Returns the generated text or an error if the request fails.
+	// The prompt will be a structured memory consolidation request.
+	//
+	// Returns the generated text containing TITLE:, CONTENT:, TAGS:,
+	// OUTCOME:, and optionally SOURCE_ATTRIBUTION: fields.
+	//
+	// Returns an error if:
+	//   - The API request fails
+	//   - The context is cancelled or times out
+	//   - Rate limits are exceeded (after retries)
 	Complete(ctx context.Context, prompt string) (string, error)
 }
 
@@ -592,6 +679,137 @@ func calculateSimilarityStats(similarities []float64) (avg float64, min float64)
 	return avg, min
 }
 
+// sanitizePromptContent sanitizes user-provided content for safe inclusion in LLM prompts.
+//
+// This function prevents prompt injection attacks by:
+//   - Escaping markdown formatting characters that could alter prompt structure
+//   - Removing or escaping special instruction patterns
+//   - Stripping control characters that could manipulate LLM behavior
+//   - Limiting content length to prevent context overflow attacks
+//
+// The sanitization is conservative - it aims to preserve readability while
+// preventing malicious content from altering the LLM's behavior.
+//
+// Parameters:
+//   - content: The raw user-provided content to sanitize
+//   - maxLength: Maximum allowed length (0 for no limit)
+//
+// Returns:
+//   - Sanitized content safe for prompt inclusion
+func sanitizePromptContent(content string, maxLength int) string {
+	if content == "" {
+		return ""
+	}
+
+	// Step 1: Remove control characters (except newlines and tabs)
+	var cleaned strings.Builder
+	cleaned.Grow(len(content))
+	for _, r := range content {
+		// Allow printable characters, newlines, and tabs
+		if r >= 32 || r == '\n' || r == '\t' {
+			cleaned.WriteRune(r)
+		}
+	}
+	content = cleaned.String()
+
+	// Step 2: Escape patterns that could be interpreted as prompt instructions
+	// These patterns are common prompt injection vectors
+	injectionPatterns := []struct {
+		pattern     string
+		replacement string
+	}{
+		// System/instruction override attempts
+		{"[SYSTEM]", "[SYSTEM_ESCAPED]"},
+		{"[INST]", "[INST_ESCAPED]"},
+		{"<<SYS>>", "<<SYS_ESCAPED>>"},
+		{"<</SYS>>", "<</SYS_ESCAPED>>"},
+		{"### Instruction", "### Instruction_ESCAPED"},
+		{"### System", "### System_ESCAPED"},
+		{"<|system|>", "<|system_escaped|>"},
+		{"<|user|>", "<|user_escaped|>"},
+		{"<|assistant|>", "<|assistant_escaped|>"},
+		// Role/persona manipulation
+		{"You are now", "You are now_ESCAPED"},
+		{"Ignore previous", "Ignore previous_ESCAPED"},
+		{"Ignore all", "Ignore all_ESCAPED"},
+		{"Disregard", "Disregard_ESCAPED"},
+		{"Forget everything", "Forget everything_ESCAPED"},
+		// Output format manipulation
+		{"TITLE:", "TITLE_USER:"},
+		{"CONTENT:", "CONTENT_USER:"},
+		{"TAGS:", "TAGS_USER:"},
+		{"OUTCOME:", "OUTCOME_USER:"},
+		{"SOURCE_ATTRIBUTION:", "SOURCE_ATTRIBUTION_USER:"},
+	}
+
+	for _, p := range injectionPatterns {
+		content = strings.ReplaceAll(content, p.pattern, p.replacement)
+		// Also check case-insensitive versions for common patterns
+		content = strings.ReplaceAll(content, strings.ToLower(p.pattern), p.replacement)
+		content = strings.ReplaceAll(content, strings.ToUpper(p.pattern), p.replacement)
+	}
+
+	// Step 3: Escape backticks to prevent code block manipulation
+	// Triple backticks could close our code block and inject new instructions
+	content = strings.ReplaceAll(content, "```", "'''")
+
+	// Step 4: Apply length limit if specified
+	if maxLength > 0 && len(content) > maxLength {
+		// Truncate at a word boundary if possible
+		if maxLength > 20 {
+			truncated := content[:maxLength-3]
+			lastSpace := strings.LastIndex(truncated, " ")
+			if lastSpace > maxLength/2 {
+				content = truncated[:lastSpace] + "..."
+			} else {
+				content = truncated + "..."
+			}
+		} else {
+			content = content[:maxLength]
+		}
+	}
+
+	return content
+}
+
+// sanitizeTag sanitizes a single tag for safe prompt inclusion.
+// Tags are more restrictive: alphanumeric, hyphens, and underscores only.
+func sanitizeTag(tag string) string {
+	var sanitized strings.Builder
+	sanitized.Grow(len(tag))
+	for _, r := range tag {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' {
+			sanitized.WriteRune(r)
+		}
+	}
+	return sanitized.String()
+}
+
+// sanitizeTags sanitizes a slice of tags for safe prompt inclusion.
+func sanitizeTags(tags []string) []string {
+	if len(tags) == 0 {
+		return tags
+	}
+	sanitized := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if clean := sanitizeTag(tag); clean != "" {
+			sanitized = append(sanitized, clean)
+		}
+	}
+	return sanitized
+}
+
+// maxMemoryContentLength is the maximum length for memory content in prompts.
+// This prevents context overflow attacks and keeps prompts manageable.
+const maxMemoryContentLength = 10000
+
+// maxMemoryTitleLength is the maximum length for memory titles in prompts.
+const maxMemoryTitleLength = 200
+
+// maxMemoryDescriptionLength is the maximum length for memory descriptions in prompts.
+const maxMemoryDescriptionLength = 500
+
 // buildConsolidationPrompt creates a prompt for LLM-powered memory synthesis.
 //
 // This function formats a cluster of similar memories into a structured prompt
@@ -601,6 +819,9 @@ func calculateSimilarityStats(similarities []float64) (avg float64, min float64)
 //   - Synthesize key insights into coherent knowledge
 //   - Preserve important details that shouldn't be lost
 //   - Note when and how to apply this consolidated knowledge
+//
+// SECURITY: All user-provided content (title, description, content, tags) is
+// sanitized before inclusion in the prompt to prevent prompt injection attacks.
 //
 // The resulting prompt is designed to produce high-quality consolidated memories
 // that are more valuable than the individual source memories.
@@ -613,19 +834,28 @@ func buildConsolidationPrompt(memories []*Memory) string {
 	b.WriteString("## Source Memories\n\n")
 
 	// Format each memory with clear separation
+	// SECURITY: All user-provided content is sanitized before prompt inclusion
 	for i, mem := range memories {
-		b.WriteString(fmt.Sprintf("### Memory %d: %s\n\n", i+1, mem.Title))
+		// Sanitize title to prevent prompt injection
+		sanitizedTitle := sanitizePromptContent(mem.Title, maxMemoryTitleLength)
+		b.WriteString(fmt.Sprintf("### Memory %d: %s\n\n", i+1, sanitizedTitle))
 
 		if mem.Description != "" {
-			b.WriteString(fmt.Sprintf("**Description:** %s\n\n", mem.Description))
+			// Sanitize description to prevent prompt injection
+			sanitizedDesc := sanitizePromptContent(mem.Description, maxMemoryDescriptionLength)
+			b.WriteString(fmt.Sprintf("**Description:** %s\n\n", sanitizedDesc))
 		}
 
 		b.WriteString("**Content:**\n")
-		b.WriteString(mem.Content)
+		// Sanitize content to prevent prompt injection
+		sanitizedContent := sanitizePromptContent(mem.Content, maxMemoryContentLength)
+		b.WriteString(sanitizedContent)
 		b.WriteString("\n\n")
 
 		if len(mem.Tags) > 0 {
-			b.WriteString(fmt.Sprintf("**Tags:** %s\n\n", strings.Join(mem.Tags, ", ")))
+			// Sanitize tags to prevent prompt injection
+			sanitizedTags := sanitizeTags(mem.Tags)
+			b.WriteString(fmt.Sprintf("**Tags:** %s\n\n", strings.Join(sanitizedTags, ", ")))
 		}
 
 		b.WriteString(fmt.Sprintf("**Outcome:** %s\n", mem.Outcome))
@@ -741,12 +971,12 @@ func parseConsolidatedMemory(llmResponse string, sourceIDs []string) (*Memory, e
 		}
 	}
 
-	// Create the memory
+	// Create the memory with a generated UUID
 	// Note: ProjectID must be set by caller
 	now := time.Now()
 	memory := &Memory{
-		ID:          "", // Will be set by caller when storing
-		ProjectID:   "", // Must be set by caller
+		ID:          uuid.New().String(), // Generate unique ID for consolidated memory
+		ProjectID:   "",                  // Must be set by caller
 		Title:       strings.TrimSpace(title),
 		Description: strings.TrimSpace(sourceAttribution), // Store attribution in description
 		Content:     strings.TrimSpace(content),
@@ -901,12 +1131,15 @@ func (d *Distiller) MergeCluster(ctx context.Context, cluster *SimilarityCluster
 	// Set project ID (parseConsolidatedMemory leaves it empty)
 	consolidatedMemory.ProjectID = projectID
 
-	// Calculate merged confidence from source memories
-	consolidatedMemory.Confidence = d.calculateMergedConfidence(cluster.Members)
+	// Calculate consolidated confidence from source memories with consensus bonus
+	// Uses calculateConsolidatedConfidence which provides a consensus bonus when
+	// multiple sources agree, producing higher confidence for well-corroborated knowledge
+	consolidatedMemory.Confidence = calculateConsolidatedConfidence(cluster.Members)
 
-	d.logger.Debug("calculated merged confidence",
+	d.logger.Debug("calculated consolidated confidence",
 		zap.String("project_id", projectID),
-		zap.Float64("confidence", consolidatedMemory.Confidence))
+		zap.Float64("confidence", consolidatedMemory.Confidence),
+		zap.Int("source_count", len(cluster.Members)))
 
 	// Store the consolidated memory
 	if err := d.service.Record(ctx, consolidatedMemory); err != nil {
@@ -928,52 +1161,6 @@ func (d *Distiller) MergeCluster(ctx context.Context, cluster *SimilarityCluster
 	}
 
 	return consolidatedMemory, nil
-}
-
-// calculateMergedConfidence computes the confidence score for a consolidated memory.
-//
-// The confidence is calculated as a weighted average of source memory confidences,
-// where the weights are based on usage counts. Memories that have been used more
-// frequently contribute more to the final confidence score.
-//
-// Formula: confidence = sum(confidence_i * weight_i) / sum(weight_i)
-// where weight_i = usageCount_i + 1 (add 1 to avoid zero weights)
-//
-// This ensures that:
-//   - Frequently used, high-confidence memories dominate the score
-//   - Rarely used memories still contribute (via the +1)
-//   - The result is bounded by [min_confidence, max_confidence] of sources
-func (d *Distiller) calculateMergedConfidence(sources []*Memory) float64 {
-	if len(sources) == 0 {
-		return DistilledConfidence // Default if no sources
-	}
-
-	var weightedSum float64
-	var totalWeight float64
-
-	for _, mem := range sources {
-		// Weight by usage count + 1 (to avoid zero weights)
-		weight := float64(mem.UsageCount + 1)
-		weightedSum += mem.Confidence * weight
-		totalWeight += weight
-	}
-
-	if totalWeight == 0 {
-		// Shouldn't happen due to +1, but guard against division by zero
-		return DistilledConfidence
-	}
-
-	confidence := weightedSum / totalWeight
-
-	// Ensure confidence is in valid range [0.0, 1.0]
-	if confidence < 0.0 {
-		confidence = 0.0
-	}
-	if confidence > 1.0 {
-		confidence = 1.0
-	}
-
-	return confidence
 }
 
 // calculateConsolidatedConfidence computes the confidence score for a consolidated memory
