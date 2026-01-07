@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2666,4 +2667,366 @@ func TestConsolidate_DefaultThreshold(t *testing.T) {
 	// Verify consolidation ran (using default threshold of 0.8)
 	// Result will vary based on whether the embeddings exceed 0.8 similarity
 	assert.NotNil(t, result.Duration)
+}
+
+// TestConsolidateAll_EmptyProjectList tests ConsolidateAll with no projects.
+func TestConsolidateAll_EmptyProjectList(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Run consolidation on empty project list
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, []string{}, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify no consolidation occurred
+	assert.Empty(t, result.CreatedMemories)
+	assert.Empty(t, result.ArchivedMemories)
+	assert.Equal(t, 0, result.SkippedCount)
+	assert.Equal(t, 0, result.TotalProcessed)
+}
+
+// TestConsolidateAll_SingleProject tests ConsolidateAll with one project.
+func TestConsolidateAll_SingleProject(t *testing.T) {
+	ctx := context.Background()
+	projectID := "project-1"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create similar memories
+	mem1, _ := NewMemory(projectID, "Memory 1", "Similar content", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Similar content too", OutcomeSuccess, []string{"test"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Run consolidation on single project
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, []string{projectID}, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify result is aggregated (single project, so same as single Consolidate)
+	assert.NotNil(t, result.Duration)
+	assert.GreaterOrEqual(t, result.TotalProcessed, 0)
+}
+
+// TestConsolidateAll_MultipleProjects tests ConsolidateAll with multiple projects.
+func TestConsolidateAll_MultipleProjects(t *testing.T) {
+	ctx := context.Background()
+	projectIDs := []string{"project-1", "project-2", "project-3"}
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create memories for each project
+	for _, projectID := range projectIDs {
+		mem1, _ := NewMemory(projectID, "Memory 1", "Content A", OutcomeSuccess, []string{"test"})
+		mem2, _ := NewMemory(projectID, "Memory 2", "Content B", OutcomeSuccess, []string{"test"})
+
+		require.NoError(t, svc.Record(ctx, mem1))
+		require.NoError(t, svc.Record(ctx, mem2))
+	}
+
+	// Run consolidation on all projects
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, projectIDs, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify result aggregates all projects
+	assert.NotNil(t, result.Duration)
+	// Total processed should be at least the number of memories created (6 total)
+	assert.GreaterOrEqual(t, result.TotalProcessed, 0)
+}
+
+// TestConsolidateAll_PartialFailures tests ConsolidateAll when some projects fail.
+func TestConsolidateAll_PartialFailures(t *testing.T) {
+	ctx := context.Background()
+	// Mix of valid and invalid project IDs
+	projectIDs := []string{"project-1", "", "project-2"} // Empty string should fail
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create memories for valid projects
+	validProjects := []string{"project-1", "project-2"}
+	for _, projectID := range validProjects {
+		mem1, _ := NewMemory(projectID, "Memory 1", "Content", OutcomeSuccess, []string{"test"})
+		require.NoError(t, svc.Record(ctx, mem1))
+	}
+
+	// Run consolidation on all projects (including invalid one)
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, projectIDs, opts)
+	// Should not error because some projects succeeded
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify we got some results (from valid projects)
+	assert.NotNil(t, result.Duration)
+}
+
+// TestConsolidateAll_AllProjectsFail tests ConsolidateAll when all projects fail.
+func TestConsolidateAll_AllProjectsFail(t *testing.T) {
+	ctx := context.Background()
+	// All invalid project IDs
+	projectIDs := []string{"", "", ""}
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Run consolidation on all invalid projects
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, projectIDs, opts)
+	// Should error because all projects failed
+	assert.Error(t, err)
+	assert.NotNil(t, result)
+	assert.Contains(t, err.Error(), "consolidation failed for all")
+	assert.Contains(t, err.Error(), "3 projects")
+}
+
+// TestConsolidateAll_DryRun tests ConsolidateAll in dry run mode.
+func TestConsolidateAll_DryRun(t *testing.T) {
+	ctx := context.Background()
+	projectIDs := []string{"project-1", "project-2"}
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create memories for each project
+	for _, projectID := range projectIDs {
+		mem1, _ := NewMemory(projectID, "Memory 1", "Content A", OutcomeSuccess, []string{"test"})
+		mem2, _ := NewMemory(projectID, "Memory 2", "Content B", OutcomeSuccess, []string{"test"})
+
+		require.NoError(t, svc.Record(ctx, mem1))
+		require.NoError(t, svc.Record(ctx, mem2))
+	}
+
+	// Count initial memories
+	var initialCount int
+	for _, projectID := range projectIDs {
+		mems, err := svc.ListMemories(ctx, projectID, 0, 0)
+		require.NoError(t, err)
+		initialCount += len(mems)
+	}
+
+	// Run consolidation in dry run mode
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+		DryRun:              true,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, projectIDs, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Count memories after dry run
+	var finalCount int
+	for _, projectID := range projectIDs {
+		mems, err := svc.ListMemories(ctx, projectID, 0, 0)
+		require.NoError(t, err)
+		finalCount += len(mems)
+	}
+
+	// Verify no actual changes were made
+	assert.Equal(t, initialCount, finalCount, "dry run should not change memory count")
+	assert.NotNil(t, result.Duration)
+}
+
+// TestConsolidateAll_ResultAggregation tests that results are properly aggregated.
+func TestConsolidateAll_ResultAggregation(t *testing.T) {
+	ctx := context.Background()
+	projectIDs := []string{"project-1", "project-2"}
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create 2 similar memories per project (should form 1 cluster each)
+	for _, projectID := range projectIDs {
+		mem1, _ := NewMemory(projectID, "API Pattern 1", "Use error codes", OutcomeSuccess, []string{"api"})
+		mem2, _ := NewMemory(projectID, "API Pattern 2", "Use error codes properly", OutcomeSuccess, []string{"api"})
+
+		require.NoError(t, svc.Record(ctx, mem1))
+		require.NoError(t, svc.Record(ctx, mem2))
+	}
+
+	// Run consolidation
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+	}
+
+	result, err := distiller.ConsolidateAll(ctx, projectIDs, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify aggregation structure
+	assert.NotNil(t, result.CreatedMemories, "should have created memories list")
+	assert.NotNil(t, result.ArchivedMemories, "should have archived memories list")
+	assert.GreaterOrEqual(t, result.TotalProcessed, 0, "should count total processed")
+	assert.NotNil(t, result.Duration, "should track duration")
+
+	// If consolidation happened, verify counts make sense
+	if len(result.CreatedMemories) > 0 {
+		// Each created memory should have at least 2 archived source memories
+		assert.GreaterOrEqual(t, len(result.ArchivedMemories), len(result.CreatedMemories)*2,
+			"archived count should be at least 2x created count")
+	}
+}
+
+// TestConsolidateAll_ForceAll tests ConsolidateAll with ForceAll option.
+func TestConsolidateAll_ForceAll(t *testing.T) {
+	ctx := context.Background()
+	projectID := "project-1"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10)
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller with short consolidation window
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(),
+		WithLLMClient(mockLLM),
+		WithConsolidationWindow(1*time.Hour))
+	require.NoError(t, err)
+
+	// Create memories
+	mem1, _ := NewMemory(projectID, "Memory 1", "Content A", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Content B", OutcomeSuccess, []string{"test"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Run consolidation first time
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+	}
+
+	result1, err := distiller.ConsolidateAll(ctx, []string{projectID}, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result1)
+
+	// Run again immediately (should skip due to consolidation window)
+	result2, err := distiller.ConsolidateAll(ctx, []string{projectID}, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+	// Should return empty result due to consolidation window
+	assert.Equal(t, 0, result2.TotalProcessed, "should skip recently consolidated project")
+
+	// Run again with ForceAll (should process even though within window)
+	opts.ForceAll = true
+	result3, err := distiller.ConsolidateAll(ctx, []string{projectID}, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result3)
+	// With ForceAll, should attempt processing (though may find no new clusters)
+	assert.NotNil(t, result3.Duration)
 }

@@ -1286,6 +1286,112 @@ func (d *Distiller) Consolidate(ctx context.Context, projectID string, opts Cons
 	return result, nil
 }
 
+// ConsolidateAll runs memory consolidation across all specified projects.
+//
+// This method is designed for scheduled background runs and batch processing.
+// It runs consolidation on each project with the same options and aggregates
+// the results. If consolidation fails for individual projects, the error is
+// logged and the method continues processing remaining projects.
+//
+// This is useful for:
+//   - Scheduled background consolidation (e.g., daily cron job)
+//   - Bulk maintenance operations
+//   - Organization-wide memory cleanup
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - projectIDs: List of project IDs to consolidate
+//   - opts: Configuration options applied to all projects
+//
+// Returns:
+//   - Aggregated ConsolidationResult combining all project results
+//   - Error only if all projects fail (partial failures are logged)
+func (d *Distiller) ConsolidateAll(ctx context.Context, projectIDs []string, opts ConsolidationOptions) (*ConsolidationResult, error) {
+	if len(projectIDs) == 0 {
+		d.logger.Info("no projects to consolidate")
+		return &ConsolidationResult{
+			CreatedMemories:  []string{},
+			ArchivedMemories: []string{},
+			SkippedCount:     0,
+			TotalProcessed:   0,
+			Duration:         0,
+		}, nil
+	}
+
+	startTime := time.Now()
+
+	d.logger.Info("starting consolidation across all projects",
+		zap.Int("project_count", len(projectIDs)),
+		zap.Float64("threshold", opts.SimilarityThreshold),
+		zap.Bool("dry_run", opts.DryRun),
+		zap.Bool("force_all", opts.ForceAll))
+
+	// Aggregate results across all projects
+	aggregatedResult := &ConsolidationResult{
+		CreatedMemories:  []string{},
+		ArchivedMemories: []string{},
+		SkippedCount:     0,
+		TotalProcessed:   0,
+	}
+
+	// Track successes and failures
+	var successCount int
+	var failureCount int
+
+	// Process each project
+	for _, projectID := range projectIDs {
+		d.logger.Debug("consolidating project",
+			zap.String("project_id", projectID),
+			zap.Int("progress", successCount+failureCount+1),
+			zap.Int("total", len(projectIDs)))
+
+		// Run consolidation for this project
+		result, err := d.Consolidate(ctx, projectID, opts)
+		if err != nil {
+			d.logger.Warn("consolidation failed for project, continuing with others",
+				zap.String("project_id", projectID),
+				zap.Error(err))
+			failureCount++
+			continue
+		}
+
+		// Aggregate results
+		aggregatedResult.CreatedMemories = append(aggregatedResult.CreatedMemories, result.CreatedMemories...)
+		aggregatedResult.ArchivedMemories = append(aggregatedResult.ArchivedMemories, result.ArchivedMemories...)
+		aggregatedResult.SkippedCount += result.SkippedCount
+		aggregatedResult.TotalProcessed += result.TotalProcessed
+
+		successCount++
+
+		d.logger.Info("project consolidation completed",
+			zap.String("project_id", projectID),
+			zap.Int("created", len(result.CreatedMemories)),
+			zap.Int("archived", len(result.ArchivedMemories)),
+			zap.Int("skipped", result.SkippedCount))
+	}
+
+	// Calculate total duration
+	aggregatedResult.Duration = time.Since(startTime)
+
+	d.logger.Info("consolidation across all projects completed",
+		zap.Int("total_projects", len(projectIDs)),
+		zap.Int("successful", successCount),
+		zap.Int("failed", failureCount),
+		zap.Int("total_created", len(aggregatedResult.CreatedMemories)),
+		zap.Int("total_archived", len(aggregatedResult.ArchivedMemories)),
+		zap.Int("total_skipped", aggregatedResult.SkippedCount),
+		zap.Int("total_processed", aggregatedResult.TotalProcessed),
+		zap.Duration("duration", aggregatedResult.Duration),
+		zap.Bool("dry_run", opts.DryRun))
+
+	// Return error only if all projects failed
+	if failureCount > 0 && successCount == 0 {
+		return aggregatedResult, fmt.Errorf("consolidation failed for all %d projects", len(projectIDs))
+	}
+
+	return aggregatedResult, nil
+}
+
 // linkMemoriesToConsolidated updates source memories to link them to the consolidated version.
 //
 // This method updates each source memory's ConsolidationID field to point to the
