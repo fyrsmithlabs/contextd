@@ -240,8 +240,9 @@
           "id": "5.5",
           "title": "Write integration tests for Consolidate",
           "description": "Test full consolidation flow with mock vectorstore and LLM: multiple clusters, partial failures, dry run mode",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive integration test suite in distiller_integration_test.go with 5 test functions covering:\n1. TestConsolidation_Integration_MultipleClusters - Tests detection and consolidation of multiple distinct similarity clusters in a single run\n2. TestConsolidation_Integration_PartialFailures - Tests graceful handling of LLM failures where some clusters succeed and others fail (uses custom failOnThirdCallLLMClient mock)\n3. TestConsolidation_Integration_DryRunMode - Tests dry-run mode that previews consolidation without making actual changes\n4. TestConsolidation_Integration_EndToEnd - Complete lifecycle test from initial memories through consolidation to search results, verifying confidence calculation, archival, and search filtering\n5. TestConsolidation_Integration_ConsolidationWindow - Tests window tracking that prevents re-processing recently consolidated memories\n\nAll tests verify complete workflow:\n- Multiple clusters detected and consolidated in single run\n- Partial failures handled gracefully (some succeed, some fail)\n- Dry run mode previews without making changes to memories\n- LLM synthesis creates consolidated memories with proper attribution\n- Source memories archived with ConsolidationID links and State=Archived\n- Confidence scores calculated correctly (weighted average by usage count)\n- Search filters archived memories and returns only active/consolidated ones\n- Consolidated memories ranked higher in search results (20% boost)\n- Statistics accurately tracked (CreatedMemories, ArchivedMemories, SkippedCount, TotalProcessed, Duration)\n- Consolidation window prevents re-processing within time window\n- ForceAll bypasses consolidation window check\n\nAll tests use mock vectorstore (mockStore), embedder (mockEmbedder), and LLM client (mockLLMClient, failOnThirdCallLLMClient) for fast execution without external dependencies. Commit 3d6f341 passed golangci-lint validation.",
+          "updated_at": "2026-01-07T00:30:00.000000+00:00"
         }
       ]
     },
