@@ -273,6 +273,34 @@ type ConsolidationResult struct {
 	Duration time.Duration `json:"duration"`
 }
 
+// ConsolidationOptions configures the behavior of memory consolidation operations.
+//
+// These options control how consolidation runs, including similarity thresholds,
+// resource limits, and whether to perform a dry run or force consolidation
+// regardless of recent runs.
+type ConsolidationOptions struct {
+	// SimilarityThreshold is the minimum cosine similarity score (0.0-1.0) for
+	// memories to be considered similar enough for consolidation.
+	// Default: 0.8
+	// Higher values require more similarity, lower values allow looser grouping.
+	SimilarityThreshold float64 `json:"similarity_threshold"`
+
+	// MaxClustersPerRun limits the number of similarity clusters to process in
+	// a single consolidation run. This helps control resource usage and runtime.
+	// Set to 0 for no limit (process all clusters found).
+	MaxClustersPerRun int `json:"max_clusters_per_run"`
+
+	// DryRun, when true, performs similarity detection and reports what would be
+	// consolidated without actually creating consolidated memories or archiving
+	// source memories. Useful for previewing consolidation impact.
+	DryRun bool `json:"dry_run"`
+
+	// ForceAll, when true, ignores recent consolidation timestamps and re-evaluates
+	// all memories for consolidation, even if they were recently processed.
+	// Use this to force a complete re-consolidation of the project's memory base.
+	ForceAll bool `json:"force_all"`
+}
+
 // MemoryConsolidator defines the interface for memory consolidation operations.
 //
 // Implementations of this interface (such as the Distiller) are responsible for
@@ -334,5 +362,5 @@ type MemoryConsolidator interface {
 	// Returns:
 	//   - ConsolidationResult with statistics and outcomes
 	//   - Error if consolidation fails
-	Consolidate(ctx context.Context, projectID string, opts interface{}) (*ConsolidationResult, error)
+	Consolidate(ctx context.Context, projectID string, opts ConsolidationOptions) (*ConsolidationResult, error)
 }

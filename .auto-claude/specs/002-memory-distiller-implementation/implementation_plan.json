@@ -184,15 +184,17 @@
           "id": "4.4",
           "title": "Update Search to prefer consolidated memories",
           "description": "Modify Search() to boost consolidated memories in ranking (they represent synthesized knowledge from multiple sources)",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully implemented search boost for consolidated memories. Modified Search() to:\n1. Store state and consolidation_id in metadata (memoryToDocument)\n2. Parse state and consolidation_id from metadata (resultToMemory)\n3. Filter out archived memories (source memories that were consolidated)\n4. Apply 20% boost to consolidated memories (detected by ConsolidationID==nil, State==Active, and Description containing \"Synthesized from\" or \"Consolidated from\")\n5. Re-sort results by boosted scores to ensure consolidated memories rank higher\n\nConsolidated memories now prioritize synthesized knowledge from multiple sources in search results. Commit d14edcf passed golangci-lint validation.",
+          "updated_at": "2026-01-06T23:58:01.781389+00:00"
         },
         {
           "id": "4.5",
           "title": "Write tests for confidence and attribution",
           "description": "Test confidence calculation, back-linking, and search preference for consolidated memories",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive test suite for confidence & attribution system.\n\n**Added 6 comprehensive test functions to service_test.go:**\n\n1. **TestService_Search_ArchivedMemoryFiltering**\n   - Verifies archived memories (sources that were consolidated) are filtered from search results\n   - Tests that high-confidence archived memories are still filtered\n   - Validates ConsolidationID back-linking is respected\n\n2. **TestService_Search_ConsolidatedMemoryBoost**\n   - Tests 20% ranking boost for consolidated memories\n   - Verifies boost detection via Description field markers (\"Synthesized from\", \"Consolidated from\")\n   - Confirms consolidated memories rank higher than regular memories with similar relevance\n\n3. **TestService_Search_BoostAndResorting**\n   - Validates results are correctly re-sorted after applying boosts\n   - Tests interaction between different confidence levels and consolidation boost\n   - Ensures consolidated memories don't rank last despite lower base scores\n\n4. **TestService_Search_ConsolidatedVsSourceMemories**\n   - End-to-end workflow test: source memories archived, consolidated memory active\n   - Verifies only consolidated memory appears in results (sources filtered)\n   - Tests complete consolidation lifecycle from source to consolidated\n\n5. **TestService_Search_ConsolidationIDNilCheck**\n   - Tests correct identification of consolidated vs regular vs source memories\n   - Validates boost only applies to: ConsolidationID==nil, State==Active, Description contains synthesis markers\n   - Ensures regular memories with nil ConsolidationID don't get boost\n\n6. **TestService_Search_MetadataPreservation**\n   - Verifies state (Active/Archived) metadata is stored and retrieved correctly\n   - Tests consolidation_id metadata preservation through storage roundtrip\n   - Validates metadata fields are correctly used in filtering/boosting logic\n\n**Existing tests already cover:**\n- calculateConsolidatedConfidence (TestCalculateConsolidatedConfidence, TestCalculateConsolidatedConfidence_ConsensusBonus)\n- linkMemoriesToConsolidated (TestLinkMemoriesToConsolidated_ArchivedState, TestMergeCluster_MemoryLinking)\n\n**All requirements met:**\n\u2705 Confidence calculation testing (existing tests in distiller_test.go)\n\u2705 Back-linking testing (existing tests + new archived filtering tests)\n\u2705 Search preference for consolidated memories (new boost and re-sorting tests)\n\nCommit ad0ffea passed golangci-lint validation.",
+          "updated_at": "2026-01-07T00:02:30.570937+00:00"
         }
       ]
     },
@@ -402,5 +404,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-06T23:54:05.172650+00:00"
+  "last_updated": "2026-01-07T00:02:30.570944+00:00"
 }
