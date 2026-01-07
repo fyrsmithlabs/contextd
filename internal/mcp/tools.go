@@ -856,6 +856,21 @@ type memoryOutcomeOutput struct {
 	Message       string  `json:"message" jsonschema:"Result message"`
 }
 
+type memoryConsolidateInput struct {
+	ProjectID           string  `json:"project_id" jsonschema:"required,Project identifier"`
+	SimilarityThreshold float64 `json:"similarity_threshold,omitempty" jsonschema:"Minimum similarity score for consolidation (0-1 default 0.8)"`
+	DryRun              bool    `json:"dry_run,omitempty" jsonschema:"Preview consolidation without making changes (default false)"`
+	MaxClusters         int     `json:"max_clusters,omitempty" jsonschema:"Maximum number of clusters to consolidate in one run (0 = no limit)"`
+}
+
+type memoryConsolidateOutput struct {
+	CreatedMemories  []string `json:"created_memories" jsonschema:"IDs of newly created consolidated memories"`
+	ArchivedMemories []string `json:"archived_memories" jsonschema:"IDs of source memories that were archived"`
+	SkippedCount     int      `json:"skipped_count" jsonschema:"Number of memories skipped (below threshold)"`
+	TotalProcessed   int      `json:"total_processed" jsonschema:"Total number of memories examined"`
+	DurationSeconds  float64  `json:"duration_seconds" jsonschema:"Time taken for consolidation operation"`
+}
+
 func (s *Server) registerMemoryTools() {
 	// memory_search
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -979,6 +994,15 @@ func (s *Server) registerMemoryTools() {
 				&mcp.TextContent{Text: fmt.Sprintf("Outcome recorded, confidence: %.2f", output.NewConfidence)},
 			},
 		}, output, nil
+	})
+
+	// memory_consolidate
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "memory_consolidate",
+		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
+		// TODO: Implementation in subtask 6.2
+		return nil, memoryConsolidateOutput{}, fmt.Errorf("not yet implemented")
 	})
 }
 
