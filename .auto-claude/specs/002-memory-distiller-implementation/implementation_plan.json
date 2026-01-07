@@ -392,8 +392,9 @@
           "id": "8.5",
           "title": "Verify AC: manual/auto triggers",
           "description": "Test MCP tool manual trigger and scheduler automatic trigger both work",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive trigger verification test suite (trigger_verification_test.go) with 4 test functions covering:\n1. TestMemoryConsolidation_ManualMCPTrigger - Verifies MCP handler manual trigger works correctly\n2. TestMemoryConsolidation_AutomaticSchedulerTrigger - Verifies scheduler automatic trigger works correctly  \n3. TestMemoryConsolidation_BothTriggersWork - Verifies both triggers work independently and use same infrastructure\n4. TestMemoryConsolidation_DryRunWithBothTriggers - Verifies dry run mode works with both triggers\n\nManual Trigger Path: User \u2192 MCP Tool (memory_consolidate) \u2192 MemoryHandler.Consolidate() \u2192 Distiller.Consolidate() \u2192 LLM synthesis\nAutomatic Trigger Path: Scheduler \u2192 Timer \u2192 ConsolidateAll() \u2192 Consolidate() \u2192 LLM synthesis\n\nTests verify:\n\u2705 Manual trigger via MCP handler executes consolidation\n\u2705 Automatic trigger via scheduler fires on interval\n\u2705 Both produce valid results with created/archived memories\n\u2705 LLM is called for actual consolidation (not dry run)\n\u2705 Dry run mode works with both triggers (no LLM calls)\n\u2705 Scheduler lifecycle works (start \u2192 run \u2192 stop)\n\nDocumentation created in TRIGGER_VERIFICATION.md with complete verification details, configuration examples, and acceptance criteria mapping.\n\nExisting test coverage already includes:\n- MCP handler tests (14 functions in memory_test.go)\n- Scheduler tests (15 functions in scheduler_test.go)\n- Integration tests (distiller_integration_test.go)\n\nAC verified: \u2705 \"Distiller can run automatically on schedule or manually via MCP tool\"",
+          "updated_at": "2026-01-07T01:15:25.511401+00:00"
         },
         {
           "id": "8.6",
@@ -424,5 +425,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T01:11:32.354550+00:00"
+  "last_updated": "2026-01-07T01:15:25.511408+00:00"
 }
