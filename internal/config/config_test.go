@@ -452,6 +452,72 @@ func TestLoad_EmbeddingsONNXVersion(t *testing.T) {
 	}
 }
 
+// TestLoad_ConsolidationScheduler tests consolidation scheduler configuration loading
+func TestLoad_ConsolidationScheduler(t *testing.T) {
+	originalEnv := saveEnv()
+	defer restoreEnv(originalEnv)
+
+	tests := []struct {
+		name     string
+		env      map[string]string
+		validate func(*testing.T, *Config)
+	}{
+		{
+			name: "consolidation scheduler defaults",
+			env:  map[string]string{},
+			validate: func(t *testing.T, cfg *Config) {
+				// Default should be disabled
+				if cfg.ConsolidationScheduler.Enabled {
+					t.Error("ConsolidationScheduler.Enabled = true, want false (disabled by default)")
+				}
+				// Default interval should be 24h
+				if cfg.ConsolidationScheduler.Interval != 24*time.Hour {
+					t.Errorf("ConsolidationScheduler.Interval = %v, want 24h", cfg.ConsolidationScheduler.Interval)
+				}
+				// Default threshold should be 0.8
+				if cfg.ConsolidationScheduler.SimilarityThreshold != 0.8 {
+					t.Errorf("ConsolidationScheduler.SimilarityThreshold = %v, want 0.8", cfg.ConsolidationScheduler.SimilarityThreshold)
+				}
+			},
+		},
+		{
+			name: "consolidation scheduler environment overrides",
+			env: map[string]string{
+				"CONSOLIDATION_SCHEDULER_ENABLED":              "true",
+				"CONSOLIDATION_SCHEDULER_INTERVAL":             "12h",
+				"CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD": "0.85",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				if !cfg.ConsolidationScheduler.Enabled {
+					t.Error("ConsolidationScheduler.Enabled = false, want true")
+				}
+				if cfg.ConsolidationScheduler.Interval != 12*time.Hour {
+					t.Errorf("ConsolidationScheduler.Interval = %v, want 12h", cfg.ConsolidationScheduler.Interval)
+				}
+				if cfg.ConsolidationScheduler.SimilarityThreshold != 0.85 {
+					t.Errorf("ConsolidationScheduler.SimilarityThreshold = %v, want 0.85", cfg.ConsolidationScheduler.SimilarityThreshold)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			for k, v := range tt.env {
+				os.Setenv(k, v)
+			}
+
+			cfg := Load()
+			if cfg == nil {
+				t.Fatal("Load() returned nil")
+			}
+
+			tt.validate(t, cfg)
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
 }
