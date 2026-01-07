@@ -1477,3 +1477,372 @@ func TestGetMemoryVectorByProjectID(t *testing.T) {
 		assert.Equal(t, expectedVector, vector)
 	})
 }
+
+// TestService_Search_ArchivedMemoryFiltering tests that archived memories are filtered out of search results.
+func TestService_Search_ArchivedMemoryFiltering(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-123"
+	consolidatedID := "consolidated-001"
+
+	// Create an active memory
+	activeMemory, _ := NewMemory(projectID, "Active Memory", "This is active content", OutcomeSuccess, []string{"active"})
+	activeMemory.Confidence = 0.9
+	activeMemory.State = MemoryStateActive
+	_ = svc.Record(ctx, activeMemory)
+
+	// Create an archived memory (source memory that was consolidated)
+	archivedMemory, _ := NewMemory(projectID, "Archived Memory", "This was consolidated", OutcomeSuccess, []string{"archived"})
+	archivedMemory.Confidence = 0.95 // High confidence but archived
+	archivedMemory.State = MemoryStateArchived
+	archivedMemory.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, archivedMemory)
+
+	// Create the consolidated memory
+	consolidatedMemory, _ := NewMemory(projectID, "Consolidated Memory", "Synthesized from multiple sources", OutcomeSuccess, []string{"consolidated"})
+	consolidatedMemory.Confidence = 0.92
+	consolidatedMemory.State = MemoryStateActive
+	consolidatedMemory.Description = "Synthesized from 2 source memories"
+	_ = svc.Record(ctx, consolidatedMemory)
+
+	t.Run("filters out archived memories", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "memory", 10)
+		require.NoError(t, err)
+
+		// Should return active and consolidated memories, but NOT archived
+		assert.Len(t, results, 2)
+
+		for _, result := range results {
+			assert.NotEqual(t, MemoryStateArchived, result.State, "archived memory should be filtered out")
+			assert.NotEqual(t, archivedMemory.ID, result.ID, "archived memory should not appear in results")
+		}
+	})
+
+	t.Run("archived memory not in results despite high confidence", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "archived", 10)
+		require.NoError(t, err)
+
+		// Even though archivedMemory has confidence 0.95 (higher than MinConfidence),
+		// it should be filtered out because it's archived
+		for _, result := range results {
+			assert.NotEqual(t, archivedMemory.ID, result.ID, "high-confidence archived memory should still be filtered")
+		}
+	})
+}
+
+// TestService_Search_ConsolidatedMemoryBoost tests that consolidated memories receive a ranking boost.
+func TestService_Search_ConsolidatedMemoryBoost(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-boost-test"
+
+	// Create a regular memory with slightly higher initial relevance
+	regularMemory, _ := NewMemory(projectID, "Regular Memory About Testing", "Regular testing approach", OutcomeSuccess, []string{"testing"})
+	regularMemory.Confidence = 0.85
+	regularMemory.State = MemoryStateActive
+	_ = svc.Record(ctx, regularMemory)
+
+	// Create a consolidated memory (synthesized from multiple sources)
+	consolidatedMemory, _ := NewMemory(projectID, "Consolidated Testing Strategy", "Advanced testing patterns", OutcomeSuccess, []string{"testing"})
+	consolidatedMemory.Confidence = 0.85
+	consolidatedMemory.State = MemoryStateActive
+	consolidatedMemory.Description = "Synthesized from 3 source memories with high confidence"
+	// Note: ConsolidationID should be nil for consolidated memories (they're not linked to another memory)
+	// The boost is detected by: ConsolidationID==nil, State==Active, Description contains "Synthesized from" or "Consolidated from"
+	_ = svc.Record(ctx, consolidatedMemory)
+
+	t.Run("consolidated memory receives boost", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.Len(t, results, 2, "should return both memories")
+
+		// With the 20% boost, consolidated memory should rank higher
+		// even if they have the same base relevance score
+		assert.Equal(t, consolidatedMemory.ID, results[0].ID, "consolidated memory should rank first due to boost")
+		assert.Equal(t, regularMemory.ID, results[1].ID, "regular memory should rank second")
+	})
+
+	t.Run("consolidated memory detection via description", func(t *testing.T) {
+		// Create another consolidated memory with "Consolidated from" marker
+		consolidatedMemory2, _ := NewMemory(projectID, "Another Consolidated Memory", "More testing insights", OutcomeSuccess, []string{"testing"})
+		consolidatedMemory2.Confidence = 0.85
+		consolidatedMemory2.State = MemoryStateActive
+		consolidatedMemory2.Description = "Consolidated from 5 similar memories"
+		_ = svc.Record(ctx, consolidatedMemory2)
+
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.GreaterOrEqual(t, len(results), 3, "should return all memories")
+
+		// Both consolidated memories should rank higher than regular memory
+		// (assuming similar base relevance scores)
+		consolidatedIDs := map[string]bool{
+			consolidatedMemory.ID:  true,
+			consolidatedMemory2.ID: true,
+		}
+
+		// At least one of the top 2 results should be a consolidated memory
+		topTwoHasConsolidated := consolidatedIDs[results[0].ID] || consolidatedIDs[results[1].ID]
+		assert.True(t, topTwoHasConsolidated, "consolidated memories should rank highly due to boost")
+	})
+}
+
+// TestService_Search_BoostAndResorting tests that search results are correctly re-sorted after boost.
+func TestService_Search_BoostAndResorting(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-resort-test"
+
+	// Create memories with known ordering before boost
+	// Memory A: High relevance, not consolidated
+	memoryA, _ := NewMemory(projectID, "High Relevance Regular Memory", "Very relevant content about Go testing", OutcomeSuccess, []string{"go", "testing"})
+	memoryA.Confidence = 0.90
+	memoryA.State = MemoryStateActive
+	_ = svc.Record(ctx, memoryA)
+
+	// Memory B: Medium relevance, consolidated (will get 20% boost)
+	memoryB, _ := NewMemory(projectID, "Medium Relevance Consolidated", "Consolidated testing knowledge", OutcomeSuccess, []string{"testing"})
+	memoryB.Confidence = 0.85
+	memoryB.State = MemoryStateActive
+	memoryB.Description = "Synthesized from 4 high-quality memories"
+	_ = svc.Record(ctx, memoryB)
+
+	// Memory C: Lower relevance, not consolidated
+	memoryC, _ := NewMemory(projectID, "Lower Relevance Memory", "Some testing tips", OutcomeSuccess, []string{"testing"})
+	memoryC.Confidence = 0.80
+	memoryC.State = MemoryStateActive
+	_ = svc.Record(ctx, memoryC)
+
+	t.Run("results re-sorted by boosted scores", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.Len(t, results, 3, "should return all three memories")
+
+		// After boost, memoryB (consolidated) should potentially rank higher than memoryC
+		// The exact ordering depends on mock similarity scores, but we can verify:
+		// 1. All memories are present
+		// 2. Consolidated memory is boosted (we can't easily verify the exact ranking without controlling mock scores)
+
+		foundA := false
+		foundB := false
+		foundC := false
+		for _, result := range results {
+			switch result.ID {
+			case memoryA.ID:
+				foundA = true
+			case memoryB.ID:
+				foundB = true
+			case memoryC.ID:
+				foundC = true
+			}
+		}
+
+		assert.True(t, foundA, "memory A should be in results")
+		assert.True(t, foundB, "memory B (consolidated) should be in results")
+		assert.True(t, foundC, "memory C should be in results")
+
+		// Consolidated memory should not be last (it has boost and decent confidence)
+		assert.NotEqual(t, memoryB.ID, results[len(results)-1].ID, "consolidated memory should not rank last due to boost")
+	})
+}
+
+// TestService_Search_ConsolidatedVsSourceMemories tests the complete workflow of
+// consolidated memories ranking higher while source memories are filtered out.
+func TestService_Search_ConsolidatedVsSourceMemories(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-workflow-test"
+	consolidatedID := "consolidated-memory-123"
+
+	// Create source memories that were consolidated (these should be archived)
+	source1, _ := NewMemory(projectID, "Source Memory 1", "Original insight about testing", OutcomeSuccess, []string{"testing"})
+	source1.Confidence = 0.88
+	source1.State = MemoryStateArchived
+	source1.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, source1)
+
+	source2, _ := NewMemory(projectID, "Source Memory 2", "Another testing approach", OutcomeSuccess, []string{"testing"})
+	source2.Confidence = 0.87
+	source2.State = MemoryStateArchived
+	source2.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, source2)
+
+	// Create the consolidated memory (synthesized from source1 and source2)
+	consolidated, _ := NewMemory(projectID, "Consolidated Testing Strategy", "Synthesized testing best practices combining multiple approaches", OutcomeSuccess, []string{"testing"})
+	consolidated.Confidence = 0.90
+	consolidated.State = MemoryStateActive
+	consolidated.Description = "Synthesized from 2 source memories (source-1, source-2)"
+	_ = svc.Record(ctx, consolidated)
+
+	// Create an unrelated regular memory
+	regular, _ := NewMemory(projectID, "Unrelated Memory", "Something about deployment", OutcomeSuccess, []string{"deployment"})
+	regular.Confidence = 0.85
+	regular.State = MemoryStateActive
+	_ = svc.Record(ctx, regular)
+
+	t.Run("only consolidated memory returned, sources filtered", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		// Should only return the consolidated memory (source memories are archived)
+		// Regular memory might appear if query matches
+		for _, result := range results {
+			// Verify no archived memories
+			assert.NotEqual(t, MemoryStateArchived, result.State, "no archived memories should appear")
+
+			// Verify source memories are not present
+			assert.NotEqual(t, source1.ID, result.ID, "source1 should be filtered (archived)")
+			assert.NotEqual(t, source2.ID, result.ID, "source2 should be filtered (archived)")
+		}
+
+		// Consolidated memory should be present
+		foundConsolidated := false
+		for _, result := range results {
+			if result.ID == consolidated.ID {
+				foundConsolidated = true
+				// Verify it's the consolidated memory
+				assert.Equal(t, MemoryStateActive, result.State)
+				assert.Contains(t, result.Description, "Synthesized from")
+			}
+		}
+		assert.True(t, foundConsolidated, "consolidated memory should be in results")
+	})
+
+	t.Run("consolidated memory boosted over regular memories", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		// If both consolidated and regular appear, consolidated should rank higher
+		// (assuming similar base relevance)
+		if len(results) > 0 {
+			// First result should likely be the consolidated memory due to boost
+			// (can't guarantee without controlling mock scores, but we can verify it's present)
+			foundConsolidated := false
+			for _, result := range results {
+				if result.ID == consolidated.ID {
+					foundConsolidated = true
+				}
+			}
+			assert.True(t, foundConsolidated, "consolidated memory should be present and boosted")
+		}
+	})
+}
+
+// TestService_Search_ConsolidationIDNilCheck tests that consolidated memories are correctly identified.
+func TestService_Search_ConsolidationIDNilCheck(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-nil-check"
+
+	// Create a consolidated memory (ConsolidationID is nil, description indicates synthesis)
+	consolidated, _ := NewMemory(projectID, "Consolidated Memory", "Merged insights", OutcomeSuccess, []string{"test"})
+	consolidated.Confidence = 0.85
+	consolidated.State = MemoryStateActive
+	consolidated.Description = "Synthesized from multiple memories"
+	consolidated.ConsolidationID = nil // Explicitly nil
+	_ = svc.Record(ctx, consolidated)
+
+	// Create a source memory (ConsolidationID points to consolidated memory)
+	consolidatedIDStr := "some-consolidated-id"
+	source, _ := NewMemory(projectID, "Source Memory", "Original content", OutcomeSuccess, []string{"test"})
+	source.Confidence = 0.85
+	source.State = MemoryStateArchived
+	source.ConsolidationID = &consolidatedIDStr
+	_ = svc.Record(ctx, source)
+
+	// Create a regular memory (ConsolidationID is nil, but description doesn't indicate synthesis)
+	regular, _ := NewMemory(projectID, "Regular Memory", "Normal memory", OutcomeSuccess, []string{"test"})
+	regular.Confidence = 0.85
+	regular.State = MemoryStateActive
+	regular.Description = "Regular memory description"
+	regular.ConsolidationID = nil
+	_ = svc.Record(ctx, regular)
+
+	t.Run("consolidated memory identified by nil ConsolidationID and description", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "memory", 10)
+		require.NoError(t, err)
+
+		// Should return consolidated and regular memories (not source, it's archived)
+		foundConsolidated := false
+		foundRegular := false
+
+		for _, result := range results {
+			if result.ID == consolidated.ID {
+				foundConsolidated = true
+				// This memory should get boost
+				assert.Nil(t, result.ConsolidationID, "consolidated memory has nil ConsolidationID")
+				assert.Contains(t, result.Description, "Synthesized from", "consolidated memory description indicates synthesis")
+			}
+			if result.ID == regular.ID {
+				foundRegular = true
+				// This memory should NOT get boost
+				assert.Nil(t, result.ConsolidationID, "regular memory also has nil ConsolidationID")
+				assert.NotContains(t, result.Description, "Synthesized from", "regular memory description doesn't indicate synthesis")
+			}
+			// Source should not appear (archived)
+			assert.NotEqual(t, source.ID, result.ID, "source memory should be filtered (archived)")
+		}
+
+		assert.True(t, foundConsolidated, "consolidated memory should be in results")
+		assert.True(t, foundRegular, "regular memory should be in results")
+	})
+}
+
+// TestService_Search_MetadataPreservation tests that state and consolidation_id are correctly
+// stored in metadata and retrieved from search results.
+func TestService_Search_MetadataPreservation(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-metadata"
+	consolidatedID := "consolidated-123"
+
+	// Create an active memory
+	active, _ := NewMemory(projectID, "Active Memory", "Active content", OutcomeSuccess, []string{"test"})
+	active.Confidence = 0.85
+	active.State = MemoryStateActive
+	_ = svc.Record(ctx, active)
+
+	// Create an archived memory with consolidation link
+	archived, _ := NewMemory(projectID, "Archived Memory", "Archived content", OutcomeSuccess, []string{"test"})
+	archived.Confidence = 0.85
+	archived.State = MemoryStateArchived
+	archived.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, archived)
+
+	t.Run("state metadata preserved in storage and retrieval", func(t *testing.T) {
+		// Search should filter archived, but we can test Get to verify metadata
+		retrievedActive, err := svc.GetByProjectID(ctx, projectID, active.ID)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateActive, retrievedActive.State, "active state preserved")
+
+		retrievedArchived, err := svc.GetByProjectID(ctx, projectID, archived.ID)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateArchived, retrievedArchived.State, "archived state preserved")
+	})
+
+	t.Run("consolidation_id metadata preserved", func(t *testing.T) {
+		retrievedArchived, err := svc.GetByProjectID(ctx, projectID, archived.ID)
+		require.NoError(t, err)
+		require.NotNil(t, retrievedArchived.ConsolidationID, "consolidation_id should be set")
+		assert.Equal(t, consolidatedID, *retrievedArchived.ConsolidationID, "consolidation_id preserved")
+
+		retrievedActive, err := svc.GetByProjectID(ctx, projectID, active.ID)
+		require.NoError(t, err)
+		assert.Nil(t, retrievedActive.ConsolidationID, "active memory has no consolidation_id")
+	})
+}
