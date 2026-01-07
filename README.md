@@ -100,7 +100,7 @@ This automatically:
 # Should show "✓ contextd - connected"
 ```
 
-**That's it!** See [ONBOARDING.md](ONBOARDING.md) for a guided tutorial.
+**That's it!** See [ONBOARDING.md](docs/ONBOARDING.md) for a guided tutorial.
 
 ### Option 2: Homebrew (macOS/Linux)
 
