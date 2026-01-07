@@ -32,6 +32,7 @@ type Server struct {
 	reasoningbankSvc *reasoningbank.Service
 	conversationSvc  conversation.ConversationService
 	foldingSvc       *folding.BranchManager
+	distiller        *reasoningbank.Distiller
 	scrubber         secrets.Scrubber
 	ignoreParser     *ignore.Parser
 	logger           *zap.Logger
@@ -86,6 +87,7 @@ func NewServer(
 	troubleshootSvc *troubleshoot.Service,
 	reasoningbankSvc *reasoningbank.Service,
 	foldingSvc *folding.BranchManager,
+	distiller *reasoningbank.Distiller,
 	scrubber secrets.Scrubber,
 ) (*Server, error) {
 	if cfg == nil {
@@ -131,6 +133,7 @@ func NewServer(
 		troubleshootSvc:  troubleshootSvc,
 		reasoningbankSvc: reasoningbankSvc,
 		foldingSvc:       foldingSvc,
+		distiller:        distiller,
 		scrubber:         scrubber,
 		ignoreParser:     ignoreParser,
 		logger:           cfg.Logger,

@@ -431,6 +431,7 @@ func run() error {
 			troubleshootSvc,
 			reasoningbankSvc,
 			foldingSvc,
+			registry.Distiller(),
 			scrubber,
 		)
 		if err != nil {

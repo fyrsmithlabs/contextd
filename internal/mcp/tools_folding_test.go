@@ -72,7 +72,7 @@ func setupFoldingTestServer(t *testing.T) (*Server, *folding.BranchManager) {
 		Logger:  logger,
 	}
 
-	server, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, foldingSvc, scrubber)
+	server, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, foldingSvc, nil, scrubber)
 	require.NoError(t, err)
 
 	return server, foldingSvc

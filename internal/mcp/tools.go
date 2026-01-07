@@ -1001,8 +1001,64 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_consolidate",
 		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
-		// TODO: Implementation in subtask 6.2
-		return nil, memoryConsolidateOutput{}, fmt.Errorf("not yet implemented")
+		// Validate input
+		if args.ProjectID == "" {
+			return nil, memoryConsolidateOutput{}, fmt.Errorf("project_id is required")
+		}
+
+		// Check if distiller is available
+		if s.distiller == nil {
+			return nil, memoryConsolidateOutput{}, fmt.Errorf("memory consolidation not available: distiller not configured")
+		}
+
+		// Apply default similarity threshold if not specified
+		threshold := args.SimilarityThreshold
+		if threshold == 0 {
+			threshold = 0.8 // Default as specified in spec
+		}
+
+		// Build consolidation options
+		opts := reasoningbank.ConsolidationOptions{
+			SimilarityThreshold: threshold,
+			DryRun:              args.DryRun,
+			MaxClustersPerRun:   args.MaxClusters,
+		}
+
+		// Execute consolidation
+		result, err := s.distiller.Consolidate(ctx, args.ProjectID, opts)
+		if err != nil {
+			return nil, memoryConsolidateOutput{}, fmt.Errorf("consolidation failed: %w", err)
+		}
+
+		// Convert duration to seconds
+		durationSeconds := result.Duration.Seconds()
+
+		// Build output
+		output := memoryConsolidateOutput{
+			CreatedMemories:  result.CreatedMemories,
+			ArchivedMemories: result.ArchivedMemories,
+			SkippedCount:     result.SkippedCount,
+			TotalProcessed:   result.TotalProcessed,
+			DurationSeconds:  durationSeconds,
+		}
+
+		// Build result message
+		resultMsg := fmt.Sprintf("Consolidation complete: created %d, archived %d, skipped %d, processed %d memories (%.2fs)",
+			len(output.CreatedMemories),
+			len(output.ArchivedMemories),
+			output.SkippedCount,
+			output.TotalProcessed,
+			output.DurationSeconds)
+
+		if args.DryRun {
+			resultMsg = "[DRY RUN] " + resultMsg
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: resultMsg},
+			},
+		}, output, nil
 	})
 }
 
