@@ -288,8 +288,9 @@
           "id": "6.5",
           "title": "Write MCP tool tests",
           "description": "Test handler with various inputs, verify proper error handling and response format",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive test suite for memory_consolidate MCP handler with 14 test functions:\n\n**Test Coverage:**\n1. TestMemoryHandler_Consolidate_ValidInput - Tests successful consolidation with all parameters specified\n2. TestMemoryHandler_Consolidate_DefaultThreshold - Verifies default threshold (0.8) is applied when not specified\n3. TestMemoryHandler_Consolidate_DryRunMode - Tests dry run mode is correctly passed through\n4. TestMemoryHandler_Consolidate_MaxClusters - Tests max clusters limit is correctly passed through\n5. TestMemoryHandler_Consolidate_EmptyProjectID - Tests error when project_id is missing\n6. TestMemoryHandler_Consolidate_InvalidJSON - Tests error when input JSON is malformed\n7. TestMemoryHandler_Consolidate_NilDistiller - Tests error when distiller is not configured\n8. TestMemoryHandler_Consolidate_DistillerError - Tests error handling when distiller fails\n9. TestMemoryHandler_Consolidate_EmptyResult - Tests handling of empty consolidation result (no clusters found)\n10. TestMemoryHandler_Consolidate_DurationConversion - Tests duration is correctly converted to seconds\n11. TestMemoryHandler_Consolidate_ContextCancellation - Tests that context cancellation is respected\n12. TestMemoryHandler_Consolidate_AllParameters - Tests comprehensive scenario with all parameters\n13. TestNewMemoryHandler - Tests handler creation\n14. TestNewMemoryHandler_NilDistiller - Tests handler creation with nil distiller\n\n**Improvements Made:**\n- Updated MemoryHandler to use MemoryConsolidator interface instead of concrete *reasoningbank.Distiller type for better testability\n- Created mockDistiller implementation with call tracking (callCount, lastProjectID, lastOpts) for verification\n- All tests verify proper input validation, error handling, and response formatting\n- Tests cover success cases, error cases, edge cases, and boundary conditions\n\n**Commit:** 78fea2a passed golangci-lint validation.",
+          "updated_at": "2026-01-07T00:41:39.098619+00:00"
         }
       ]
     },
@@ -303,8 +304,9 @@
           "id": "7.1",
           "title": "Define ConsolidationScheduler",
           "description": "Create scheduler struct with: interval time.Duration, distiller *Distiller, running bool, stopCh chan struct{}",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created ConsolidationScheduler struct in scheduler.go with all required fields:\n- interval time.Duration (time between consolidation runs, default 24h)\n- distiller *Distiller (performs actual consolidation)\n- running bool (tracks scheduler state)\n- stopCh chan struct{} (signal channel for graceful shutdown)\n- logger *zap.Logger (structured logging)\n\nAdded NewConsolidationScheduler constructor with validation and option pattern following existing codebase patterns (similar to BranchManager). Includes WithInterval option for configurable consolidation intervals. Commit d285c04 passed golangci-lint validation.",
+          "updated_at": "2026-01-07T00:43:55.904384+00:00"
         },
         {
           "id": "7.2",
@@ -413,5 +415,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T00:36:35.478000+00:00"
+  "last_updated": "2026-01-07T00:43:55.904395+00:00"
 }
