@@ -376,15 +376,17 @@
           "id": "8.3",
           "title": "Verify AC: original memories preserved",
           "description": "Test that original memories retain content and have consolidation_id link",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive integration test TestConsolidation_Integration_OriginalContentPreservation that verifies:\n- Original memories are archived (State = Archived) after consolidation\n- Original memories have ConsolidationID link set to consolidated memory ID\n- Original memories RETAIN all original content (title, description, content, tags, confidence, usage count, outcome)\n- No data loss occurs during consolidation process\n- Consolidated memory has different synthesized content (not a copy)\n\nTest creates 3 similar memories with distinct verifiable content, stores their original values in a map before consolidation, runs consolidation, then iterates through each archived memory to verify it retains exactly its original content while having proper State=Archived and ConsolidationID set to the consolidated memory.\n\nThe test follows the same pattern as existing integration tests in distiller_integration_test.go and passed golangci-lint validation. Commit 33a414e.",
+          "updated_at": "2026-01-07T01:06:56.307731+00:00"
         },
         {
           "id": "8.4",
           "title": "Verify AC: confidence scoring",
           "description": "Test that consolidated memory confidence is calculated correctly from sources",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive integration test TestConsolidation_Integration_ConfidenceCalculation that verifies consolidated memory confidence is calculated correctly from source memories.\n\n**Test Coverage (5 scenarios):**\n\n1. **Equal confidence and usage** - Tests simple average when all weights are equal\n   - 3 memories: confidence=0.8, usage=5 each\n   - Expected: 0.8 (simple average)\n\n2. **High usage dominates** - Tests weighted average favoring high-usage memories\n   - Memory 1: confidence=0.9, usage=50 (high usage, high confidence)\n   - Memory 2: confidence=0.3, usage=1 (low usage, low confidence)\n   - Memory 3: confidence=0.4, usage=2 (low usage, low confidence)\n   - Expected: 0.85-0.86 (dominated by high-usage memory)\n\n3. **Mixed confidence and usage** - Tests realistic complex scenario\n   - Memory 1: confidence=0.75, usage=10\n   - Memory 2: confidence=0.85, usage=5\n   - Memory 3: confidence=0.65, usage=15\n   - Expected: 0.71-0.73 (weighted average)\n\n4. **All same confidence** - Tests edge case where usage doesn't matter\n   - 3 memories: confidence=0.7, varying usage (0, 100, 50)\n   - Expected: 0.7 (should return 0.7 regardless of usage)\n\n5. **Varying confidence with zero usage** - Tests weight=1 fallback\n   - 3 memories: confidence varies (0.9, 0.6, 0.8), all usage=0\n   - Expected: 0.76-0.77 (simple average with weight=1)\n\n**Formula Verification:**\n- Each test creates memories with specific confidence and usage counts\n- Runs consolidation to create consolidated memory\n- Verifies confidence = sum(conf_i * (usage_i + 1)) / sum(usage_i + 1)\n- Includes manual calculation to verify against actual result\n- Validates confidence in valid range [0.0, 1.0]\n\n**Key Assertions:**\n\u2713 Consolidated confidence matches expected range (min/max bounds)\n\u2713 Manual weighted average calculation matches actual confidence\n\u2713 Confidence is in valid range [0.0, 1.0]\n\u2713 Each scenario description verified with detailed logging\n\n**Acceptance Criteria Coverage:**\n\u2713 \"Confidence scores are updated based on consolidation\"\n\u2713 Weighted average formula correctly applied\n\u2713 High-usage memories dominate the score\n\u2713 Edge cases handled correctly (zero usage, equal weights, same confidence)\n\nTest follows existing integration test patterns in distiller_integration_test.go with table-driven structure. Added 217 lines of comprehensive test coverage. Commit 5d03465 passed golangci-lint validation.",
+          "updated_at": "2026-01-07T01:11:32.354534+00:00"
         },
         {
           "id": "8.5",
@@ -422,5 +424,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T01:04:42.138293+00:00"
+  "last_updated": "2026-01-07T01:11:32.354550+00:00"
 }

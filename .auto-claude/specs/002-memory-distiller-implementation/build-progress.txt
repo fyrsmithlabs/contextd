@@ -81,7 +81,7 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] Full integration test (commit 3f9005e - verified existing test)
 - [x] AC verification: >0.8 similarity (commit 9a0205d)
 - [x] AC verification: preserved originals (commit 33a414e)
-- [ ] AC verification: confidence scoring
+- [x] AC verification: confidence scoring (commit 5d03465)
 - [ ] AC verification: manual/auto triggers
 - [ ] AC verification: source attribution
 - [ ] DESIGN.md update
