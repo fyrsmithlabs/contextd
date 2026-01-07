@@ -505,6 +505,35 @@
       "tests_passing": true,
       "ready_for_qa_revalidation": true,
       "notes": "The 'merge conflicts' were actually uncommitted local changes to .claude_settings.json and .gitignore. Both files have been restored to their HEAD versions. Test merge with origin/main confirms 'Already up to date' with no conflicts. Branch is ready for merge."
+    },
+    {
+      "session": 2,
+      "timestamp": "2026-01-07T14:27:00.000000Z",
+      "status": "resolved",
+      "issues_fixed": [
+        {
+          "title": "Uncommitted changes to .claude_settings.json (recurrence)",
+          "description": "Working directory again had uncommitted changes that removed graphiti-memory MCP tool permissions",
+          "fix": "Restored .claude_settings.json to HEAD version using git checkout HEAD -- .claude_settings.json",
+          "verified": "File restored, graphiti-memory permissions intact"
+        },
+        {
+          "title": "Uncommitted auto-claude tracking files",
+          "description": "Multiple auto-claude tracking files had uncommitted changes (implementation_plan.json, task_logs.json, etc.)",
+          "fix": "Committed all legitimate auto-claude tracking file updates",
+          "verified": "All tracking files committed across 5 commits"
+        },
+        {
+          "title": "Missing QA documentation files",
+          "description": "QA-related documentation files were untracked",
+          "fix": "Added qa_report.md, QA_FIX_REQUEST.md, MANUAL_TEST_PLAN.md, and session insights",
+          "verified": "All QA documentation now committed"
+        }
+      ],
+      "merge_conflicts_resolved": true,
+      "tests_passing": true,
+      "ready_for_qa_revalidation": true,
+      "notes": "Resolved the same .claude_settings.json issue that occurred in session 1 (settings file permissions were removed again). Also committed all auto-claude tracking updates and QA documentation. Verified merge with origin/main shows 'Already up to date' with no conflicts. Working tree is clean. Commits: 75114ce, 6769458, 2f14907, 16e01ce, 322276d"
     }
   ]
 }
