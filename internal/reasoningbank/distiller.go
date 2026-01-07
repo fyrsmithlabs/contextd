@@ -1059,6 +1059,145 @@ func clampConfidence(confidence float64) float64 {
 	return confidence
 }
 
+// Consolidate runs the full memory consolidation process for a project.
+//
+// This method orchestrates the complete consolidation workflow:
+//  1. Find all similarity clusters above the specified threshold
+//  2. Limit to MaxClustersPerRun if specified (0 = no limit)
+//  3. For each cluster, merge into a consolidated memory
+//  4. Link source memories to their consolidated versions
+//  5. Return statistics about the consolidation run
+//
+// In DryRun mode, the method performs similarity detection and reports what would
+// be consolidated without actually creating consolidated memories or archiving
+// source memories.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - projectID: Project to consolidate memories for
+//   - opts: Configuration options (threshold, limits, dry-run mode, etc.)
+//
+// Returns:
+//   - ConsolidationResult with statistics and outcomes
+//   - Error if consolidation fails
+func (d *Distiller) Consolidate(ctx context.Context, projectID string, opts ConsolidationOptions) (*ConsolidationResult, error) {
+	// Validate inputs
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if opts.SimilarityThreshold < 0.0 || opts.SimilarityThreshold > 1.0 {
+		return nil, fmt.Errorf("similarity threshold must be between 0.0 and 1.0, got %f", opts.SimilarityThreshold)
+	}
+
+	// Use default threshold if not set
+	threshold := opts.SimilarityThreshold
+	if threshold == 0.0 {
+		threshold = 0.8 // Default threshold
+	}
+
+	startTime := time.Now()
+
+	d.logger.Info("starting memory consolidation",
+		zap.String("project_id", projectID),
+		zap.Float64("threshold", threshold),
+		zap.Int("max_clusters", opts.MaxClustersPerRun),
+		zap.Bool("dry_run", opts.DryRun),
+		zap.Bool("force_all", opts.ForceAll))
+
+	// Find similar clusters
+	clusters, err := d.FindSimilarClusters(ctx, projectID, threshold)
+	if err != nil {
+		return nil, fmt.Errorf("finding similar clusters: %w", err)
+	}
+
+	d.logger.Info("found similarity clusters",
+		zap.String("project_id", projectID),
+		zap.Int("cluster_count", len(clusters)))
+
+	// Apply MaxClustersPerRun limit if set
+	if opts.MaxClustersPerRun > 0 && len(clusters) > opts.MaxClustersPerRun {
+		d.logger.Info("limiting clusters to process",
+			zap.Int("total_clusters", len(clusters)),
+			zap.Int("max_clusters", opts.MaxClustersPerRun))
+		clusters = clusters[:opts.MaxClustersPerRun]
+	}
+
+	// Initialize result tracking
+	result := &ConsolidationResult{
+		CreatedMemories:  []string{},
+		ArchivedMemories: []string{},
+		SkippedCount:     0,
+		TotalProcessed:   0,
+	}
+
+	// Count total memories to process
+	for _, cluster := range clusters {
+		result.TotalProcessed += len(cluster.Members)
+	}
+
+	// Process each cluster
+	for i, cluster := range clusters {
+		d.logger.Debug("processing cluster",
+			zap.Int("cluster_index", i+1),
+			zap.Int("total_clusters", len(clusters)),
+			zap.Int("members", len(cluster.Members)),
+			zap.Float64("avg_similarity", cluster.AverageSimilarity))
+
+		if opts.DryRun {
+			// Dry run: just log what would be done
+			d.logger.Info("dry run: would consolidate cluster",
+				zap.Int("cluster_index", i+1),
+				zap.Int("members", len(cluster.Members)),
+				zap.Float64("avg_similarity", cluster.AverageSimilarity))
+
+			// Track what would be created/archived
+			result.CreatedMemories = append(result.CreatedMemories, fmt.Sprintf("dry-run-cluster-%d", i+1))
+			for _, mem := range cluster.Members {
+				result.ArchivedMemories = append(result.ArchivedMemories, mem.ID)
+			}
+			continue
+		}
+
+		// Merge the cluster into a consolidated memory
+		consolidatedMemory, err := d.MergeCluster(ctx, &cluster)
+		if err != nil {
+			d.logger.Warn("failed to merge cluster, skipping",
+				zap.Int("cluster_index", i+1),
+				zap.Int("members", len(cluster.Members)),
+				zap.Error(err))
+			result.SkippedCount += len(cluster.Members)
+			continue
+		}
+
+		// Track created consolidated memory
+		result.CreatedMemories = append(result.CreatedMemories, consolidatedMemory.ID)
+
+		// Track archived source memories
+		for _, mem := range cluster.Members {
+			result.ArchivedMemories = append(result.ArchivedMemories, mem.ID)
+		}
+
+		d.logger.Info("cluster consolidated successfully",
+			zap.Int("cluster_index", i+1),
+			zap.String("consolidated_id", consolidatedMemory.ID),
+			zap.Int("source_count", len(cluster.Members)))
+	}
+
+	// Calculate duration
+	result.Duration = time.Since(startTime)
+
+	d.logger.Info("consolidation completed",
+		zap.String("project_id", projectID),
+		zap.Int("created", len(result.CreatedMemories)),
+		zap.Int("archived", len(result.ArchivedMemories)),
+		zap.Int("skipped", result.SkippedCount),
+		zap.Int("total_processed", result.TotalProcessed),
+		zap.Duration("duration", result.Duration),
+		zap.Bool("dry_run", opts.DryRun))
+
+	return result, nil
+}
+
 // linkMemoriesToConsolidated updates source memories to link them to the consolidated version.
 //
 // This method updates each source memory's ConsolidationID field to point to the

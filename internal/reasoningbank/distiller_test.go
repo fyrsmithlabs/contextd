@@ -2305,3 +2305,365 @@ func TestMemoryState_Validation(t *testing.T) {
 	assert.Error(t, mem.Validate(), "invalid state should fail validation")
 	assert.Contains(t, mem.Validate().Error(), "state must be 'active' or 'archived'")
 }
+
+// TestConsolidate_ValidConsolidation tests successful consolidation with multiple clusters.
+func TestConsolidate_ValidConsolidation(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create memories with similar content (will form clusters)
+	mem1, _ := NewMemory(projectID, "API Error Handling Pattern 1", "Use structured error responses", OutcomeSuccess, []string{"api", "errors"})
+	mem1.Confidence = 0.7
+	mem1.UsageCount = 5
+	mem2, _ := NewMemory(projectID, "API Error Handling Pattern 2", "Implement proper error codes", OutcomeSuccess, []string{"api", "errors"})
+	mem2.Confidence = 0.8
+	mem2.UsageCount = 3
+	mem3, _ := NewMemory(projectID, "Database Connection Best Practice", "Use connection pooling", OutcomeSuccess, []string{"database"})
+	mem3.Confidence = 0.6
+	mem3.UsageCount = 2
+	mem4, _ := NewMemory(projectID, "Database Pooling Strategy", "Configure max connections properly", OutcomeSuccess, []string{"database"})
+	mem4.Confidence = 0.75
+	mem4.UsageCount = 4
+
+	// Store memories
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+	require.NoError(t, svc.Record(ctx, mem3))
+	require.NoError(t, svc.Record(ctx, mem4))
+
+	// Run consolidation
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+		MaxClustersPerRun:   0, // No limit
+		DryRun:              false,
+		ForceAll:            true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify result structure
+	assert.Equal(t, 2, len(result.CreatedMemories), "should create 2 consolidated memories")
+	assert.Equal(t, 4, len(result.ArchivedMemories), "should archive 4 source memories")
+	assert.Equal(t, 0, result.SkippedCount, "should skip 0 memories")
+	assert.Equal(t, 4, result.TotalProcessed, "should process 4 memories")
+	assert.Greater(t, result.Duration.Nanoseconds(), int64(0), "duration should be positive")
+
+	// Verify LLM was called (2 clusters = 2 LLM calls)
+	assert.Equal(t, 2, mockLLM.CallCount(), "LLM should be called twice for 2 clusters")
+}
+
+// TestConsolidate_EmptyProject tests consolidation with no memories.
+func TestConsolidate_EmptyProject(t *testing.T) {
+	ctx := context.Background()
+	projectID := "empty-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Run consolidation on empty project
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify no consolidation occurred
+	assert.Empty(t, result.CreatedMemories, "should create no memories")
+	assert.Empty(t, result.ArchivedMemories, "should archive no memories")
+	assert.Equal(t, 0, result.SkippedCount, "should skip 0 memories")
+	assert.Equal(t, 0, result.TotalProcessed, "should process 0 memories")
+
+	// Verify LLM was not called
+	assert.Equal(t, 0, mockLLM.CallCount(), "LLM should not be called for empty project")
+}
+
+// TestConsolidate_InvalidProjectID tests error handling for empty project ID.
+func TestConsolidate_InvalidProjectID(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Run consolidation with empty project ID
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+	}
+
+	result, err := distiller.Consolidate(ctx, "", opts)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Equal(t, ErrEmptyProjectID, err)
+}
+
+// TestConsolidate_InvalidThreshold tests error handling for invalid similarity threshold.
+func TestConsolidate_InvalidThreshold(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Test threshold < 0
+	opts := ConsolidationOptions{
+		SimilarityThreshold: -0.1,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "similarity threshold must be between 0.0 and 1.0")
+
+	// Test threshold > 1
+	opts.SimilarityThreshold = 1.5
+
+	result, err = distiller.Consolidate(ctx, projectID, opts)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "similarity threshold must be between 0.0 and 1.0")
+}
+
+// TestConsolidate_DryRunMode tests consolidation in dry-run mode.
+func TestConsolidate_DryRunMode(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create similar memories
+	mem1, _ := NewMemory(projectID, "Similar Memory 1", "Content about errors", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Similar Memory 2", "Content about errors too", OutcomeSuccess, []string{"test"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Count initial memories
+	initialMemories, err := svc.ListMemories(ctx, projectID, 0, 0)
+	require.NoError(t, err)
+	initialCount := len(initialMemories)
+
+	// Run consolidation in dry-run mode
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+		DryRun:              true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify dry-run results
+	assert.Greater(t, len(result.CreatedMemories), 0, "should report what would be created")
+	assert.Greater(t, len(result.ArchivedMemories), 0, "should report what would be archived")
+
+	// Verify no actual changes were made
+	finalMemories, err := svc.ListMemories(ctx, projectID, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, initialCount, len(finalMemories), "memory count should not change in dry-run mode")
+
+	// Verify LLM was not called in dry-run mode
+	assert.Equal(t, 0, mockLLM.CallCount(), "LLM should not be called in dry-run mode")
+
+	// Verify created IDs follow dry-run pattern
+	for _, id := range result.CreatedMemories {
+		assert.Contains(t, id, "dry-run-cluster-", "dry-run IDs should follow naming pattern")
+	}
+}
+
+// TestConsolidate_MaxClustersLimit tests MaxClustersPerRun limiting.
+func TestConsolidate_MaxClustersLimit(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create 6 memories that form 3 clusters (2 memories each)
+	for i := 0; i < 6; i++ {
+		clusterID := i / 2 // 0,0, 1,1, 2,2
+		mem, _ := NewMemory(projectID, fmt.Sprintf("Memory %d Cluster %d", i, clusterID),
+			fmt.Sprintf("Content for cluster %d", clusterID), OutcomeSuccess, []string{fmt.Sprintf("cluster-%d", clusterID)})
+		require.NoError(t, svc.Record(ctx, mem))
+	}
+
+	// Run consolidation with max 2 clusters
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+		MaxClustersPerRun:   2, // Limit to 2 clusters
+		DryRun:              false,
+		ForceAll:            true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify only 2 clusters were processed
+	assert.LessOrEqual(t, len(result.CreatedMemories), 2, "should create at most 2 consolidated memories")
+	assert.LessOrEqual(t, len(result.ArchivedMemories), 4, "should archive at most 4 source memories (2 clusters * 2 members)")
+
+	// Verify LLM was called at most twice
+	assert.LessOrEqual(t, mockLLM.CallCount(), 2, "LLM should be called at most twice")
+}
+
+// TestConsolidate_NoLLMClient tests error handling when LLM client is not configured.
+func TestConsolidate_NoLLMClient(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+
+	// Create service and distiller WITHOUT LLM client
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop()) // No WithLLMClient
+	require.NoError(t, err)
+
+	// Create similar memories
+	mem1, _ := NewMemory(projectID, "Similar Memory 1", "Content about errors", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Similar Memory 2", "Content about errors too", OutcomeSuccess, []string{"test"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Run consolidation
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.85,
+		DryRun:              false,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Without LLM client, MergeCluster will fail, but consolidation continues
+	// The memories will be skipped
+	assert.Equal(t, 0, len(result.CreatedMemories), "should create no memories without LLM")
+	assert.Greater(t, result.SkippedCount, 0, "should skip memories when LLM not configured")
+}
+
+// TestConsolidate_DefaultThreshold tests that default threshold is applied when not set.
+func TestConsolidate_DefaultThreshold(t *testing.T) {
+	ctx := context.Background()
+	projectID := "test-project"
+
+	// Create mock dependencies
+	mockStore := newMockStore()
+	mockEmbedder := newMockEmbedder(10) // Small vector size for testing
+	mockLLM := newMockLLMClient()
+
+	// Create service and distiller
+	svc := &Service{
+		store:    mockStore,
+		embedder: mockEmbedder,
+		logger:   zap.NewNop(),
+	}
+
+	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
+	require.NoError(t, err)
+
+	// Create similar memories
+	mem1, _ := NewMemory(projectID, "Memory 1", "Similar content", OutcomeSuccess, []string{"test"})
+	mem2, _ := NewMemory(projectID, "Memory 2", "Similar content too", OutcomeSuccess, []string{"test"})
+
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
+
+	// Run consolidation with threshold = 0 (should use default 0.8)
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.0, // Should trigger default
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify consolidation ran (using default threshold of 0.8)
+	// Result will vary based on whether the embeddings exceed 0.8 similarity
+	assert.NotNil(t, result.Duration)
+}

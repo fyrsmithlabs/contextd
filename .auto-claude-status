@@ -3,7 +3,7 @@
   "spec": "002-memory-distiller-implementation",
   "state": "building",
   "subtasks": {
-    "completed": 20,
+    "completed": 21,
     "total": 44,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 22,
+    "number": 23,
     "started_at": "2026-01-06T16:58:46.596396"
   },
-  "last_update": "2026-01-06T18:03:31.135094"
+  "last_update": "2026-01-06T18:05:22.899463"
 }
