@@ -400,8 +400,9 @@
           "id": "8.6",
           "title": "Verify AC: source attribution",
           "description": "Test that consolidated memories include source memory IDs and attribution",
-          "status": "pending",
-          "notes": ""
+          "status": "completed",
+          "notes": "Successfully created comprehensive integration test TestConsolidation_Integration_SourceAttribution that verifies:\n1. Consolidated memory includes source attribution text in Description field\n2. Attribution text is meaningful and references source memories (count, content)\n3. Source memory IDs retrievable via ConsolidationResult.ArchivedMemories\n4. Source memory IDs retrievable via ConsolidationID back-references\n5. Bidirectional relationship: consolidated <-> sources (forward and backward navigation)\n6. Original source content preserved in archived memories\n7. Consolidated memory is active, sources are archived\n\nTest creates 3 similar database-related memories, runs consolidation with custom LLM response containing detailed attribution, then verifies all aspects of source attribution:\n- Description field contains \"Synthesized from 3 source memories\"\n- Attribution references source titles/content (pooling, timeout, monitoring)\n- All source IDs present in result.ArchivedMemories\n- Each source has ConsolidationID pointing to consolidated memory\n- Can navigate from consolidated -> sources and sources -> consolidated\n- Source memories retain original title, content, tags, confidence, usage\n- Consolidated memory has State=Active, ConsolidationID=nil\n\nCommit 522f741 passed golangci-lint validation. Added 244 lines of comprehensive test coverage.\n\nAcceptance Criterion verified: ✓ \"Consolidated memories include source attribution\"",
+          "updated_at": "2026-01-07T01:21:18.801842+00:00"
         },
         {
           "id": "8.7",
@@ -425,5 +426,5 @@
     "tests_passed": "",
     "issues": ""
   },
-  "last_updated": "2026-01-07T01:15:25.511408+00:00"
+  "last_updated": "2026-01-07T01:21:18.801842+00:00"
 }
