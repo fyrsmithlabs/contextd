@@ -195,3 +195,196 @@ func TestScheduler_GracefulShutdown(t *testing.T) {
 
 	assert.False(t, scheduler.running)
 }
+
+// TestScheduler_ConsolidationRuns tests that consolidation runs at the configured interval.
+func TestScheduler_ConsolidationRuns(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create mock distiller with call tracking
+	store := newMockStore()
+	distiller := &Distiller{
+		service: &Service{
+			store:  store,
+			logger: logger,
+		},
+		logger: logger,
+	}
+
+	// Configure scheduler with short interval for testing
+	scheduler, err := NewConsolidationScheduler(
+		distiller,
+		logger,
+		WithInterval(50*time.Millisecond),
+		WithProjectIDs([]string{"project1", "project2"}),
+	)
+	require.NoError(t, err)
+
+	// Start scheduler
+	err = scheduler.Start()
+	require.NoError(t, err)
+
+	// Wait for at least one consolidation run
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop scheduler
+	err = scheduler.Stop()
+	require.NoError(t, err)
+
+	// Give goroutine time to finish
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify that search was called (consolidation attempted)
+	// ConsolidateAll -> Consolidate -> FindSimilarClusters -> ListMemories -> SearchInCollection
+	assert.True(t, store.searchCalled, "expected consolidation to have been attempted")
+}
+
+// TestScheduler_NoProjectsConfigured tests that scheduler doesn't run consolidation when no projects configured.
+func TestScheduler_NoProjectsConfigured(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create mock distiller with call tracking
+	store := newMockStore()
+	distiller := &Distiller{
+		service: &Service{
+			store:  store,
+			logger: logger,
+		},
+		logger: logger,
+	}
+
+	// Configure scheduler with no project IDs
+	scheduler, err := NewConsolidationScheduler(
+		distiller,
+		logger,
+		WithInterval(50*time.Millisecond),
+		// No WithProjectIDs - defaults to empty slice
+	)
+	require.NoError(t, err)
+
+	// Start scheduler
+	err = scheduler.Start()
+	require.NoError(t, err)
+
+	// Wait for interval to pass
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop scheduler
+	err = scheduler.Stop()
+	require.NoError(t, err)
+
+	// Give goroutine time to finish
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify that search was NOT called (no consolidation without projects)
+	assert.False(t, store.searchCalled, "expected no consolidation when no projects configured")
+}
+
+// TestScheduler_WithConsolidationOptions tests that custom consolidation options are used.
+func TestScheduler_WithConsolidationOptions(t *testing.T) {
+	logger := zap.NewNop()
+	distiller := &Distiller{}
+
+	// Configure scheduler with custom options
+	customOpts := ConsolidationOptions{
+		SimilarityThreshold: 0.9,
+		DryRun:              true,
+		ForceAll:            true,
+		MaxClustersPerRun:   10,
+	}
+
+	scheduler, err := NewConsolidationScheduler(
+		distiller,
+		logger,
+		WithConsolidationOptions(customOpts),
+	)
+	require.NoError(t, err)
+
+	// Verify options were set
+	assert.Equal(t, 0.9, scheduler.opts.SimilarityThreshold)
+	assert.True(t, scheduler.opts.DryRun)
+	assert.True(t, scheduler.opts.ForceAll)
+	assert.Equal(t, 10, scheduler.opts.MaxClustersPerRun)
+}
+
+// TestScheduler_MultipleIntervalRuns tests that consolidation runs multiple times.
+func TestScheduler_MultipleIntervalRuns(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create mock distiller with call tracking
+	store := newMockStore()
+	distiller := &Distiller{
+		service: &Service{
+			store:  store,
+			logger: logger,
+		},
+		logger: logger,
+	}
+
+	// Configure scheduler with very short interval
+	scheduler, err := NewConsolidationScheduler(
+		distiller,
+		logger,
+		WithInterval(30*time.Millisecond),
+		WithProjectIDs([]string{"project1"}),
+	)
+	require.NoError(t, err)
+
+	// Start scheduler
+	err = scheduler.Start()
+	require.NoError(t, err)
+
+	// Wait for multiple intervals (should trigger at least 3 runs)
+	time.Sleep(110 * time.Millisecond)
+
+	// Stop scheduler
+	err = scheduler.Stop()
+	require.NoError(t, err)
+
+	// Give goroutine time to finish
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify that search was called multiple times
+	// Note: exact count may vary due to timing, but should be >= 2
+	assert.True(t, store.searchCallCount >= 2, "expected multiple consolidation runs, got %d", store.searchCallCount)
+}
+
+// TestScheduler_ErrorHandling tests that consolidation errors don't stop the scheduler.
+func TestScheduler_ErrorHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create mock distiller that will fail
+	store := newMockStoreWithError()
+	distiller := &Distiller{
+		service: &Service{
+			store:  store,
+			logger: logger,
+		},
+		logger: logger,
+	}
+
+	// Configure scheduler with short interval
+	scheduler, err := NewConsolidationScheduler(
+		distiller,
+		logger,
+		WithInterval(50*time.Millisecond),
+		WithProjectIDs([]string{"project1"}),
+	)
+	require.NoError(t, err)
+
+	// Start scheduler
+	err = scheduler.Start()
+	require.NoError(t, err)
+
+	// Wait for at least two intervals to ensure scheduler continues after error
+	time.Sleep(120 * time.Millisecond)
+
+	// Stop scheduler
+	err = scheduler.Stop()
+	require.NoError(t, err)
+
+	// Give goroutine time to finish
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify that consolidation was attempted despite errors
+	assert.True(t, store.searchCallCount >= 2, "expected scheduler to continue after errors")
+}

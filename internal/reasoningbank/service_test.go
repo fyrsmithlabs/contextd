@@ -15,14 +15,32 @@ import (
 
 // mockStore is a simple in-memory mock of vectorstore.Store for testing.
 type mockStore struct {
-	collections map[string][]vectorstore.Document
-	vectorSize  int
+	collections      map[string][]vectorstore.Document
+	vectorSize       int
+	searchCalled     bool
+	searchCallCount  int
+	returnError      bool
+	errorToReturn    error
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		collections: make(map[string][]vectorstore.Document),
-		vectorSize:  384,
+		collections:     make(map[string][]vectorstore.Document),
+		vectorSize:      384,
+		searchCalled:    false,
+		searchCallCount: 0,
+		returnError:     false,
+	}
+}
+
+func newMockStoreWithError() *mockStore {
+	return &mockStore{
+		collections:     make(map[string][]vectorstore.Document),
+		vectorSize:      384,
+		searchCalled:    false,
+		searchCallCount: 0,
+		returnError:     true,
+		errorToReturn:   fmt.Errorf("mock store error"),
 	}
 }
 
@@ -48,6 +66,15 @@ func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, 
 }
 
 func (m *mockStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	// Track search calls for testing
+	m.searchCalled = true
+	m.searchCallCount++
+
+	// Return error if configured to do so
+	if m.returnError {
+		return nil, m.errorToReturn
+	}
+
 	docs, ok := m.collections[collectionName]
 	if !ok {
 		return []vectorstore.SearchResult{}, nil

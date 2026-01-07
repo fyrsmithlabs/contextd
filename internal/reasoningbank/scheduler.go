@@ -1,6 +1,7 @@
 package reasoningbank
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -18,6 +19,12 @@ type ConsolidationScheduler struct {
 
 	// distiller performs the actual memory consolidation
 	distiller *Distiller
+
+	// projectIDs is the list of projects to consolidate on each run
+	projectIDs []string
+
+	// opts are the consolidation options to use (threshold, dry run, etc.)
+	opts ConsolidationOptions
 
 	// running tracks whether the scheduler is currently running
 	running bool
@@ -37,6 +44,22 @@ type SchedulerOption func(*ConsolidationScheduler)
 func WithInterval(interval time.Duration) SchedulerOption {
 	return func(s *ConsolidationScheduler) {
 		s.interval = interval
+	}
+}
+
+// WithProjectIDs sets the project IDs to consolidate.
+// If not set, the scheduler will not consolidate any projects.
+func WithProjectIDs(projectIDs []string) SchedulerOption {
+	return func(s *ConsolidationScheduler) {
+		s.projectIDs = projectIDs
+	}
+}
+
+// WithConsolidationOptions sets the consolidation options.
+// If not set, uses default options (threshold: 0.8, dry_run: false).
+func WithConsolidationOptions(opts ConsolidationOptions) SchedulerOption {
+	return func(s *ConsolidationScheduler) {
+		s.opts = opts
 	}
 }
 
@@ -62,11 +85,18 @@ func NewConsolidationScheduler(distiller *Distiller, logger *zap.Logger, opts ..
 	}
 
 	s := &ConsolidationScheduler{
-		distiller: distiller,
-		logger:    logger,
-		interval:  24 * time.Hour, // Default: daily consolidation
-		running:   false,
-		stopCh:    make(chan struct{}),
+		distiller:  distiller,
+		logger:     logger,
+		interval:   24 * time.Hour, // Default: daily consolidation
+		projectIDs: []string{},
+		opts: ConsolidationOptions{
+			SimilarityThreshold: 0.8, // Default threshold
+			DryRun:              false,
+			ForceAll:            false,
+			MaxClustersPerRun:   0, // No limit
+		},
+		running: false,
+		stopCh:  make(chan struct{}),
 	}
 
 	// Apply options
@@ -127,12 +157,67 @@ func (s *ConsolidationScheduler) Stop() error {
 // run is the main scheduler loop that executes consolidation on the configured interval.
 // This runs in a background goroutine started by Start().
 //
-// TODO(7.3): Implement the actual scheduler loop with interval-based consolidation.
+// The loop uses a ticker to trigger consolidation at regular intervals. Each consolidation
+// attempt is independent - errors are logged but do not stop the scheduler. The scheduler
+// continues running until Stop() is called.
 func (s *ConsolidationScheduler) run() {
 	s.logger.Debug("scheduler goroutine started")
 	defer s.logger.Debug("scheduler goroutine stopped")
 
-	// TODO(7.3): Implement actual consolidation loop
-	// This stub just waits for stop signal
-	<-s.stopCh
+	// Create a ticker for the configured interval
+	ticker := time.NewTicker(s.interval)
+	defer ticker.Stop()
+
+	// Main scheduler loop
+	for {
+		select {
+		case <-ticker.C:
+			// Time to run consolidation
+			s.runConsolidation()
+
+		case <-s.stopCh:
+			// Shutdown signal received
+			s.logger.Debug("scheduler received stop signal")
+			return
+		}
+	}
+}
+
+// runConsolidation executes a single consolidation run.
+// Errors are logged but do not stop the scheduler.
+func (s *ConsolidationScheduler) runConsolidation() {
+	// Check if we have any projects to consolidate
+	if len(s.projectIDs) == 0 {
+		s.logger.Debug("no projects configured for consolidation, skipping")
+		return
+	}
+
+	s.logger.Info("starting scheduled consolidation",
+		zap.Int("project_count", len(s.projectIDs)),
+		zap.Float64("threshold", s.opts.SimilarityThreshold),
+		zap.Bool("dry_run", s.opts.DryRun),
+	)
+
+	// Use background context with a reasonable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// Run consolidation across all configured projects
+	result, err := s.distiller.ConsolidateAll(ctx, s.projectIDs, s.opts)
+	if err != nil {
+		s.logger.Error("consolidation failed",
+			zap.Error(err),
+			zap.Int("project_count", len(s.projectIDs)),
+		)
+		return
+	}
+
+	// Log successful consolidation
+	s.logger.Info("scheduled consolidation completed",
+		zap.Int("created", len(result.CreatedMemories)),
+		zap.Int("archived", len(result.ArchivedMemories)),
+		zap.Int("skipped", result.SkippedCount),
+		zap.Int("total_processed", result.TotalProcessed),
+		zap.Duration("duration", result.Duration),
+	)
 }
