@@ -1,6 +1,6 @@
 # Memory Distiller Implementation - Build Progress
 
-## Status: IN PROGRESS - Phase 4
+## Status: IN PROGRESS - Phase 5
 **Last Updated**: 2026-01-06
 
 ## Overview
@@ -24,7 +24,6 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - Add Consolidate() - orchestrate full consolidation run (Phase 5)
 - Add ConsolidationScheduler - background automatic runs (Phase 7)
 - Add memory_consolidate MCP tool - manual triggering (Phase 6)
-- Update Search() to prefer consolidated memories (Phase 4)
 
 ## Phase Progress
 
@@ -49,12 +48,12 @@ Implementing real memory consolidation to replace the stub distiller. The system
 - [x] MockLLMClient for testing (commit 8bd435d)
 - [x] Tests for synthesis (commit 2e01930)
 
-### Phase 4: Confidence & Attribution System [IN PROGRESS]
+### Phase 4: Confidence & Attribution System [COMPLETED]
 - [x] Consolidated confidence calculation (commit 37db2eb)
 - [x] consolidation_id field on Memory (already in types.go)
-- [x] LinkMemoriesToConsolidated() method (already implemented in distiller.go)
+- [x] LinkMemoriesToConsolidated() method (commit e06f161)
 - [x] Search boost for consolidated memories (commit d14edcf)
-- [ ] Tests
+- [x] Comprehensive test suite (commit ad0ffea)
 
 ### Phase 5: Consolidate Method & Scheduling [PENDING]
 - [ ] ConsolidationOptions struct
