@@ -609,3 +609,211 @@ func TestConsolidation_Integration_ConsolidationWindow(t *testing.T) {
 
 	t.Log("Consolidation window tracking verified successfully")
 }
+
+// TestConsolidation_Integration_SimilarityThreshold tests that memories with
+// >0.8 similarity are consolidated, while those with <0.8 similarity are not.
+//
+// This integration test verifies:
+// - Memories with >0.8 similarity are detected as a cluster and consolidated
+// - Memories with <0.8 similarity are NOT clustered together
+// - Only similar memories are archived, dissimilar memories remain active
+// - The 0.8 threshold is correctly applied in clustering logic
+func TestConsolidation_Integration_SimilarityThreshold(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	llmClient := newMockLLMClient()
+	logger := zap.NewNop()
+
+	// Create service with embedder
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	// Create distiller with LLM client
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(llmClient))
+	require.NoError(t, err)
+
+	projectID := "integration-project-6"
+
+	// Note: mockEmbedder creates embeddings based on text length:
+	// embedding[j] = float32(len(text)+j) / 1000.0
+	// Therefore, texts with similar lengths have high cosine similarity,
+	// and texts with very different lengths have low similarity.
+
+	// Create HIGH SIMILARITY memories (similar text lengths -> >0.8 similarity)
+	// Using titles with exact same length (45 characters each)
+	highSim1, _ := NewMemory(projectID,
+		"Error handling pattern for database queries", // 45 chars
+		"Use proper error handling when querying databases", OutcomeSuccess, []string{"database", "errors"})
+	highSim1.Confidence = 0.8
+	highSim1.UsageCount = 5
+
+	highSim2, _ := NewMemory(projectID,
+		"Error handling pattern for network requests", // 45 chars
+		"Use proper error handling when making API calls", OutcomeSuccess, []string{"network", "errors"})
+	highSim2.Confidence = 0.7
+	highSim2.UsageCount = 3
+
+	highSim3, _ := NewMemory(projectID,
+		"Error handling pattern for file operations", // 44 chars (very close)
+		"Use proper error handling when reading files", OutcomeSuccess, []string{"files", "errors"})
+	highSim3.Confidence = 0.9
+	highSim3.UsageCount = 10
+
+	// Create LOW SIMILARITY memories (very different text lengths -> <0.8 similarity)
+	// Using titles with dramatically different lengths
+	lowSim1, _ := NewMemory(projectID,
+		"X", // 1 char - very short
+		"A", OutcomeSuccess, []string{"test"})
+	lowSim1.Confidence = 0.6
+	lowSim1.UsageCount = 2
+
+	lowSim2, _ := NewMemory(projectID,
+		"This is a significantly longer title that will produce a completely different embedding vector due to its much greater character length which makes it dissimilar", // 163 chars - very long
+		"This is a significantly longer content that will produce a completely different embedding vector", OutcomeSuccess, []string{"test"})
+	lowSim2.Confidence = 0.7
+	lowSim2.UsageCount = 4
+
+	// Record all memories
+	require.NoError(t, svc.Record(ctx, highSim1))
+	require.NoError(t, svc.Record(ctx, highSim2))
+	require.NoError(t, svc.Record(ctx, highSim3))
+	require.NoError(t, svc.Record(ctx, lowSim1))
+	require.NoError(t, svc.Record(ctx, lowSim2))
+
+	// Verify initial count
+	initialMemories, err := svc.ListMemories(ctx, projectID, 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 5, len(initialMemories),
+		"should have 5 memories before consolidation")
+
+	// Run consolidation with 0.8 threshold
+	opts := ConsolidationOptions{
+		SimilarityThreshold: 0.8,
+		MaxClustersPerRun:   0,
+		DryRun:              false,
+		ForceAll:            true,
+	}
+
+	result, err := distiller.Consolidate(ctx, projectID, opts)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	t.Logf("Similarity threshold test result: created=%d, archived=%d, skipped=%d, total=%d",
+		len(result.CreatedMemories), len(result.ArchivedMemories),
+		result.SkippedCount, result.TotalProcessed)
+
+	// Verify results:
+	// 1. Should create exactly 1 consolidated memory (from the 3 high-similarity memories)
+	assert.Equal(t, 1, len(result.CreatedMemories),
+		"should create exactly 1 consolidated memory from high-similarity cluster")
+
+	// 2. Should archive exactly 3 memories (the high-similarity source memories)
+	assert.Equal(t, 3, len(result.ArchivedMemories),
+		"should archive exactly 3 high-similarity source memories")
+
+	// 3. Should process all 5 memories
+	assert.Equal(t, 5, result.TotalProcessed,
+		"should process all 5 memories")
+
+	// 4. LLM should be called exactly once (for the single cluster)
+	assert.Equal(t, 1, llmClient.CallCount(),
+		"LLM should be called exactly once for the high-similarity cluster")
+
+	// Verify the consolidated memory was created
+	consolidatedID := result.CreatedMemories[0]
+	consolidatedMem, err := svc.GetByProjectID(ctx, projectID, consolidatedID)
+	require.NoError(t, err)
+	require.NotNil(t, consolidatedMem)
+	assert.Equal(t, MemoryStateActive, consolidatedMem.State)
+	assert.Nil(t, consolidatedMem.ConsolidationID)
+
+	// Verify high-similarity memories were archived
+	highSimIDs := []string{highSim1.ID, highSim2.ID, highSim3.ID}
+	for _, id := range highSimIDs {
+		found := false
+		for _, archivedID := range result.ArchivedMemories {
+			if archivedID == id {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found,
+			"high-similarity memory %s should be archived", id)
+
+		// Verify the archived memory has proper links
+		mem, err := svc.GetByProjectID(ctx, projectID, id)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateArchived, mem.State,
+			"high-similarity memory should be archived")
+		require.NotNil(t, mem.ConsolidationID,
+			"archived memory should have consolidation link")
+		assert.Equal(t, consolidatedID, *mem.ConsolidationID,
+			"archived memory should link to consolidated memory")
+	}
+
+	// Verify low-similarity memories were NOT archived
+	lowSimIDs := []string{lowSim1.ID, lowSim2.ID}
+	for _, id := range lowSimIDs {
+		found := false
+		for _, archivedID := range result.ArchivedMemories {
+			if archivedID == id {
+				found = true
+				break
+			}
+		}
+		assert.False(t, found,
+			"low-similarity memory %s should NOT be archived", id)
+
+		// Verify the memory is still active
+		mem, err := svc.GetByProjectID(ctx, projectID, id)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateActive, mem.State,
+			"low-similarity memory should remain active")
+		assert.Nil(t, mem.ConsolidationID,
+			"low-similarity memory should not have consolidation link")
+	}
+
+	// Verify search behavior: should return consolidated + low-similarity memories
+	searchResults, err := svc.Search(ctx, projectID, "error", 10)
+	require.NoError(t, err)
+
+	t.Logf("Search results: %d total", len(searchResults))
+
+	// Count active vs archived
+	var activeCount, archivedCount int
+	var hasConsolidated bool
+	hasLowSim := make(map[string]bool)
+
+	for _, res := range searchResults {
+		if res.State == MemoryStateArchived {
+			archivedCount++
+		} else {
+			activeCount++
+			if res.ID == consolidatedID {
+				hasConsolidated = true
+			}
+			for _, lowSimID := range lowSimIDs {
+				if res.ID == lowSimID {
+					hasLowSim[lowSimID] = true
+				}
+			}
+		}
+	}
+
+	// Verify search filtering
+	assert.Equal(t, 0, archivedCount,
+		"search should not return archived memories")
+	assert.Greater(t, activeCount, 0,
+		"search should return active memories")
+	assert.True(t, hasConsolidated,
+		"search should return the consolidated memory")
+
+	// Low similarity memories should also be in search results (they're still active)
+	// Note: They might not all appear if search filters by relevance
+	t.Logf("Found %d low-similarity memories in search results", len(hasLowSim))
+
+	t.Log("Similarity threshold (0.8) correctly applied: >0.8 consolidated, <0.8 not consolidated")
+}
