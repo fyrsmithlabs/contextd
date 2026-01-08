@@ -1,6 +1,7 @@
 package reasoningbank
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -198,24 +199,31 @@ func TestScheduler_GracefulShutdown(t *testing.T) {
 
 // TestScheduler_ConsolidationRuns tests that consolidation runs at the configured interval.
 func TestScheduler_ConsolidationRuns(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
 
 	// Create mock distiller with call tracking
 	store := newMockStore()
-	distiller := &Distiller{
-		service: &Service{
-			store:  store,
-			logger: logger,
-		},
-		logger: logger,
-	}
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(newMockEmbedder(384)))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(newMockLLMClient()))
+	require.NoError(t, err)
+
+	// Add memories so that collections exist and SearchInCollection is called
+	mem1, _ := NewMemory("project1", "Error Pattern 1", "Content 1", OutcomeSuccess, nil)
+	mem2, _ := NewMemory("project1", "Error Pattern 2", "Content 2", OutcomeSuccess, nil)
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
 
 	// Configure scheduler with short interval for testing
 	scheduler, err := NewConsolidationScheduler(
 		distiller,
 		logger,
 		WithInterval(50*time.Millisecond),
-		WithProjectIDs([]string{"project1", "project2"}),
+		WithProjectIDs([]string{"project1"}),
 	)
 	require.NoError(t, err)
 
@@ -244,13 +252,13 @@ func TestScheduler_NoProjectsConfigured(t *testing.T) {
 
 	// Create mock distiller with call tracking
 	store := newMockStore()
-	distiller := &Distiller{
-		service: &Service{
-			store:  store,
-			logger: logger,
-		},
-		logger: logger,
-	}
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(newMockEmbedder(384)))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(newMockLLMClient()))
+	require.NoError(t, err)
 
 	// Configure scheduler with no project IDs
 	scheduler, err := NewConsolidationScheduler(
@@ -308,17 +316,24 @@ func TestScheduler_WithConsolidationOptions(t *testing.T) {
 
 // TestScheduler_MultipleIntervalRuns tests that consolidation runs multiple times.
 func TestScheduler_MultipleIntervalRuns(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
 
 	// Create mock distiller with call tracking
 	store := newMockStore()
-	distiller := &Distiller{
-		service: &Service{
-			store:  store,
-			logger: logger,
-		},
-		logger: logger,
-	}
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(newMockEmbedder(384)))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(newMockLLMClient()))
+	require.NoError(t, err)
+
+	// Add memories so that collections exist and SearchInCollection is called
+	mem1, _ := NewMemory("project1", "Error Pattern 1", "Content 1", OutcomeSuccess, nil)
+	mem2, _ := NewMemory("project1", "Error Pattern 2", "Content 2", OutcomeSuccess, nil)
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
 
 	// Configure scheduler with very short interval
 	scheduler, err := NewConsolidationScheduler(
@@ -350,17 +365,24 @@ func TestScheduler_MultipleIntervalRuns(t *testing.T) {
 
 // TestScheduler_ErrorHandling tests that consolidation errors don't stop the scheduler.
 func TestScheduler_ErrorHandling(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
 
 	// Create mock distiller that will fail
 	store := newMockStoreWithError()
-	distiller := &Distiller{
-		service: &Service{
-			store:  store,
-			logger: logger,
-		},
-		logger: logger,
-	}
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(newMockEmbedder(384)))
+	require.NoError(t, err)
+
+	distiller, err := NewDistiller(svc, logger, WithLLMClient(newMockLLMClient()))
+	require.NoError(t, err)
+
+	// Add memories so that collections exist and SearchInCollection is called (and returns error)
+	mem1, _ := NewMemory("project1", "Error Pattern 1", "Content 1", OutcomeSuccess, nil)
+	mem2, _ := NewMemory("project1", "Error Pattern 2", "Content 2", OutcomeSuccess, nil)
+	require.NoError(t, svc.Record(ctx, mem1))
+	require.NoError(t, svc.Record(ctx, mem2))
 
 	// Configure scheduler with short interval
 	scheduler, err := NewConsolidationScheduler(

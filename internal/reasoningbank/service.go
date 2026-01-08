@@ -1127,10 +1127,15 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	confidence := parseFloat64(result.Metadata["confidence"])
 	usageCount := int(parseInt64(result.Metadata["usage_count"]))
 
-	// Parse tags
+	// Parse tags (handle both []string and []interface{} types)
 	tags := []string{}
 	if tagsIface, ok := result.Metadata["tags"]; ok {
-		if tagsList, ok := tagsIface.([]interface{}); ok {
+		switch tagsList := tagsIface.(type) {
+		case []string:
+			// Direct []string (from mock store or direct storage)
+			tags = append(tags, tagsList...)
+		case []interface{}:
+			// []interface{} (from JSON deserialization)
 			for _, t := range tagsList {
 				if tag, ok := t.(string); ok {
 					tags = append(tags, tag)

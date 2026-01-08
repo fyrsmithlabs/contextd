@@ -3,6 +3,9 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1278,33 +1281,152 @@ func TestService_ListMemories(t *testing.T) {
 }
 
 // mockEmbedder implements vectorstore.Embedder for testing.
+// It creates semantically-aware embeddings based on keywords in the text.
+// Texts with similar keywords will have similar embeddings.
 type mockEmbedder struct {
 	vectorSize int
+	vocabulary map[string]int
+	mu         sync.RWMutex
 }
 
 func newMockEmbedder(vectorSize int) *mockEmbedder {
-	return &mockEmbedder{vectorSize: vectorSize}
+	return &mockEmbedder{
+		vectorSize: vectorSize,
+		vocabulary: make(map[string]int),
+	}
 }
 
 func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
 	embeddings := make([][]float32, len(texts))
-	for i := range texts {
-		embeddings[i] = make([]float32, m.vectorSize)
-		// Create deterministic embeddings based on text length
-		for j := 0; j < m.vectorSize; j++ {
-			embeddings[i][j] = float32(len(texts[i])+j) / 1000.0
-		}
+	for i, text := range texts {
+		embeddings[i] = m.makeSemanticEmbedding(text)
 	}
 	return embeddings, nil
 }
 
 func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return m.makeSemanticEmbedding(text), nil
+}
+
+// topicKeywords maps topic keywords to topic IDs for clustering.
+// Texts containing keywords from the same topic get similar embeddings.
+var topicKeywords = map[string]int{
+	// Error handling topic (ID: 0)
+	"error": 0, "errors": 0, "handling": 0, "catch": 0, "try": 0,
+	"exception": 0, "throw": 0, "response": 0, "codes": 0, "messages": 0,
+	// Database topic (ID: 1)
+	"database": 1, "db": 1, "connection": 1, "pool": 1, "pooling": 1,
+	"query": 1, "sql": 1, "transaction": 1,
+	// API topic (ID: 2)
+	"api": 2, "rest": 2, "endpoint": 2, "http": 2, "request": 2,
+	// Frontend topic (ID: 3)
+	"frontend": 3, "react": 3, "component": 3, "ui": 3, "hooks": 3,
+	// Go topic (ID: 4)
+	"go": 4, "golang": 4, "goroutine": 4, "channel": 4,
+	// Python topic (ID: 5)
+	"python": 5, "pip": 5, "django": 5, "flask": 5,
+}
+
+// makeSemanticEmbedding creates embeddings where similar texts have similar vectors.
+// Uses topic-based approach: texts with keywords from the same topic get highly similar embeddings.
+// Also gives strong weight to shared words so texts like "Pattern A one" and "Pattern A two" cluster.
+func (m *mockEmbedder) makeSemanticEmbedding(text string) []float32 {
 	embedding := make([]float32, m.vectorSize)
-	// Create deterministic embedding based on text length
-	for j := 0; j < m.vectorSize; j++ {
-		embedding[j] = float32(len(text)+j) / 1000.0
+
+	// Normalize and tokenize
+	text = strings.ToLower(text)
+	words := strings.Fields(text)
+
+	// Find which topics this text belongs to
+	topicWeights := make(map[int]float32)
+	for _, word := range words {
+		if topicID, ok := topicKeywords[word]; ok {
+			topicWeights[topicID] += 1.0
+		}
 	}
-	return embedding, nil
+
+	// Create embedding based on topics (first dimensions) and words (remaining)
+	// This ensures texts from the same topic have high similarity
+	for topicID, weight := range topicWeights {
+		// Each topic uses a block of dimensions
+		baseIdx := topicID * 20 // 20 dimensions per topic
+		for i := 0; i < 20; i++ {
+			idx := (baseIdx + i) % m.vectorSize
+			embedding[idx] += weight * 2.0 // Strong topic signal
+		}
+	}
+
+	// Add word-level detail - use VERY STRONG signal for early words
+	// to ensure texts with common prefixes cluster together.
+	// "Test pattern alpha" and "Test pattern beta" should have >0.8 similarity
+	// because they share 2/3 words including the important first two.
+	for i, word := range words {
+		idx := m.getOrCreateWordIndex(word)
+		// Weight decreases for later words: first two words dominate
+		// first=10.0, second=8.0, third=3.0, rest=1.0
+		var weight float32
+		switch i {
+		case 0:
+			weight = 10.0
+		case 1:
+			weight = 8.0
+		case 2:
+			weight = 3.0
+		default:
+			weight = 1.0
+		}
+		// Spread across multiple dimensions for better similarity detection
+		for offset := 0; offset < 12; offset++ {
+			dimIdx := (idx + offset*13) % m.vectorSize
+			embedding[dimIdx] += weight
+		}
+	}
+
+	// Normalize to unit vector
+	var sumSq float32
+	for _, v := range embedding {
+		sumSq += v * v
+	}
+	if sumSq > 0 {
+		norm := float32(1.0 / math.Sqrt(float64(sumSq)))
+		for i := range embedding {
+			embedding[i] *= norm
+		}
+	} else {
+		embedding[0] = 1.0
+	}
+
+	return embedding
+}
+
+// getOrCreateWordIndex returns the vocabulary index for a word, creating one if needed.
+func (m *mockEmbedder) getOrCreateWordIndex(word string) int {
+	m.mu.RLock()
+	idx, exists := m.vocabulary[word]
+	m.mu.RUnlock()
+	if exists {
+		return idx
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if idx, exists = m.vocabulary[word]; exists {
+		return idx
+	}
+
+	// Use hash-based position for new words
+	hash := 0
+	for _, c := range word {
+		hash = (hash*31 + int(c))
+	}
+	idx = hash % m.vectorSize
+	if idx < 0 {
+		idx = -idx
+	}
+	m.vocabulary[word] = idx
+	return idx
 }
 
 func TestGetMemoryVector(t *testing.T) {
@@ -1340,10 +1462,16 @@ func TestGetMemoryVector(t *testing.T) {
 		assert.NotNil(t, vector)
 		assert.Len(t, vector, 384)
 
-		// Verify vector is deterministic (based on content)
-		// Content is "Test Memory\n\nThis is test content" (33 chars)
-		expectedFirstValue := float32(33) / 1000.0
-		assert.Equal(t, expectedFirstValue, vector[0])
+		// Verify vector is non-zero (embedder produces meaningful values)
+		// Note: The new embedder uses word-based semantics, not text length
+		var hasNonZero bool
+		for _, v := range vector {
+			if v != 0 {
+				hasNonZero = true
+				break
+			}
+		}
+		assert.True(t, hasNonZero, "vector should have non-zero values")
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
@@ -1421,10 +1549,16 @@ func TestGetMemoryVectorByProjectID(t *testing.T) {
 		assert.NotNil(t, vector)
 		assert.Len(t, vector, 384)
 
-		// Verify vector is deterministic (based on content)
-		// Content is "Test Memory\n\nThis is test content" (33 chars)
-		expectedFirstValue := float32(33) / 1000.0
-		assert.Equal(t, expectedFirstValue, vector[0])
+		// Verify vector is non-zero (embedder produces meaningful values)
+		// Note: The new embedder uses word-based semantics, not text length
+		var hasNonZero bool
+		for _, v := range vector {
+			if v != 0 {
+				hasNonZero = true
+				break
+			}
+		}
+		assert.True(t, hasNonZero, "vector should have non-zero values")
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {

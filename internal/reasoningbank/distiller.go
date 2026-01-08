@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -898,7 +899,8 @@ func (d *Distiller) MergeCluster(ctx context.Context, cluster *SimilarityCluster
 		return nil, fmt.Errorf("parsing LLM response: %w", err)
 	}
 
-	// Set project ID (parseConsolidatedMemory leaves it empty)
+	// Set project ID and generate ID (parseConsolidatedMemory leaves them empty)
+	consolidatedMemory.ID = uuid.New().String()
 	consolidatedMemory.ProjectID = projectID
 
 	// Calculate merged confidence from source memories

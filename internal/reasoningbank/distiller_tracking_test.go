@@ -149,11 +149,10 @@ func TestConsolidationTracking_IntegrationWithConsolidate(t *testing.T) {
 	mockLLM := newMockLLMClient()
 
 	// Create service and distiller with short window for testing
-	svc := &Service{
-		store:    mockStore,
-		embedder: mockEmbedder,
-		logger:   zap.NewNop(),
-	}
+	svc, err := NewService(mockStore, zap.NewNop(),
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(mockEmbedder))
+	require.NoError(t, err)
 
 	distiller, err := NewDistiller(svc, zap.NewNop(),
 		WithLLMClient(mockLLM),
@@ -219,11 +218,10 @@ func TestConsolidationTracking_DryRunNoUpdate(t *testing.T) {
 	mockLLM := newMockLLMClient()
 
 	// Create service and distiller
-	svc := &Service{
-		store:    mockStore,
-		embedder: mockEmbedder,
-		logger:   zap.NewNop(),
-	}
+	svc, err := NewService(mockStore, zap.NewNop(),
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(mockEmbedder))
+	require.NoError(t, err)
 
 	distiller, err := NewDistiller(svc, zap.NewNop(), WithLLMClient(mockLLM))
 	require.NoError(t, err)
