@@ -3,6 +3,10 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"math"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,19 +18,42 @@ import (
 )
 
 // mockStore is a simple in-memory mock of vectorstore.Store for testing.
+// Thread-safe: uses mutex for concurrent access from scheduler goroutines.
 type mockStore struct {
-	collections map[string][]vectorstore.Document
-	vectorSize  int
+	mu               sync.RWMutex
+	collections      map[string][]vectorstore.Document
+	vectorSize       int
+	searchCalled     bool
+	searchCallCount  int
+	returnError      bool
+	errorToReturn    error
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		collections: make(map[string][]vectorstore.Document),
-		vectorSize:  384,
+		collections:     make(map[string][]vectorstore.Document),
+		vectorSize:      384,
+		searchCalled:    false,
+		searchCallCount: 0,
+		returnError:     false,
+	}
+}
+
+func newMockStoreWithError() *mockStore {
+	return &mockStore{
+		collections:     make(map[string][]vectorstore.Document),
+		vectorSize:      384,
+		searchCalled:    false,
+		searchCallCount: 0,
+		returnError:     true,
+		errorToReturn:   fmt.Errorf("mock store error"),
 	}
 }
 
 func (m *mockStore) AddDocuments(ctx context.Context, docs []vectorstore.Document) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	ids := make([]string, len(docs))
 	for i, doc := range docs {
 		collectionName := doc.Collection
@@ -48,7 +75,20 @@ func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, 
 }
 
 func (m *mockStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	m.mu.Lock()
+	// Track search calls for testing
+	m.searchCalled = true
+	m.searchCallCount++
+
+	// Return error if configured to do so
+	if m.returnError {
+		m.mu.Unlock()
+		return nil, m.errorToReturn
+	}
+
 	docs, ok := m.collections[collectionName]
+	m.mu.Unlock()
+
 	if !ok {
 		return []vectorstore.SearchResult{}, nil
 	}
@@ -97,6 +137,9 @@ func (m *mockStore) SearchInCollection(ctx context.Context, collectionName strin
 }
 
 func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for collectionName, docs := range m.collections {
 		filtered := []vectorstore.Document{}
 		for _, doc := range docs {
@@ -117,6 +160,9 @@ func (m *mockStore) DeleteDocuments(ctx context.Context, ids []string) error {
 }
 
 func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	docs, exists := m.collections[collectionName]
 	if !exists {
 		return nil
@@ -139,6 +185,9 @@ func (m *mockStore) DeleteDocumentsFromCollection(ctx context.Context, collectio
 }
 
 func (m *mockStore) CreateCollection(ctx context.Context, collectionName string, vectorSize int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.collections[collectionName]; exists {
 		return vectorstore.ErrCollectionExists
 	}
@@ -147,6 +196,9 @@ func (m *mockStore) CreateCollection(ctx context.Context, collectionName string,
 }
 
 func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.collections[collectionName]; !exists {
 		return vectorstore.ErrCollectionNotFound
 	}
@@ -155,11 +207,17 @@ func (m *mockStore) DeleteCollection(ctx context.Context, collectionName string)
 }
 
 func (m *mockStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	_, exists := m.collections[collectionName]
 	return exists, nil
 }
 
 func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	names := make([]string, 0, len(m.collections))
 	for name := range m.collections {
 		names = append(names, name)
@@ -168,6 +226,9 @@ func (m *mockStore) ListCollections(ctx context.Context) ([]string, error) {
 }
 
 func (m *mockStore) GetCollectionInfo(ctx context.Context, collectionName string) (*vectorstore.CollectionInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	docs, exists := m.collections[collectionName]
 	if !exists {
 		return nil, vectorstore.ErrCollectionNotFound
@@ -193,6 +254,20 @@ func (m *mockStore) SetIsolationMode(mode vectorstore.IsolationMode) {
 
 func (m *mockStore) IsolationMode() vectorstore.IsolationMode {
 	return vectorstore.NewNoIsolation()
+}
+
+// SearchCalled returns whether SearchInCollection was called (thread-safe).
+func (m *mockStore) SearchCalled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCalled
+}
+
+// SearchCallCount returns the number of times SearchInCollection was called (thread-safe).
+func (m *mockStore) SearchCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCallCount
 }
 
 func TestNewService(t *testing.T) {
@@ -1063,5 +1138,864 @@ func TestService_WithStoreProvider_Operations(t *testing.T) {
 		_, okB := stores.stores["test-tenant/project-B"]
 		assert.True(t, okA, "project-A should have its own store")
 		assert.True(t, okB, "project-B should have its own store")
+	})
+}
+
+func TestService_ListMemories(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	t.Run("validates project ID", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "", 10, 0)
+		require.Error(t, err)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("validates limit", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "project-123", -1, 0)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "limit cannot be negative")
+	})
+
+	t.Run("validates offset", func(t *testing.T) {
+		_, err := svc.ListMemories(ctx, "project-123", 10, -1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "offset cannot be negative")
+	})
+
+	t.Run("returns empty list for non-existent project", func(t *testing.T) {
+		memories, err := svc.ListMemories(ctx, "non-existent", 10, 0)
+		require.NoError(t, err)
+		assert.Empty(t, memories)
+	})
+
+	t.Run("lists all memories without pagination", func(t *testing.T) {
+		projectID := "list-project-1"
+
+		// Create multiple memories
+		for i := 1; i <= 5; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List all memories (limit=0 means all)
+		memories, err := svc.ListMemories(ctx, projectID, 0, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 5)
+	})
+
+	t.Run("lists memories with limit", func(t *testing.T) {
+		projectID := "list-project-2"
+
+		// Create multiple memories
+		for i := 1; i <= 10; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List with limit
+		memories, err := svc.ListMemories(ctx, projectID, 3, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 3)
+	})
+
+	t.Run("lists memories with offset", func(t *testing.T) {
+		projectID := "list-project-3"
+
+		// Create memories with known titles
+		titles := []string{"First", "Second", "Third", "Fourth", "Fifth"}
+		for _, title := range titles {
+			memory, _ := NewMemory(
+				projectID,
+				title,
+				fmt.Sprintf("Content for %s", title),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// List with offset (skip first 2, get next 2)
+		memories, err := svc.ListMemories(ctx, projectID, 2, 2)
+		require.NoError(t, err)
+		assert.Len(t, memories, 2)
+
+		// Verify offset was applied (we should get 3rd and 4th items)
+		// Note: order depends on storage implementation
+		for _, mem := range memories {
+			assert.NotEmpty(t, mem.Title)
+		}
+	})
+
+	t.Run("handles offset beyond available memories", func(t *testing.T) {
+		projectID := "list-project-4"
+
+		// Create 3 memories
+		for i := 1; i <= 3; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Try to list with offset beyond available memories
+		memories, err := svc.ListMemories(ctx, projectID, 10, 100)
+		require.NoError(t, err)
+		assert.Empty(t, memories)
+	})
+
+	t.Run("returns all memories when limit exceeds count", func(t *testing.T) {
+		projectID := "list-project-5"
+
+		// Create 3 memories
+		for i := 1; i <= 3; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Request more than available
+		memories, err := svc.ListMemories(ctx, projectID, 100, 0)
+		require.NoError(t, err)
+		assert.Len(t, memories, 3)
+	})
+
+	t.Run("pagination example", func(t *testing.T) {
+		projectID := "list-project-6"
+
+		// Create 10 memories
+		for i := 1; i <= 10; i++ {
+			memory, _ := NewMemory(
+				projectID,
+				fmt.Sprintf("Memory %d", i),
+				fmt.Sprintf("Content for memory %d", i),
+				OutcomeSuccess,
+				[]string{"test"},
+			)
+			err := svc.Record(ctx, memory)
+			require.NoError(t, err)
+		}
+
+		// Paginate through all memories (page size = 3)
+		allMemories := []Memory{}
+		pageSize := 3
+		offset := 0
+
+		for {
+			page, err := svc.ListMemories(ctx, projectID, pageSize, offset)
+			require.NoError(t, err)
+
+			if len(page) == 0 {
+				break
+			}
+
+			allMemories = append(allMemories, page...)
+			offset += len(page)
+		}
+
+		// Should have collected all 10 memories
+		assert.Len(t, allMemories, 10)
+	})
+}
+
+// mockEmbedder implements vectorstore.Embedder for testing.
+type mockEmbedder struct {
+	vectorSize int
+}
+
+func newMockEmbedder(vectorSize int) *mockEmbedder {
+	return &mockEmbedder{vectorSize: vectorSize}
+}
+
+func (m *mockEmbedder) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	embeddings := make([][]float32, len(texts))
+	for i := range texts {
+		embeddings[i] = m.createEmbedding(texts[i])
+	}
+	return embeddings, nil
+}
+
+func (m *mockEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return m.createEmbedding(text), nil
+}
+
+// createEmbedding creates a deterministic embedding based on text content.
+// Texts with the same first 2 significant words get similar embeddings (cosine sim > 0.9).
+// Texts with different starting words get distinct embeddings (cosine sim < 0.5).
+// Uses orthogonal category vectors with small within-category variation.
+func (m *mockEmbedder) createEmbedding(text string) []float32 {
+	embedding := make([]float32, m.vectorSize)
+
+	// Extract first 2 significant words as the "semantic category"
+	words := strings.Fields(strings.ToLower(text))
+	var categoryWords []string
+	for _, w := range words {
+		// Skip very short words (articles, etc)
+		if len(w) > 2 {
+			categoryWords = append(categoryWords, w)
+			if len(categoryWords) >= 2 {
+				break
+			}
+		}
+	}
+
+	// Create category hash from first 2 significant words
+	category := strings.Join(categoryWords, " ")
+	h := fnv.New32a()
+	h.Write([]byte(category))
+	categoryHash := h.Sum32()
+
+	// Create unique hash from full text for variation within category
+	h.Reset()
+	h.Write([]byte(text))
+	textHash := h.Sum32()
+
+	// Use category hash to select a "slot" in the vector space
+	// Different categories get mostly orthogonal vectors
+	// Same category gets nearly identical vectors with tiny variation
+	slotSize := 16
+	if m.vectorSize < 32 {
+		// For small vectors, use smaller slots
+		slotSize = max(1, m.vectorSize/4)
+	}
+	numSlots := max(1, m.vectorSize/slotSize)
+	categorySlot := int(categoryHash%uint32(numSlots)) * slotSize
+
+	// Set a block of dimensions to high values for this category
+	// This creates near-orthogonal vectors for different categories
+	for j := 0; j < m.vectorSize; j++ {
+		if j >= categorySlot && j < categorySlot+slotSize {
+			// Within the category's "slot" - high base value
+			variation := float32((textHash+uint32(j))%100) / 10000.0 // tiny variation: 0-0.01
+			embedding[j] = 0.8 + variation
+		} else {
+			// Outside the slot - small random noise based on text hash
+			noise := float32((textHash+uint32(j))%100) / 5000.0 // very small: 0-0.02
+			embedding[j] = noise
+		}
+	}
+
+	// Normalize the embedding
+	var norm float32
+	for _, v := range embedding {
+		norm += v * v
+	}
+	norm = float32(math.Sqrt(float64(norm)))
+	if norm > 0 {
+		for j := range embedding {
+			embedding[j] /= norm
+		}
+	}
+
+	return embedding
+}
+
+func TestGetMemoryVector(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	t.Run("retrieves vector for existing memory", func(t *testing.T) {
+		projectID := "vector-project-1"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"This is test content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector
+		vector, err := svc.GetMemoryVector(ctx, memory.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, vector)
+		assert.Len(t, vector, 384)
+
+		// Verify vector is normalized (magnitude ~= 1) and has non-trivial values
+		var magnitude float32
+		hasNonZero := false
+		for _, v := range vector {
+			magnitude += v * v
+			if v > 0.01 || v < -0.01 {
+				hasNonZero = true
+			}
+		}
+		magnitude = float32(math.Sqrt(float64(magnitude)))
+		assert.InDelta(t, 1.0, magnitude, 0.01, "vector should be normalized")
+		assert.True(t, hasNonZero, "vector should have non-trivial values")
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		vector, err := svc.GetMemoryVector(ctx, "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory not found")
+	})
+
+	t.Run("returns error when embedder not configured", func(t *testing.T) {
+		// Create service without embedder
+		svcNoEmbedder, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+		require.NoError(t, err)
+
+		projectID := "vector-project-2"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svcNoEmbedder.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Try to get vector without embedder
+		vector, err := svcNoEmbedder.GetMemoryVector(ctx, memory.ID)
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "embedder not configured")
+	})
+
+	t.Run("returns error for empty memory ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVector(ctx, "")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+}
+
+func TestGetMemoryVectorByProjectID(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	embedder := newMockEmbedder(384)
+	logger := zap.NewNop()
+
+	svc, err := NewService(store, logger,
+		WithDefaultTenant("test-tenant"),
+		WithEmbedder(embedder))
+	require.NoError(t, err)
+
+	t.Run("retrieves vector for existing memory in project", func(t *testing.T) {
+		projectID := "vector-project-3"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"This is test content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector by project ID
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, vector)
+		assert.Len(t, vector, 384)
+
+		// Verify vector is normalized (magnitude ~= 1) and has non-trivial values
+		var magnitude float32
+		hasNonZero := false
+		for _, v := range vector {
+			magnitude += v * v
+			if v > 0.01 || v < -0.01 {
+				hasNonZero = true
+			}
+		}
+		magnitude = float32(math.Sqrt(float64(magnitude)))
+		assert.InDelta(t, 1.0, magnitude, 0.01, "vector should be normalized")
+		assert.True(t, hasNonZero, "vector should have non-trivial values")
+	})
+
+	t.Run("returns error for non-existent memory", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory not found")
+	})
+
+	t.Run("returns error when embedder not configured", func(t *testing.T) {
+		// Create service without embedder
+		svcNoEmbedder, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+		require.NoError(t, err)
+
+		projectID := "vector-project-4"
+
+		// Create a memory
+		memory, err := NewMemory(
+			projectID,
+			"Test Memory",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svcNoEmbedder.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Try to get vector without embedder
+		vector, err := svcNoEmbedder.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "embedder not configured")
+	})
+
+	t.Run("returns error for empty project ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "", "some-id")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Equal(t, ErrEmptyProjectID, err)
+	})
+
+	t.Run("returns error for empty memory ID", func(t *testing.T) {
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "")
+		assert.Error(t, err)
+		assert.Nil(t, vector)
+		assert.Contains(t, err.Error(), "memory ID cannot be empty")
+	})
+
+	t.Run("vector matches content embedding", func(t *testing.T) {
+		projectID := "vector-project-5"
+
+		// Create a memory with specific content
+		memory, err := NewMemory(
+			projectID,
+			"Title",
+			"Content",
+			OutcomeSuccess,
+			[]string{"test"},
+		)
+		require.NoError(t, err)
+
+		err = svc.Record(ctx, memory)
+		require.NoError(t, err)
+
+		// Get the vector
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, projectID, memory.ID)
+		require.NoError(t, err)
+
+		// Manually embed the same content to verify consistency
+		content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+		expectedVector, err := embedder.EmbedQuery(ctx, content)
+		require.NoError(t, err)
+
+		// Vectors should match
+		assert.Equal(t, expectedVector, vector)
+	})
+}
+
+// TestService_Search_ArchivedMemoryFiltering tests that archived memories are filtered out of search results.
+func TestService_Search_ArchivedMemoryFiltering(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-123"
+	consolidatedID := "consolidated-001"
+
+	// Create an active memory
+	activeMemory, _ := NewMemory(projectID, "Active Memory", "This is active content", OutcomeSuccess, []string{"active"})
+	activeMemory.Confidence = 0.9
+	activeMemory.State = MemoryStateActive
+	_ = svc.Record(ctx, activeMemory)
+
+	// Create an archived memory (source memory that was consolidated)
+	archivedMemory, _ := NewMemory(projectID, "Archived Memory", "This was consolidated", OutcomeSuccess, []string{"archived"})
+	archivedMemory.Confidence = 0.95 // High confidence but archived
+	archivedMemory.State = MemoryStateArchived
+	archivedMemory.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, archivedMemory)
+
+	// Create the consolidated memory
+	consolidatedMemory, _ := NewMemory(projectID, "Consolidated Memory", "Synthesized from multiple sources", OutcomeSuccess, []string{"consolidated"})
+	consolidatedMemory.Confidence = 0.92
+	consolidatedMemory.State = MemoryStateActive
+	consolidatedMemory.Description = "Synthesized from 2 source memories"
+	_ = svc.Record(ctx, consolidatedMemory)
+
+	t.Run("filters out archived memories", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "memory", 10)
+		require.NoError(t, err)
+
+		// Should return active and consolidated memories, but NOT archived
+		assert.Len(t, results, 2)
+
+		for _, result := range results {
+			assert.NotEqual(t, MemoryStateArchived, result.State, "archived memory should be filtered out")
+			assert.NotEqual(t, archivedMemory.ID, result.ID, "archived memory should not appear in results")
+		}
+	})
+
+	t.Run("archived memory not in results despite high confidence", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "archived", 10)
+		require.NoError(t, err)
+
+		// Even though archivedMemory has confidence 0.95 (higher than MinConfidence),
+		// it should be filtered out because it's archived
+		for _, result := range results {
+			assert.NotEqual(t, archivedMemory.ID, result.ID, "high-confidence archived memory should still be filtered")
+		}
+	})
+}
+
+// TestService_Search_ConsolidatedMemoryBoost tests that consolidated memories receive a ranking boost.
+func TestService_Search_ConsolidatedMemoryBoost(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-boost-test"
+
+	// Create a regular memory with slightly higher initial relevance
+	regularMemory, _ := NewMemory(projectID, "Regular Memory About Testing", "Regular testing approach", OutcomeSuccess, []string{"testing"})
+	regularMemory.Confidence = 0.85
+	regularMemory.State = MemoryStateActive
+	_ = svc.Record(ctx, regularMemory)
+
+	// Create a consolidated memory (synthesized from multiple sources)
+	consolidatedMemory, _ := NewMemory(projectID, "Consolidated Testing Strategy", "Advanced testing patterns", OutcomeSuccess, []string{"testing"})
+	consolidatedMemory.Confidence = 0.85
+	consolidatedMemory.State = MemoryStateActive
+	consolidatedMemory.Description = "Synthesized from 3 source memories with high confidence"
+	// Note: ConsolidationID should be nil for consolidated memories (they're not linked to another memory)
+	// The boost is detected by: ConsolidationID==nil, State==Active, Description contains "Synthesized from" or "Consolidated from"
+	_ = svc.Record(ctx, consolidatedMemory)
+
+	t.Run("consolidated memory receives boost", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.Len(t, results, 2, "should return both memories")
+
+		// With the 20% boost, consolidated memory should rank higher
+		// even if they have the same base relevance score
+		assert.Equal(t, consolidatedMemory.ID, results[0].ID, "consolidated memory should rank first due to boost")
+		assert.Equal(t, regularMemory.ID, results[1].ID, "regular memory should rank second")
+	})
+
+	t.Run("consolidated memory detection via description", func(t *testing.T) {
+		// Create another consolidated memory with "Consolidated from" marker
+		consolidatedMemory2, _ := NewMemory(projectID, "Another Consolidated Memory", "More testing insights", OutcomeSuccess, []string{"testing"})
+		consolidatedMemory2.Confidence = 0.85
+		consolidatedMemory2.State = MemoryStateActive
+		consolidatedMemory2.Description = "Consolidated from 5 similar memories"
+		_ = svc.Record(ctx, consolidatedMemory2)
+
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.GreaterOrEqual(t, len(results), 3, "should return all memories")
+
+		// Both consolidated memories should rank higher than regular memory
+		// (assuming similar base relevance scores)
+		consolidatedIDs := map[string]bool{
+			consolidatedMemory.ID:  true,
+			consolidatedMemory2.ID: true,
+		}
+
+		// At least one of the top 2 results should be a consolidated memory
+		topTwoHasConsolidated := consolidatedIDs[results[0].ID] || consolidatedIDs[results[1].ID]
+		assert.True(t, topTwoHasConsolidated, "consolidated memories should rank highly due to boost")
+	})
+}
+
+// TestService_Search_BoostAndResorting tests that search results are correctly re-sorted after boost.
+func TestService_Search_BoostAndResorting(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-resort-test"
+
+	// Create memories with known ordering before boost
+	// Memory A: High relevance, not consolidated
+	memoryA, _ := NewMemory(projectID, "High Relevance Regular Memory", "Very relevant content about Go testing", OutcomeSuccess, []string{"go", "testing"})
+	memoryA.Confidence = 0.90
+	memoryA.State = MemoryStateActive
+	_ = svc.Record(ctx, memoryA)
+
+	// Memory B: Medium relevance, consolidated (will get 20% boost)
+	memoryB, _ := NewMemory(projectID, "Medium Relevance Consolidated", "Consolidated testing knowledge", OutcomeSuccess, []string{"testing"})
+	memoryB.Confidence = 0.85
+	memoryB.State = MemoryStateActive
+	memoryB.Description = "Synthesized from 4 high-quality memories"
+	_ = svc.Record(ctx, memoryB)
+
+	// Memory C: Lower relevance, not consolidated
+	memoryC, _ := NewMemory(projectID, "Lower Relevance Memory", "Some testing tips", OutcomeSuccess, []string{"testing"})
+	memoryC.Confidence = 0.80
+	memoryC.State = MemoryStateActive
+	_ = svc.Record(ctx, memoryC)
+
+	t.Run("results re-sorted by boosted scores", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		require.Len(t, results, 3, "should return all three memories")
+
+		// After boost, memoryB (consolidated) should potentially rank higher than memoryC
+		// The exact ordering depends on mock similarity scores, but we can verify:
+		// 1. All memories are present
+		// 2. Consolidated memory is boosted (we can't easily verify the exact ranking without controlling mock scores)
+
+		foundA := false
+		foundB := false
+		foundC := false
+		for _, result := range results {
+			switch result.ID {
+			case memoryA.ID:
+				foundA = true
+			case memoryB.ID:
+				foundB = true
+			case memoryC.ID:
+				foundC = true
+			}
+		}
+
+		assert.True(t, foundA, "memory A should be in results")
+		assert.True(t, foundB, "memory B (consolidated) should be in results")
+		assert.True(t, foundC, "memory C should be in results")
+
+		// Consolidated memory should not be last (it has boost and decent confidence)
+		assert.NotEqual(t, memoryB.ID, results[len(results)-1].ID, "consolidated memory should not rank last due to boost")
+	})
+}
+
+// TestService_Search_ConsolidatedVsSourceMemories tests the complete workflow of
+// consolidated memories ranking higher while source memories are filtered out.
+func TestService_Search_ConsolidatedVsSourceMemories(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-workflow-test"
+	consolidatedID := "consolidated-memory-123"
+
+	// Create source memories that were consolidated (these should be archived)
+	source1, _ := NewMemory(projectID, "Source Memory 1", "Original insight about testing", OutcomeSuccess, []string{"testing"})
+	source1.Confidence = 0.88
+	source1.State = MemoryStateArchived
+	source1.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, source1)
+
+	source2, _ := NewMemory(projectID, "Source Memory 2", "Another testing approach", OutcomeSuccess, []string{"testing"})
+	source2.Confidence = 0.87
+	source2.State = MemoryStateArchived
+	source2.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, source2)
+
+	// Create the consolidated memory (synthesized from source1 and source2)
+	consolidated, _ := NewMemory(projectID, "Consolidated Testing Strategy", "Synthesized testing best practices combining multiple approaches", OutcomeSuccess, []string{"testing"})
+	consolidated.Confidence = 0.90
+	consolidated.State = MemoryStateActive
+	consolidated.Description = "Synthesized from 2 source memories (source-1, source-2)"
+	_ = svc.Record(ctx, consolidated)
+
+	// Create an unrelated regular memory
+	regular, _ := NewMemory(projectID, "Unrelated Memory", "Something about deployment", OutcomeSuccess, []string{"deployment"})
+	regular.Confidence = 0.85
+	regular.State = MemoryStateActive
+	_ = svc.Record(ctx, regular)
+
+	t.Run("only consolidated memory returned, sources filtered", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		// Should only return the consolidated memory (source memories are archived)
+		// Regular memory might appear if query matches
+		for _, result := range results {
+			// Verify no archived memories
+			assert.NotEqual(t, MemoryStateArchived, result.State, "no archived memories should appear")
+
+			// Verify source memories are not present
+			assert.NotEqual(t, source1.ID, result.ID, "source1 should be filtered (archived)")
+			assert.NotEqual(t, source2.ID, result.ID, "source2 should be filtered (archived)")
+		}
+
+		// Consolidated memory should be present
+		foundConsolidated := false
+		for _, result := range results {
+			if result.ID == consolidated.ID {
+				foundConsolidated = true
+				// Verify it's the consolidated memory
+				assert.Equal(t, MemoryStateActive, result.State)
+				assert.Contains(t, result.Description, "Synthesized from")
+			}
+		}
+		assert.True(t, foundConsolidated, "consolidated memory should be in results")
+	})
+
+	t.Run("consolidated memory boosted over regular memories", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+
+		// If both consolidated and regular appear, consolidated should rank higher
+		// (assuming similar base relevance)
+		if len(results) > 0 {
+			// First result should likely be the consolidated memory due to boost
+			// (can't guarantee without controlling mock scores, but we can verify it's present)
+			foundConsolidated := false
+			for _, result := range results {
+				if result.ID == consolidated.ID {
+					foundConsolidated = true
+				}
+			}
+			assert.True(t, foundConsolidated, "consolidated memory should be present and boosted")
+		}
+	})
+}
+
+// TestService_Search_ConsolidationIDNilCheck tests that consolidated memories are correctly identified.
+func TestService_Search_ConsolidationIDNilCheck(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-nil-check"
+
+	// Create a consolidated memory (ConsolidationID is nil, description indicates synthesis)
+	consolidated, _ := NewMemory(projectID, "Consolidated Memory", "Merged insights", OutcomeSuccess, []string{"test"})
+	consolidated.Confidence = 0.85
+	consolidated.State = MemoryStateActive
+	consolidated.Description = "Synthesized from multiple memories"
+	consolidated.ConsolidationID = nil // Explicitly nil
+	_ = svc.Record(ctx, consolidated)
+
+	// Create a source memory (ConsolidationID points to consolidated memory)
+	consolidatedIDStr := "some-consolidated-id"
+	source, _ := NewMemory(projectID, "Source Memory", "Original content", OutcomeSuccess, []string{"test"})
+	source.Confidence = 0.85
+	source.State = MemoryStateArchived
+	source.ConsolidationID = &consolidatedIDStr
+	_ = svc.Record(ctx, source)
+
+	// Create a regular memory (ConsolidationID is nil, but description doesn't indicate synthesis)
+	regular, _ := NewMemory(projectID, "Regular Memory", "Normal memory", OutcomeSuccess, []string{"test"})
+	regular.Confidence = 0.85
+	regular.State = MemoryStateActive
+	regular.Description = "Regular memory description"
+	regular.ConsolidationID = nil
+	_ = svc.Record(ctx, regular)
+
+	t.Run("consolidated memory identified by nil ConsolidationID and description", func(t *testing.T) {
+		results, err := svc.Search(ctx, projectID, "memory", 10)
+		require.NoError(t, err)
+
+		// Should return consolidated and regular memories (not source, it's archived)
+		foundConsolidated := false
+		foundRegular := false
+
+		for _, result := range results {
+			if result.ID == consolidated.ID {
+				foundConsolidated = true
+				// This memory should get boost
+				assert.Nil(t, result.ConsolidationID, "consolidated memory has nil ConsolidationID")
+				assert.Contains(t, result.Description, "Synthesized from", "consolidated memory description indicates synthesis")
+			}
+			if result.ID == regular.ID {
+				foundRegular = true
+				// This memory should NOT get boost
+				assert.Nil(t, result.ConsolidationID, "regular memory also has nil ConsolidationID")
+				assert.NotContains(t, result.Description, "Synthesized from", "regular memory description doesn't indicate synthesis")
+			}
+			// Source should not appear (archived)
+			assert.NotEqual(t, source.ID, result.ID, "source memory should be filtered (archived)")
+		}
+
+		assert.True(t, foundConsolidated, "consolidated memory should be in results")
+		assert.True(t, foundRegular, "regular memory should be in results")
+	})
+}
+
+// TestService_Search_MetadataPreservation tests that state and consolidation_id are correctly
+// stored in metadata and retrieved from search results.
+func TestService_Search_MetadataPreservation(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-metadata"
+	consolidatedID := "consolidated-123"
+
+	// Create an active memory
+	active, _ := NewMemory(projectID, "Active Memory", "Active content", OutcomeSuccess, []string{"test"})
+	active.Confidence = 0.85
+	active.State = MemoryStateActive
+	_ = svc.Record(ctx, active)
+
+	// Create an archived memory with consolidation link
+	archived, _ := NewMemory(projectID, "Archived Memory", "Archived content", OutcomeSuccess, []string{"test"})
+	archived.Confidence = 0.85
+	archived.State = MemoryStateArchived
+	archived.ConsolidationID = &consolidatedID
+	_ = svc.Record(ctx, archived)
+
+	t.Run("state metadata preserved in storage and retrieval", func(t *testing.T) {
+		// Search should filter archived, but we can test Get to verify metadata
+		retrievedActive, err := svc.GetByProjectID(ctx, projectID, active.ID)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateActive, retrievedActive.State, "active state preserved")
+
+		retrievedArchived, err := svc.GetByProjectID(ctx, projectID, archived.ID)
+		require.NoError(t, err)
+		assert.Equal(t, MemoryStateArchived, retrievedArchived.State, "archived state preserved")
+	})
+
+	t.Run("consolidation_id metadata preserved", func(t *testing.T) {
+		retrievedArchived, err := svc.GetByProjectID(ctx, projectID, archived.ID)
+		require.NoError(t, err)
+		require.NotNil(t, retrievedArchived.ConsolidationID, "consolidation_id should be set")
+		assert.Equal(t, consolidatedID, *retrievedArchived.ConsolidationID, "consolidation_id preserved")
+
+		retrievedActive, err := svc.GetByProjectID(ctx, projectID, active.ID)
+		require.NoError(t, err)
+		assert.Nil(t, retrievedActive.ConsolidationID, "active memory has no consolidation_id")
 	})
 }

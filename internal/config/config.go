@@ -16,16 +16,17 @@ import (
 
 // Config holds the complete contextd v2 configuration.
 type Config struct {
-	Production    ProductionConfig
-	Server        ServerConfig
-	Observability ObservabilityConfig
-	PreFetch      PreFetchConfig
-	Checkpoint    CheckpointConfig
-	VectorStore   VectorStoreConfig
-	Qdrant        QdrantConfig
-	Embeddings    EmbeddingsConfig
-	Repository    RepositoryConfig
-	Statusline    StatuslineConfig
+	Production              ProductionConfig
+	Server                  ServerConfig
+	Observability           ObservabilityConfig
+	PreFetch                PreFetchConfig
+	Checkpoint              CheckpointConfig
+	VectorStore             VectorStoreConfig
+	Qdrant                  QdrantConfig
+	Embeddings              EmbeddingsConfig
+	Repository              RepositoryConfig
+	Statusline              StatuslineConfig
+	ConsolidationScheduler  ConsolidationSchedulerConfig
 }
 
 // StatuslineConfig holds statusline display configuration.
@@ -136,6 +137,13 @@ type CheckpointConfig struct {
 	MaxContentSizeKB int `koanf:"max_content_size_kb"` // Maximum content size in KB (default: 1024 = 1MB)
 }
 
+// ConsolidationSchedulerConfig holds automatic memory consolidation configuration.
+type ConsolidationSchedulerConfig struct {
+	Enabled             bool    `koanf:"enabled"`              // Enable automatic consolidation (default: false)
+	Interval            time.Duration `koanf:"interval"`       // Time between consolidation runs (default: 24h)
+	SimilarityThreshold float64 `koanf:"similarity_threshold"` // Similarity threshold for consolidation (default: 0.8)
+}
+
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
 	Port            int           `koanf:"http_port"`
@@ -200,6 +208,11 @@ type RuleConfig struct {
 // Checkpoint:
 //   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
 //
+// Consolidation Scheduler:
+//   - CONSOLIDATION_SCHEDULER_ENABLED: Enable automatic consolidation (default: false)
+//   - CONSOLIDATION_SCHEDULER_INTERVAL: Time between runs (default: 24h)
+//   - CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD: Similarity threshold (default: 0.8)
+//
 // Telemetry:
 //   - OTEL_ENABLE: Enable OpenTelemetry (default: false, requires OTEL collector)
 //   - OTEL_SERVICE_NAME: Service name for traces (default: contextd)
@@ -260,6 +273,13 @@ func Load() *Config {
 	// Checkpoint configuration
 	cfg.Checkpoint = CheckpointConfig{
 		MaxContentSizeKB: getEnvInt("CHECKPOINT_MAX_CONTENT_SIZE_KB", 1024), // Default 1MB
+	}
+
+	// Consolidation Scheduler configuration
+	cfg.ConsolidationScheduler = ConsolidationSchedulerConfig{
+		Enabled:             getEnvBool("CONSOLIDATION_SCHEDULER_ENABLED", false),    // Default: disabled
+		Interval:            getEnvDuration("CONSOLIDATION_SCHEDULER_INTERVAL", 24*time.Hour), // Default: 24h
+		SimilarityThreshold: getEnvFloat("CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD", 0.8), // Default: 0.8
 	}
 
 	// Qdrant configuration
@@ -413,6 +433,16 @@ func getEnvBool(key string, defaultValue bool) bool {
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		parsed, err := time.ParseDuration(value)
+		if err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		parsed, err := strconv.ParseFloat(value, 64)
 		if err == nil {
 			return parsed
 		}

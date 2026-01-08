@@ -35,6 +35,14 @@ coverage.html
 coverage.txt
 
 # Auto-generated Claude session files
-.auto-claude/
 .auto-claude-status
 .claude_settings.json
+
+# Auto-claude directory - ignore most, keep human-readable specs
+.auto-claude/*
+!.auto-claude/specs/
+.auto-claude/specs/*
+!.auto-claude/specs/*/
+.auto-claude/specs/*/*.json
+.auto-claude/specs/*/memory/
+!.auto-claude/specs/*/spec.md

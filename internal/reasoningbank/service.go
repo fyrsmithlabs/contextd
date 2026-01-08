@@ -49,6 +49,7 @@ type Service struct {
 	store         vectorstore.Store
 	stores        vectorstore.StoreProvider // For database-per-project isolation
 	defaultTenant string                    // Default tenant for StoreProvider (usually git username)
+	embedder      vectorstore.Embedder      // For re-embedding content to retrieve vectors
 	signalStore   SignalStore
 	confCalc      *ConfidenceCalculator
 	logger        *zap.Logger
@@ -83,6 +84,14 @@ func WithSignalStore(ss SignalStore) ServiceOption {
 func WithDefaultTenant(tenantID string) ServiceOption {
 	return func(s *Service) {
 		s.defaultTenant = tenantID
+	}
+}
+
+// WithEmbedder sets a custom embedder for the service.
+// Required for GetMemoryVector to re-embed memory content.
+func WithEmbedder(embedder vectorstore.Embedder) ServiceOption {
+	return func(s *Service) {
+		s.embedder = embedder
 	}
 }
 
@@ -305,7 +314,15 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	}
 
 	// Convert results to Memory structs, filter by confidence, and record usage signals
-	memories := make([]Memory, 0, len(results))
+	// We'll track both the memory and its score for re-ranking with consolidated memory boost
+	type scoredMemory struct {
+		memory Memory
+		score  float32
+	}
+	scoredMemories := make([]scoredMemory, 0, len(results))
+
+	const consolidatedMemoryBoost = 1.2 // 20% boost for consolidated memories
+
 	for _, result := range results {
 		memory, err := s.resultToMemory(result)
 		if err != nil {
@@ -324,6 +341,32 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			continue
 		}
 
+		// Filter out archived memories (they were consolidated into other memories)
+		if memory.State == MemoryStateArchived {
+			s.logger.Debug("skipping archived memory",
+				zap.String("id", memory.ID),
+				zap.String("consolidation_id", func() string {
+					if memory.ConsolidationID != nil {
+						return *memory.ConsolidationID
+					}
+					return ""
+				}()))
+			continue
+		}
+
+		// Apply boost to consolidated memories (synthesized knowledge from multiple sources)
+		score := result.Score
+		isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
+			(strings.Contains(memory.Description, "Synthesized from") ||
+				strings.Contains(memory.Description, "Consolidated from"))
+		if isConsolidated {
+			score *= consolidatedMemoryBoost
+			s.logger.Debug("applying consolidated memory boost",
+				zap.String("id", memory.ID),
+				zap.Float32("original_score", result.Score),
+				zap.Float32("boosted_score", score))
+		}
+
 		// Record usage signal for this memory (positive = retrieved in search)
 		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
 		if err == nil {
@@ -334,12 +377,26 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			}
 		}
 
-		memories = append(memories, *memory)
+		scoredMemories = append(scoredMemories, scoredMemory{
+			memory: *memory,
+			score:  score,
+		})
+	}
 
-		// Stop once we have enough results
-		if len(memories) >= limit {
-			break
+	// Re-sort by boosted scores (higher score = more relevant)
+	// Use a simple bubble sort since the list is nearly sorted already
+	for i := 0; i < len(scoredMemories); i++ {
+		for j := i + 1; j < len(scoredMemories); j++ {
+			if scoredMemories[j].score > scoredMemories[i].score {
+				scoredMemories[i], scoredMemories[j] = scoredMemories[j], scoredMemories[i]
+			}
 		}
+	}
+
+	// Extract memories up to limit
+	memories := make([]Memory, 0, limit)
+	for i := 0; i < len(scoredMemories) && i < limit; i++ {
+		memories = append(memories, scoredMemories[i].memory)
 	}
 
 	// Track last confidence for statusline (use first result's confidence)
@@ -777,8 +834,14 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 		"confidence":  memory.Confidence,
 		"usage_count": memory.UsageCount,
 		"tags":        memory.Tags,
+		"state":       string(memory.State),
 		"created_at":  memory.CreatedAt.Unix(),
 		"updated_at":  memory.UpdatedAt.Unix(),
+	}
+
+	// Include consolidation_id if set (for source memories that were consolidated)
+	if memory.ConsolidationID != nil {
+		metadata["consolidation_id"] = *memory.ConsolidationID
 	}
 
 	return vectorstore.Document{
@@ -826,6 +889,190 @@ func (s *Service) Count(ctx context.Context, projectID string) (int, error) {
 	}
 
 	return info.PointCount, nil
+}
+
+// ListMemories retrieves all memories for a project with pagination support.
+//
+// This method is used by the memory consolidation system to iterate over all memories
+// in a project. Unlike Search, it doesn't filter by semantic similarity - it returns
+// memories in storage order.
+//
+// Parameters:
+//   - limit: Maximum number of memories to return (0 = return all)
+//   - offset: Number of memories to skip (for pagination)
+//
+// Returns memories in storage order. For large projects, use pagination to avoid
+// loading all memories at once.
+func (s *Service) ListMemories(ctx context.Context, projectID string, limit, offset int) ([]Memory, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if limit < 0 {
+		return nil, fmt.Errorf("limit cannot be negative")
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset cannot be negative")
+	}
+
+	// Get store and collection name for this project
+	store, collectionName, err := s.getStore(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Inject tenant context for payload-based isolation
+	// Fail-closed: require tenant ID to be set (no fallback)
+	tenantID := s.defaultTenant
+	if tenantID == "" {
+		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	}
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: projectID,
+	})
+
+	// Check if collection exists
+	exists, err := store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		return nil, fmt.Errorf("checking collection existence: %w", err)
+	}
+	if !exists {
+		// No memories yet for this project
+		s.logger.Debug("collection does not exist",
+			zap.String("collection", collectionName),
+			zap.String("project_id", projectID))
+		return []Memory{}, nil
+	}
+
+	// Calculate fetch limit: need offset + limit documents
+	// Use a high limit if limit=0 (return all)
+	fetchLimit := limit + offset
+	if limit == 0 {
+		// Fetch all - use a very high limit
+		// Most projects won't have more than 10k memories
+		fetchLimit = 10000
+	}
+	if fetchLimit > 10000 {
+		fetchLimit = 10000 // Cap to prevent excessive fetching
+	}
+
+	// Use SearchInCollection with an empty query to get all documents
+	// The vectorstore will return results in storage order
+	results, err := store.SearchInCollection(ctx, collectionName, "", fetchLimit, nil)
+	if err != nil {
+		return nil, fmt.Errorf("listing memories: %w", err)
+	}
+
+	// Skip offset documents and take up to limit
+	start := offset
+	if start > len(results) {
+		return []Memory{}, nil
+	}
+
+	end := len(results)
+	if limit > 0 && start+limit < len(results) {
+		end = start + limit
+	}
+
+	// Convert results to Memory structs
+	memories := make([]Memory, 0, end-start)
+	for i := start; i < end; i++ {
+		memory, err := s.resultToMemory(results[i])
+		if err != nil {
+			s.logger.Warn("skipping invalid memory",
+				zap.String("id", results[i].ID),
+				zap.Error(err))
+			continue
+		}
+		memories = append(memories, *memory)
+	}
+
+	s.logger.Debug("list memories completed",
+		zap.String("project_id", projectID),
+		zap.Int("limit", limit),
+		zap.Int("offset", offset),
+		zap.Int("results", len(memories)))
+
+	return memories, nil
+}
+
+// GetMemoryVector retrieves the embedding vector for a memory by ID.
+//
+// This method re-embeds the memory content to retrieve its vector representation.
+// The content is embedded the same way as during storage (title + content).
+//
+// Note: This method requires the legacy single-store configuration.
+// When using StoreProvider (database-per-project), use GetMemoryVectorByProjectID instead.
+//
+// Returns the embedding vector or an error if the memory doesn't exist or embedder is not configured.
+func (s *Service) GetMemoryVector(ctx context.Context, memoryID string) ([]float32, error) {
+	if memoryID == "" {
+		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+	if s.embedder == nil {
+		return nil, fmt.Errorf("embedder not configured for reasoningbank service")
+	}
+
+	// Get the memory first
+	memory, err := s.Get(ctx, memoryID)
+	if err != nil {
+		return nil, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Re-embed the content (same format as when storing: title + content)
+	content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+	vector, err := s.embedder.EmbedQuery(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("embedding memory content: %w", err)
+	}
+
+	s.logger.Debug("retrieved memory vector",
+		zap.String("memory_id", memoryID),
+		zap.String("project_id", memory.ProjectID),
+		zap.Int("vector_size", len(vector)))
+
+	return vector, nil
+}
+
+// GetMemoryVectorByProjectID retrieves the embedding vector for a memory within a specific project.
+//
+// This is the preferred method when using StoreProvider (database-per-project isolation)
+// as it directly accesses the project's store without enumeration.
+//
+// The method re-embeds the memory content to retrieve its vector representation.
+// The content is embedded the same way as during storage (title + content).
+//
+// Returns the embedding vector or an error if the memory doesn't exist or embedder is not configured.
+func (s *Service) GetMemoryVectorByProjectID(ctx context.Context, projectID, memoryID string) ([]float32, error) {
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if memoryID == "" {
+		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+	if s.embedder == nil {
+		return nil, fmt.Errorf("embedder not configured for reasoningbank service")
+	}
+
+	// Get the memory first
+	memory, err := s.GetByProjectID(ctx, projectID, memoryID)
+	if err != nil {
+		return nil, fmt.Errorf("getting memory: %w", err)
+	}
+
+	// Re-embed the content (same format as when storing: title + content)
+	content := fmt.Sprintf("%s\n\n%s", memory.Title, memory.Content)
+	vector, err := s.embedder.EmbedQuery(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("embedding memory content: %w", err)
+	}
+
+	s.logger.Debug("retrieved memory vector",
+		zap.String("memory_id", memoryID),
+		zap.String("project_id", projectID),
+		zap.Int("vector_size", len(vector)))
+
+	return vector, nil
 }
 
 // parseFloat64 extracts a float64 from metadata, handling both float64 and string types.
@@ -880,10 +1127,13 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	confidence := parseFloat64(result.Metadata["confidence"])
 	usageCount := int(parseInt64(result.Metadata["usage_count"]))
 
-	// Parse tags
+	// Parse tags - handle both []string (in-memory) and []interface{} (JSON deserialized)
 	tags := []string{}
 	if tagsIface, ok := result.Metadata["tags"]; ok {
-		if tagsList, ok := tagsIface.([]interface{}); ok {
+		switch tagsList := tagsIface.(type) {
+		case []string:
+			tags = tagsList
+		case []interface{}:
 			for _, t := range tagsList {
 				if tag, ok := t.(string); ok {
 					tags = append(tags, tag)
@@ -899,6 +1149,19 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	createdAt := time.Unix(createdAtUnix, 0)
 	updatedAt := time.Unix(updatedAtUnix, 0)
 
+	// Parse state (default to Active for backwards compatibility with existing memories)
+	stateStr, _ := result.Metadata["state"].(string)
+	state := MemoryStateActive
+	if stateStr == string(MemoryStateArchived) {
+		state = MemoryStateArchived
+	}
+
+	// Parse consolidation_id if present
+	var consolidationID *string
+	if consolidationIDStr, ok := result.Metadata["consolidation_id"].(string); ok && consolidationIDStr != "" {
+		consolidationID = &consolidationIDStr
+	}
+
 	// Parse content (strip title from beginning if present)
 	content := result.Content
 	if len(title) > 0 && len(content) > len(title)+2 {
@@ -909,17 +1172,19 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 	}
 
 	memory := &Memory{
-		ID:          id,
-		ProjectID:   projectID,
-		Title:       title,
-		Description: description,
-		Content:     content,
-		Outcome:     Outcome(outcomeStr),
-		Confidence:  confidence,
-		UsageCount:  usageCount,
-		Tags:        tags,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:              id,
+		ProjectID:       projectID,
+		Title:           title,
+		Description:     description,
+		Content:         content,
+		Outcome:         Outcome(outcomeStr),
+		Confidence:      confidence,
+		UsageCount:      usageCount,
+		Tags:            tags,
+		ConsolidationID: consolidationID,
+		State:           state,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
 	}
 
 	return memory, nil

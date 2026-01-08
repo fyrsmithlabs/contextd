@@ -123,7 +123,7 @@ func TestNewServer(t *testing.T) {
 			Logger:  logger,
 		}
 
-		server, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+		server, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 		require.NoError(t, err)
 		require.NotNil(t, server)
 		require.NotNil(t, server.mcp)
@@ -134,7 +134,7 @@ func TestNewServer(t *testing.T) {
 	})
 
 	t.Run("nil config uses defaults", func(t *testing.T) {
-		server, err := NewServer(nil, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+		server, err := NewServer(nil, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 		require.NoError(t, err)
 		require.NotNil(t, server)
 
@@ -144,42 +144,42 @@ func TestNewServer(t *testing.T) {
 
 	t.Run("missing checkpoint service", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, nil, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+		_, err := NewServer(cfg, nil, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "checkpoint service is required")
 	})
 
 	t.Run("missing remediation service", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, checkpointSvc, nil, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+		_, err := NewServer(cfg, checkpointSvc, nil, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "remediation service is required")
 	})
 
 	t.Run("missing repository service", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, checkpointSvc, remediationSvc, nil, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+		_, err := NewServer(cfg, checkpointSvc, remediationSvc, nil, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "repository service is required")
 	})
 
 	t.Run("missing troubleshoot service", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, nil, reasoningbankSvc, nil, scrubber)
+		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, nil, reasoningbankSvc, nil, nil, scrubber)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "troubleshoot service is required")
 	})
 
 	t.Run("missing reasoningbank service", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, nil, nil, scrubber)
+		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, nil, nil, nil, scrubber)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "reasoningbank service is required")
 	})
 
 	t.Run("missing scrubber", func(t *testing.T) {
 		cfg := DefaultConfig()
-		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil)
+		_, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "scrubber is required")
 	})
@@ -213,7 +213,7 @@ func TestServerClose(t *testing.T) {
 	require.NoError(t, err)
 	scrubber := secrets.MustNew(secrets.DefaultConfig())
 
-	server, err := NewServer(nil, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, scrubber)
+	server, err := NewServer(nil, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
 	require.NoError(t, err)
 
 	// Close should succeed

@@ -289,6 +289,7 @@ func run() error {
 	}
 
 	// Initialize reasoningbank service
+	var distillerSvc *reasoningbank.Distiller
 	if store != nil {
 		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying(),
 			reasoningbank.WithDefaultTenant(tenant.GetDefaultTenantID()))
@@ -296,6 +297,14 @@ func run() error {
 			logger.Warn(ctx, "reasoningbank service initialization failed", zap.Error(err))
 		} else {
 			logger.Info(ctx, "reasoningbank service initialized")
+
+			// Initialize distiller for memory consolidation
+			distillerSvc, err = reasoningbank.NewDistiller(reasoningbankSvc, logger.Underlying())
+			if err != nil {
+				logger.Warn(ctx, "distiller initialization failed", zap.Error(err))
+			} else {
+				logger.Info(ctx, "distiller initialized")
+			}
 		}
 	}
 
@@ -346,11 +355,51 @@ func run() error {
 		Repository:   repositorySvc,
 		Troubleshoot: troubleshootSvc,
 		Hooks:        hooksMgr,
-		Distiller:    nil, // Distiller not yet implemented
+		Distiller:    distillerSvc,
 		Scrubber:     scrubber,
 		VectorStore:  store,
 	})
 	logger.Info(ctx, "services registry initialized")
+
+	// ============================================================================
+	// Initialize Consolidation Scheduler (if enabled in config)
+	// ============================================================================
+	var consolidationScheduler *reasoningbank.ConsolidationScheduler
+	if cfg.ConsolidationScheduler.Enabled && distillerSvc != nil {
+		// Create consolidation options from config
+		consolidationOpts := reasoningbank.ConsolidationOptions{
+			SimilarityThreshold: cfg.ConsolidationScheduler.SimilarityThreshold,
+			DryRun:              false,
+			ForceAll:            false,
+			MaxClustersPerRun:   0, // No limit
+		}
+
+		// Create scheduler with configured interval
+		consolidationScheduler, err = reasoningbank.NewConsolidationScheduler(
+			distillerSvc,
+			logger.Underlying(),
+			reasoningbank.WithInterval(cfg.ConsolidationScheduler.Interval),
+			reasoningbank.WithConsolidationOptions(consolidationOpts),
+			// Note: WithProjectIDs should be configured in config file or via MCP
+		)
+		if err != nil {
+			logger.Warn(ctx, "consolidation scheduler initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "consolidation scheduler initialized",
+				zap.Duration("interval", cfg.ConsolidationScheduler.Interval),
+				zap.Float64("threshold", cfg.ConsolidationScheduler.SimilarityThreshold),
+			)
+
+			// Start the scheduler
+			if err := consolidationScheduler.Start(); err != nil {
+				logger.Warn(ctx, "failed to start consolidation scheduler", zap.Error(err))
+			} else {
+				logger.Info(ctx, "consolidation scheduler started")
+			}
+		}
+	} else if cfg.ConsolidationScheduler.Enabled {
+		logger.Warn(ctx, "consolidation scheduler enabled but distiller not available")
+	}
 
 	// ============================================================================
 	// Initialize HTTP Server (unless --no-http)
@@ -431,6 +480,7 @@ func run() error {
 			troubleshootSvc,
 			reasoningbankSvc,
 			foldingSvc,
+			registry.Distiller(),
 			scrubber,
 		)
 		if err != nil {
@@ -522,6 +572,15 @@ func run() error {
 	}
 
 	logger.Info(ctx, "shutting down contextd")
+
+	// Gracefully stop consolidation scheduler (if running)
+	if consolidationScheduler != nil {
+		if err := consolidationScheduler.Stop(); err != nil {
+			logger.Error(ctx, "consolidation scheduler shutdown error", zap.Error(err))
+		} else {
+			logger.Info(ctx, "consolidation scheduler stopped")
+		}
+	}
 
 	// Gracefully shutdown HTTP server (if running)
 	if httpSrv != nil {

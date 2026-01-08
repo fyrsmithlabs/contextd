@@ -44,6 +44,13 @@ prefetch:
 checkpoint:
   max_content_size_kb: 1024    # Maximum content size in KB (default: 1024 = 1MB)
 
+# Consolidation Scheduler Configuration
+# Automatically consolidates similar memories on a schedule
+consolidation_scheduler:
+  enabled: false               # Enable automatic consolidation (default: false)
+  interval: 24h                # Time between consolidation runs (default: 24h)
+  similarity_threshold: 0.8    # Similarity threshold for consolidation (default: 0.8)
+
 # Qdrant Configuration (Vector Database)
 qdrant:
   host: localhost              # Qdrant server host (default: localhost)
@@ -64,6 +71,9 @@ embeddings:
 # export PREFETCH_ENABLED=false
 # export PREFETCH_CACHE_TTL=10m
 # export CHECKPOINT_MAX_CONTENT_SIZE_KB=2048
+# export CONSOLIDATION_SCHEDULER_ENABLED=true
+# export CONSOLIDATION_SCHEDULER_INTERVAL=12h
+# export CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD=0.85
 # export QDRANT_HOST=qdrant.example.com
 # export QDRANT_PORT=6334
 # export EMBEDDINGS_BASE_URL=http://tei.example.com:8080

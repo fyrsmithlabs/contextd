@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/services"
@@ -27,6 +28,7 @@ func NewRegistry(
 	repositorySvc *repository.Service,
 	troubleshootSvc *troubleshoot.Service,
 	svcRegistry services.Registry,
+	distiller *reasoningbank.Distiller,
 ) *Registry {
 	// Create handlers
 	checkpointHandler := NewCheckpointHandler(checkpointSvc)
@@ -60,6 +62,12 @@ func NewRegistry(
 		handlers["session_start"] = sessionHandler.Start
 		handlers["session_end"] = sessionHandler.End
 		handlers["context_threshold"] = sessionHandler.ContextThreshold
+	}
+
+	// Add memory tools if distiller provided
+	if distiller != nil {
+		memoryHandler := NewMemoryHandler(distiller)
+		handlers["memory_consolidate"] = memoryHandler.Consolidate
 	}
 
 	return &Registry{
