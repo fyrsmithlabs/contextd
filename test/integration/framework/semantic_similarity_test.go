@@ -9,6 +9,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
@@ -20,10 +21,12 @@ import (
 
 // semanticEmbedder creates embeddings that capture semantic similarity.
 // Similar concepts will have similar embeddings based on keyword overlap.
+// Thread-safe for concurrent use.
 type semanticEmbedder struct {
 	vectorSize int
 	// vocabulary maps words to consistent vector positions
 	vocabulary map[string]int
+	mu         sync.RWMutex
 }
 
 func newSemanticEmbedder(vectorSize int) *semanticEmbedder {
@@ -45,6 +48,39 @@ func (e *semanticEmbedder) EmbedQuery(ctx context.Context, text string) ([]float
 	return e.makeSemanticEmbedding(text), nil
 }
 
+// getOrCreateWordIndex returns the vocabulary index for a word, creating one if needed.
+// Thread-safe using double-checked locking pattern.
+func (e *semanticEmbedder) getOrCreateWordIndex(word string) int {
+	// Try read lock first for existing words (common case)
+	e.mu.RLock()
+	idx, exists := e.vocabulary[word]
+	e.mu.RUnlock()
+	if exists {
+		return idx
+	}
+
+	// Need to create - acquire write lock
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if idx, exists = e.vocabulary[word]; exists {
+		return idx
+	}
+
+	// Use hash-based position for new words
+	hash := 0
+	for _, c := range word {
+		hash = (hash*31 + int(c))
+	}
+	idx = hash % e.vectorSize
+	if idx < 0 {
+		idx = -idx
+	}
+	e.vocabulary[word] = idx
+	return idx
+}
+
 // makeSemanticEmbedding creates an embedding where similar texts have similar vectors.
 // Uses bag-of-words approach with consistent word-to-dimension mapping.
 func (e *semanticEmbedder) makeSemanticEmbedding(text string) []float32 {
@@ -57,19 +93,7 @@ func (e *semanticEmbedder) makeSemanticEmbedding(text string) []float32 {
 	// Add each word's contribution to the embedding
 	for _, word := range words {
 		// Get or create vocabulary index for this word
-		idx, exists := e.vocabulary[word]
-		if !exists {
-			// Use hash-based position for unknown words
-			hash := 0
-			for _, c := range word {
-				hash = (hash*31 + int(c))
-			}
-			idx = hash % e.vectorSize
-			if idx < 0 {
-				idx = -idx
-			}
-			e.vocabulary[word] = idx
-		}
+		idx := e.getOrCreateWordIndex(word)
 
 		// Add to multiple dimensions for better distribution
 		for offset := 0; offset < 5; offset++ {

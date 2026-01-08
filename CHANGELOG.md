@@ -5,9 +5,17 @@ All notable changes to contextd will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-01-08
 
 ### Added
+- **Memory Distiller** - Automatic consolidation of similar memories
+  - Finds clusters of semantically similar memories (configurable threshold)
+  - LLM-powered synthesis creates consolidated memories with source attribution
+  - Consensus-based confidence calculation with source averaging
+  - Background scheduler for automatic consolidation
+  - `memory_consolidate` MCP tool for manual triggering
+  - Consolidated memories boosted in search rankings
+  - Source memories retain links via `consolidation_id` field
 - **Agent Policies** (Issue #46) - STRICT guardrails for agent behavior
   - New `policies` skill - defines policy schema, storage pattern, and management workflow
   - New `/policies` command - list, add, remove, stats, init subcommands (like `/plugin`)
@@ -98,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **VectorStore added to services registry** - Enables HTTP server to count resources directly
 
 ### Fixed
+- **Race condition in test framework** - Fixed concurrent map access in `semanticEmbedder` that caused crashes during load tests
 - **`repository_search` collection not found** - when `repository_index` used explicit `tenant_id` but `repository_search` derived tenant_id differently (e.g., from git config), search would fail with "collection not found"
   - Added `collection_name` parameter to `repository_search` (preferred over tenant_id + project_path)
   - `repository_index` output includes `collection_name` - use this value for subsequent searches
