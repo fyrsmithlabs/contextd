@@ -92,13 +92,13 @@ func TestMemoryConsolidation_AutomaticSchedulerTrigger(t *testing.T) {
 	// Verify that consolidation was triggered automatically
 	// The scheduler calls ConsolidateAll -> Consolidate -> FindSimilarClusters -> ListMemories
 	// ListMemories uses SearchInCollection, so we can verify it was called
-	assert.True(t, store.searchCalled, "scheduler should have triggered consolidation")
+	assert.True(t, store.SearchCalled(), "scheduler should have triggered consolidation")
 
 	// Verify the LLM was called (indicates consolidation actually ran, not just skipped)
 	assert.Greater(t, llmClient.CallCount(), 0, "LLM should be called when consolidation runs")
 
 	t.Logf("✓ Automatic scheduler trigger successful:")
-	t.Logf("  Consolidation triggered: %v", store.searchCalled)
+	t.Logf("  Consolidation triggered: %v", store.SearchCalled())
 	t.Logf("  LLM calls made: %d", llmClient.CallCount())
 	t.Logf("  Scheduler lifecycle: start → run → stop")
 }
@@ -152,7 +152,7 @@ func TestMemoryConsolidation_SchedulerDryRun(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Dry run mode should still search for clusters but not call LLM
-	assert.True(t, store.searchCalled, "scheduler should search even in dry run")
+	assert.True(t, store.SearchCalled(), "scheduler should search even in dry run")
 	assert.Equal(t, 0, llmClient.CallCount(), "dry run should not call LLM")
 	t.Log("✓ Automatic trigger dry run: search called, no LLM calls")
 }

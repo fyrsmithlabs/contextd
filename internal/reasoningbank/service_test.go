@@ -18,6 +18,7 @@ import (
 
 // mockStore is a simple in-memory mock of vectorstore.Store for testing.
 type mockStore struct {
+	mu               sync.RWMutex
 	collections      map[string][]vectorstore.Document
 	vectorSize       int
 	searchCalled     bool
@@ -69,9 +70,11 @@ func (m *mockStore) SearchWithFilters(ctx context.Context, query string, k int, 
 }
 
 func (m *mockStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
-	// Track search calls for testing
+	// Track search calls for testing (thread-safe)
+	m.mu.Lock()
 	m.searchCalled = true
 	m.searchCallCount++
+	m.mu.Unlock()
 
 	// Return error if configured to do so
 	if m.returnError {
@@ -223,6 +226,19 @@ func (m *mockStore) SetIsolationMode(mode vectorstore.IsolationMode) {
 
 func (m *mockStore) IsolationMode() vectorstore.IsolationMode {
 	return vectorstore.NewNoIsolation()
+}
+
+// Thread-safe getters for test assertions
+func (m *mockStore) SearchCalled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCalled
+}
+
+func (m *mockStore) SearchCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchCallCount
 }
 
 func TestNewService(t *testing.T) {

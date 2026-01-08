@@ -243,7 +243,7 @@ func TestScheduler_ConsolidationRuns(t *testing.T) {
 
 	// Verify that search was called (consolidation attempted)
 	// ConsolidateAll -> Consolidate -> FindSimilarClusters -> ListMemories -> SearchInCollection
-	assert.True(t, store.searchCalled, "expected consolidation to have been attempted")
+	assert.True(t, store.SearchCalled(), "expected consolidation to have been attempted")
 }
 
 // TestScheduler_NoProjectsConfigured tests that scheduler doesn't run consolidation when no projects configured.
@@ -284,7 +284,7 @@ func TestScheduler_NoProjectsConfigured(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Verify that search was NOT called (no consolidation without projects)
-	assert.False(t, store.searchCalled, "expected no consolidation when no projects configured")
+	assert.False(t, store.SearchCalled(), "expected no consolidation when no projects configured")
 }
 
 // TestScheduler_WithConsolidationOptions tests that custom consolidation options are used.
@@ -360,7 +360,7 @@ func TestScheduler_MultipleIntervalRuns(t *testing.T) {
 
 	// Verify that search was called multiple times
 	// Note: exact count may vary due to timing, but should be >= 2
-	assert.True(t, store.searchCallCount >= 2, "expected multiple consolidation runs, got %d", store.searchCallCount)
+	assert.True(t, store.SearchCallCount() >= 2, "expected multiple consolidation runs, got %d", store.SearchCallCount())
 }
 
 // TestScheduler_ErrorHandling tests that consolidation errors don't stop the scheduler.
@@ -408,5 +408,5 @@ func TestScheduler_ErrorHandling(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Verify that consolidation was attempted despite errors
-	assert.True(t, store.searchCallCount >= 2, "expected scheduler to continue after errors")
+	assert.True(t, store.SearchCallCount() >= 2, "expected scheduler to continue after errors")
 }
