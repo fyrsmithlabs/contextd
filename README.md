@@ -1,10 +1,8 @@
 # ContextD
 
 [![Release](https://img.shields.io/github/v/release/fyrsmithlabs/contextd?include_prereleases)](https://github.com/fyrsmithlabs/contextd/releases)
-[![Test](https://github.com/fyrsmithlabs/contextd/actions/workflows/test.yml/badge.svg)](https://github.com/fyrsmithlabs/contextd/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/fyrsmithlabs/contextd/branch/main/graph/badge.svg)](https://codecov.io/gh/fyrsmithlabs/contextd)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Ffyrsmithlabs%2Fcontextd-blue)](https://ghcr.io/fyrsmithlabs/contextd)
-[![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Ftap-orange)](https://github.com/fyrsmithlabs/homebrew-tap)
+[![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Fcontextd-orange)](https://github.com/fyrsmithlabs/contextd/blob/main/Formula/contextd.rb)
 
 **Cross-session memory and context management for AI agents.**
 
@@ -105,10 +103,8 @@ This automatically:
 ### Option 2: Homebrew (macOS/Linux)
 
 ```bash
-# Add the tap
-brew tap fyrsmithlabs/tap
-
-# Install contextd
+# Add the tap and install
+brew tap fyrsmithlabs/contextd https://github.com/fyrsmithlabs/contextd
 brew install contextd
 ```
 
@@ -123,6 +119,7 @@ Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/release
 | macOS | Apple Silicon | `contextd_*_darwin_arm64.tar.gz` |
 | macOS | Intel | `contextd_*_darwin_amd64.tar.gz` |
 | Linux | x64 | `contextd_*_linux_amd64.tar.gz` |
+| Windows | x64 | `contextd_*_windows_amd64.tar.gz` |
 
 Extract and install:
 ```bash
@@ -607,5 +604,5 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [GitHub Repository](https://github.com/fyrsmithlabs/contextd)
 - [Releases](https://github.com/fyrsmithlabs/contextd/releases)
 - [Docker Image](https://ghcr.io/fyrsmithlabs/contextd)
-- [Homebrew Tap](https://github.com/fyrsmithlabs/homebrew-tap)
+- [Homebrew Formula](https://github.com/fyrsmithlabs/contextd/blob/main/Formula/contextd.rb)
 - [Issues](https://github.com/fyrsmithlabs/contextd/issues)
