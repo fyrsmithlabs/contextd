@@ -1,0 +1,96 @@
+# Version Sync Validation
+# Ensures VERSION, CHANGELOG.md, and plugin.json versions are in sync
+#
+# Runs on:
+#   - All PRs to main (to catch mismatches before merge)
+#   - Pushes that modify version-related files
+#   - Manual trigger for on-demand validation
+
+name: Version Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - '.claude-plugin/plugin.json'
+  push:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'CHANGELOG.md'
+      - '.claude-plugin/plugin.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version-sync:
+    name: Validate Version Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make script executable
+        run: chmod +x ./scripts/check-version-sync.sh
+
+      - name: Check version sync
+        id: version-check
+        run: |
+          # Run version sync check (non-strict for PRs to allow [Unreleased])
+          ./scripts/check-version-sync.sh
+
+      - name: Comment on PR (if mismatch)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Version Sync Check Failed
+
+            The VERSION file, plugin.json, and/or CHANGELOG.md are out of sync.
+
+            **To fix:**
+            1. Ensure the \`VERSION\` file contains the correct version
+            2. Run \`./scripts/sync-version.sh\` to update plugin.json
+            3. Update CHANGELOG.md with an entry for the version (or use [Unreleased])
+
+            See the workflow logs for details.`
+            })
+
+  # Strict check only on release tags
+  release-version-check:
+    name: Strict Release Version Check
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make script executable
+        run: chmod +x ./scripts/check-version-sync.sh
+
+      - name: Check version sync (strict mode)
+        run: |
+          # For releases, require explicit version entry in CHANGELOG (not [Unreleased])
+          ./scripts/check-version-sync.sh --strict
+
+      - name: Validate tag matches VERSION file
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+
+          if [[ "$TAG_VERSION" != "$FILE_VERSION" ]]; then
+            echo "ERROR: Tag version ($TAG_VERSION) does not match VERSION file ($FILE_VERSION)"
+            exit 1
+          fi
+
+          echo "Tag v$TAG_VERSION matches VERSION file"
