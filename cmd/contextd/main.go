@@ -422,8 +422,9 @@ func run() error {
 		}
 
 		httpCfg := &httpserver.Config{
-			Host: httpServerHost,
-			Port: httpServerPort,
+			Host:    httpServerHost,
+			Port:    httpServerPort,
+			Version: version,
 		}
 
 		var err error

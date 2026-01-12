@@ -4,6 +4,7 @@ package http
 // StatusResponse is the response body for GET /api/v1/status.
 type StatusResponse struct {
 	Status      string             `json:"status"`
+	Version     string             `json:"version,omitempty"`
 	Services    map[string]string  `json:"services"`
 	Counts      StatusCounts       `json:"counts"`
 	Context     *ContextStatus     `json:"context,omitempty"`

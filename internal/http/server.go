@@ -43,8 +43,9 @@ type Server struct {
 
 // Config holds HTTP server configuration.
 type Config struct {
-	Host string
-	Port int
+	Host    string
+	Port    int
+	Version string
 }
 
 // NewServer creates a new HTTP server.
@@ -221,6 +222,7 @@ func (s *Server) handleStatus(c echo.Context) error {
 	// Build response with optional status fields
 	resp := StatusResponse{
 		Status:   "ok",
+		Version:  s.config.Version,
 		Services: services,
 		Counts:   counts,
 	}

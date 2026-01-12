@@ -1,4 +1,4 @@
-.PHONY: help build build-all go-install test test-race lint fmt vet coverage cover audit clean install start stop logs backup restore profile-test debug monitor all build-linux build-darwin build-windows build-all-platforms test-integration test-integration-cleanup deps setup-dev install-pre-commit install-trufflehog install-tools
+.PHONY: help build build-all go-install test test-race lint fmt vet coverage cover audit clean install start stop logs backup restore profile-test debug monitor all build-linux build-darwin build-windows build-all-platforms test-integration test-integration-cleanup deps setup-dev install-pre-commit install-trufflehog install-tools version-check version-check-strict version-sync
 
 # Default target
 help:
@@ -52,6 +52,9 @@ help:
 	@echo "  make lint           Run golangci-lint"
 	@echo "  make fmt            Format code with go fmt and goimports"
 	@echo "  make vet            Run go vet static analysis"
+	@echo "  make version-check  Validate version sync across VERSION/plugin.json/CHANGELOG"
+	@echo "  make version-check-strict  Validate with strict CHANGELOG requirement"
+	@echo "  make version-sync   Sync VERSION to plugin.json"
 	@echo "  make pre-commit-install  Install pre-commit hooks"
 	@echo "  make pre-commit-run      Run pre-commit on all files"
 	@echo "  make pre-commit-update   Update pre-commit hooks"
@@ -259,6 +262,21 @@ fmt:
 vet:
 	@echo "Running go vet..."
 	@go vet ./...
+
+# Version sync validation
+version-check:
+	@echo "Checking version sync..."
+	@./scripts/check-version-sync.sh
+	@echo "✓ Version sync OK"
+
+version-check-strict:
+	@echo "Checking version sync (strict mode)..."
+	@./scripts/check-version-sync.sh --strict
+	@echo "✓ Version sync OK (strict)"
+
+version-sync:
+	@echo "Syncing version to all files..."
+	@./scripts/sync-version.sh
 
 test-setup:
 	@./scripts/profile-switch.sh setup
