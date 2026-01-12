@@ -9,6 +9,7 @@ before:
     - go generate ./...
 
 builds:
+  # CGO builds for Linux/macOS (with ONNX runtime)
   - id: contextd
     main: ./cmd/contextd
     binary: contextd
@@ -49,6 +50,37 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+  # Pure Go builds for Windows (no CGO, uses remote embeddings)
+  - id: contextd-windows
+    main: ./cmd/contextd
+    binary: contextd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+  - id: ctxd-windows
+    main: ./cmd/ctxd
+    binary: ctxd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
 archives:
   - id: contextd-archive
     ids:
@@ -64,7 +96,21 @@ archives:
     files:
       - README.md
       - LICENSE*
-      - config.example.yaml
+
+  - id: contextd-windows-archive
+    ids:
+      - contextd-windows
+      - ctxd-windows
+    formats:
+      - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE*
 
 checksum:
   name_template: 'checksums.txt'
@@ -101,8 +147,7 @@ brews:
       - contextd-archive
     repository:
       owner: fyrsmithlabs
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      name: contextd
     directory: Formula
     homepage: "https://github.com/fyrsmithlabs/contextd"
     description: "AI context and reasoning engine for Claude Code"
@@ -115,6 +160,27 @@ brews:
     test: |
       system "#{bin}/contextd", "--help"
       system "#{bin}/ctxd", "--help"
+
+chocolateys:
+  - name: contextd
+    ids:
+      - contextd-windows-archive
+    owners: fyrsmithlabs
+    authors: fyrsmithlabs
+    project_url: https://github.com/fyrsmithlabs/contextd
+    license_url: https://github.com/fyrsmithlabs/contextd/blob/main/LICENSE
+    require_license_acceptance: false
+    project_source_url: https://github.com/fyrsmithlabs/contextd
+    docs_url: https://github.com/fyrsmithlabs/contextd#readme
+    bug_tracker_url: https://github.com/fyrsmithlabs/contextd/issues
+    tags: "ai claude mcp context memory"
+    summary: AI context and reasoning engine for Claude Code
+    description: |
+      ContextD provides cross-session memory and context management for AI agents.
+      It helps AI coding assistants remember what works, learn from mistakes,
+      and maintain context across sessions.
+    release_notes: "https://github.com/fyrsmithlabs/contextd/releases/tag/v{{ .Version }}"
+    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
 
 release:
   github:

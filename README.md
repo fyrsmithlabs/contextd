@@ -110,7 +110,17 @@ brew install contextd
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
 
-### Option 3: Download Binary
+### Option 3: Chocolatey (Windows)
+
+```powershell
+choco install contextd
+```
+
+Then add the MCP configuration (see [Configuration](#configuration) below).
+
+**Note:** Windows builds use pure Go (no CGO). Local ONNX embeddings are not available; configure a remote embedding provider or use the default.
+
+### Option 4: Download Binary
 
 Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
 
