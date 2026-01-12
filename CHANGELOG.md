@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-01-12
+
+### Added
+- **Real LLM API Integration** (Spec 003) - Replace stub implementations with production-ready API clients
+  - Anthropic/Claude API: Uses Messages API at `/v1/messages` with proper headers
+  - OpenAI API: Uses Chat Completions API at `/v1/chat/completions` with bearer auth
+  - Rate limiting: Token bucket limiter at ~50 req/min with burst of 5
+  - Exponential backoff: Up to 3 retries with 1s, 2s, 4s backoff for 429/5xx errors
+  - Secret scrubbing: All content scrubbed before sending to prevent API key leaks
+  - Test coverage: 88.4% with mocked HTTP servers
+- **Version Management Automation** (Spec 005) - Tooling to keep VERSION, CHANGELOG.md, and plugin.json in sync
+  - `scripts/check-version-sync.sh`: Validates version consistency across files
+  - `scripts/sync-version.sh`: Syncs VERSION to plugin.json
+  - Makefile targets: `version-check`, `version-check-strict`, `version-sync`
+  - GitHub Actions workflow: `.github/workflows/version-check.yml` for CI validation
+  - HTTP status endpoint now includes version field
+
+### Changed
+- **Interface Migration Cleanup** (Spec 004) - Removed dead adapter/interface code
+  - Deleted `internal/embeddings/adapter.go` (interfaces now in `embeddings/provider.go`)
+  - Deleted `internal/qdrant/adapter.go` (unused legacy Qdrant adapter)
+  - Deleted `internal/remediation/interfaces.go` (duplicate interfaces from before migration)
+
+## [0.3.0] - 2026-01-06
+
 ### Added
 - **Agent Policies** (Issue #46) - STRICT guardrails for agent behavior
   - New `policies` skill - defines policy schema, storage pattern, and management workflow
