@@ -13,9 +13,30 @@ server:
   shutdown_timeout: 10s        # Graceful shutdown timeout (default: 10s)
 
 # Observability Configuration (OpenTelemetry)
+# contextd exports metrics and traces via OTLP to an OpenTelemetry Collector
+# or directly to compatible backends (VictoriaMetrics, Jaeger, etc.)
 observability:
-  enable_telemetry: false      # Enable OTEL tracing (default: true)
+  enabled: false               # Enable OTEL telemetry (default: false)
+  endpoint: localhost:4317     # OTLP endpoint (default: localhost:4317)
+  protocol: grpc               # Protocol: "grpc" or "http/protobuf" (default: grpc)
+  insecure: true               # Use insecure connection (only for localhost)
+  tls_skip_verify: false       # Skip TLS certificate verification (for internal CAs)
   service_name: contextd       # Service name for traces (default: contextd)
+  service_version: 0.1.0       # Service version (default: 0.1.0)
+
+  # Sampling configuration (for traces)
+  sampling:
+    rate: 1.0                  # Sampling rate 0.0-1.0 (default: 1.0 = 100%)
+    always_on_errors: true     # Always capture error traces (default: true)
+
+  # Metrics configuration
+  metrics:
+    enabled: true              # Enable metrics export (default: true)
+    export_interval: 15s       # Metrics export interval (default: 15s)
+
+  # Shutdown configuration
+  shutdown:
+    timeout: 5s                # Graceful shutdown timeout (default: 5s)
 
 # Pre-Fetch Configuration
 # Proactively loads context based on git state

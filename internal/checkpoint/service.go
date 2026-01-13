@@ -78,6 +78,7 @@ type service struct {
 	meter         metric.Meter
 	saveCounter   metric.Int64Counter
 	resumeCounter metric.Int64Counter
+	errorCounter  metric.Int64Counter
 	totalGauge    metric.Int64ObservableGauge
 
 	mu     sync.RWMutex
@@ -179,6 +180,15 @@ func (s *service) initMetrics() {
 		s.logger.Warn("failed to create resume counter", zap.Error(err))
 	}
 
+	s.errorCounter, err = s.meter.Int64Counter(
+		"contextd.checkpoint.errors_total",
+		metric.WithDescription("Total number of checkpoint errors by operation"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create error counter", zap.Error(err))
+	}
+
 	// Observable gauge for total checkpoint count (queried on metrics scrape)
 	s.totalGauge, err = s.meter.Int64ObservableGauge(
 		"contextd.checkpoint.count",
@@ -188,6 +198,16 @@ func (s *service) initMetrics() {
 	)
 	if err != nil {
 		s.logger.Warn("failed to create checkpoint count gauge", zap.Error(err))
+	}
+}
+
+// recordError records an error metric with operation and reason labels.
+func (s *service) recordError(ctx context.Context, operation, reason string) {
+	if s.errorCounter != nil {
+		s.errorCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("operation", operation),
+			attribute.String("reason", reason),
+		))
 	}
 }
 
@@ -240,6 +260,7 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "save", "get_store_failed")
 		return nil, fmt.Errorf("failed to get project store: %w", err)
 	}
 
@@ -267,12 +288,14 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "save", "check_collection_failed")
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
 		// Use store's configured vector size (0 = use default from embedder)
 		if err := store.CreateCollection(ctx, collectionCheckpoints, 0); err != nil {
 			span.RecordError(err)
+			s.recordError(ctx, "save", "create_collection_failed")
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
 	}
@@ -284,12 +307,14 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "save", "store_failed")
 		return nil, fmt.Errorf("failed to save checkpoint: %w", err)
 	}
 
 	// Record metrics
 	if s.saveCounter != nil {
 		s.saveCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
 			attribute.Bool("auto_created", req.AutoCreated),
 		))
 	}
@@ -330,6 +355,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "list", "get_store_failed")
 		return nil, fmt.Errorf("failed to get project store: %w", err)
 	}
 
@@ -337,6 +363,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "list", "check_collection_failed")
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
@@ -366,6 +393,7 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "list", "search_failed")
 		return nil, fmt.Errorf("failed to list checkpoints: %w", err)
 	}
 
@@ -403,6 +431,7 @@ func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeRespon
 	cp, err := s.Get(ctx, req.TenantID, req.TeamID, req.ProjectID, req.CheckpointID)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "resume", "get_checkpoint_failed")
 		return nil, err
 	}
 
@@ -428,6 +457,7 @@ func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeRespon
 	// Record metrics
 	if s.resumeCounter != nil {
 		s.resumeCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
 			attribute.String("level", string(req.Level)),
 		))
 	}
@@ -469,12 +499,14 @@ func (s *service) Get(ctx context.Context, tenantID, teamID, projectID, checkpoi
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "get", "get_store_failed")
 		return nil, fmt.Errorf("failed to get project store: %w", err)
 	}
 
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionCheckpoints)
 	if err != nil || !exists {
+		s.recordError(ctx, "get", "not_found")
 		return nil, fmt.Errorf("checkpoint not found: %s", checkpointID)
 	}
 
@@ -487,15 +519,18 @@ func (s *service) Get(ctx context.Context, tenantID, teamID, projectID, checkpoi
 	results, err := store.SearchInCollection(ctx, collectionCheckpoints, "checkpoint", 1, filters)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "get", "search_failed")
 		return nil, fmt.Errorf("failed to get checkpoint: %w", err)
 	}
 
 	if len(results) == 0 {
+		s.recordError(ctx, "get", "not_found")
 		return nil, fmt.Errorf("checkpoint not found: %s", checkpointID)
 	}
 
 	cp := s.resultToCheckpoint(results[0])
 	if cp == nil {
+		s.recordError(ctx, "get", "invalid_data")
 		return nil, fmt.Errorf("invalid checkpoint data: %s", checkpointID)
 	}
 
@@ -526,11 +561,13 @@ func (s *service) Delete(ctx context.Context, tenantID, teamID, projectID, check
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "delete", "get_store_failed")
 		return fmt.Errorf("failed to get project store: %w", err)
 	}
 
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionCheckpoints, []string{checkpointID}); err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "delete", "delete_failed")
 		return fmt.Errorf("failed to delete checkpoint: %w", err)
 	}
 

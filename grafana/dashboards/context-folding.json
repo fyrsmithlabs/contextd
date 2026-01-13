@@ -179,7 +179,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_created_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_created_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Created",
           "range": true,
           "refId": "A"
@@ -190,7 +190,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_returned_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_returned_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Returned",
           "range": true,
           "refId": "B"
@@ -201,7 +201,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_failed_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_failed_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Failed",
           "range": true,
           "refId": "C"
@@ -212,7 +212,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_timeout_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_timeout_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Timeout",
           "range": true,
           "refId": "D"
@@ -279,7 +279,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(folding_branch_active_count{job=~\"$job\"})",
+          "expr": "sum(folding_branch_active_count{job=~\"$job\", project_id=~\"$project\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -348,7 +348,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "100 * sum(rate(folding_branch_returned_total{job=~\"$job\"}[$__rate_interval])) / (sum(rate(folding_branch_created_total{job=~\"$job\"}[$__rate_interval])) > 0)",
+          "expr": "100 * sum(rate(folding_branch_returned_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) / (sum(rate(folding_branch_created_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) > 0)",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -407,7 +407,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(folding_branch_created_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum(increase(folding_branch_created_total{job=~\"$job\", project_id=~\"$project\"}[$__range]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -498,7 +498,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (depth) (rate(folding_branch_created_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (depth) (rate(folding_branch_created_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Depth {{depth}}",
           "range": true,
           "refId": "A"
@@ -648,7 +648,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P50",
           "range": true,
           "refId": "A"
@@ -659,7 +659,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P95",
           "range": true,
           "refId": "B"
@@ -670,7 +670,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(folding_branch_duration_seconds_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P99",
           "range": true,
           "refId": "C"
@@ -761,7 +761,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, depth) (rate(folding_branch_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, depth) (rate(folding_branch_duration_seconds_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])))",
           "legendFormat": "Depth {{depth}}",
           "range": true,
           "refId": "A"
@@ -911,7 +911,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P50",
           "range": true,
           "refId": "A"
@@ -922,7 +922,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P95",
           "range": true,
           "refId": "B"
@@ -933,7 +933,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(folding_budget_consumed_tokens_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "P99",
           "range": true,
           "refId": "C"
@@ -1002,7 +1002,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(folding_budget_utilization_ratio_bucket{job=~\"$job\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(folding_budget_utilization_ratio_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])) by (le))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1061,7 +1061,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(folding_budget_consumed_tokens_sum{job=~\"$job\"}[$__range]))",
+          "expr": "sum(increase(folding_budget_consumed_tokens_sum{job=~\"$job\", project_id=~\"$project\"}[$__range]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1152,7 +1152,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, depth) (rate(folding_budget_utilization_ratio_bucket{job=~\"$job\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, depth) (rate(folding_budget_utilization_ratio_bucket{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval])))",
           "legendFormat": "Depth {{depth}}",
           "range": true,
           "refId": "A"
@@ -1256,7 +1256,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (failure_reason) (increase(folding_branch_failed_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (failure_reason) (increase(folding_branch_failed_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "{{failure_reason}}",
           "range": true,
           "refId": "A"
@@ -1378,7 +1378,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_timeout_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_timeout_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Timeouts",
           "range": true,
           "refId": "A"
@@ -1389,13 +1389,394 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(folding_branch_failed_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum(rate(folding_branch_failed_total{job=~\"$job\", project_id=~\"$project\"}[$__rate_interval]))",
           "legendFormat": "Failures",
           "range": true,
           "refId": "B"
         }
       ],
       "title": "Error Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 18,
+      "panels": [],
+      "title": "Project Breakdown",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": ["sum"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (project_id) (increase(folding_branch_created_total{job=~\"$job\"}[$__range]))",
+          "legendFormat": "{{project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Branches Created by Project",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": ["sum"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (project_id) (increase(folding_budget_consumed_tokens_sum{job=~\"$job\"}[$__range]))",
+          "legendFormat": "{{project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Tokens Consumed by Project",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": ["sum"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (project_id) (folding_branch_active_count{job=~\"$job\"})",
+          "legendFormat": "{{project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Active Branches by Project",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (project_id) (rate(folding_branch_created_total{job=~\"$job\"}[$__rate_interval]))",
+          "legendFormat": "{{project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Branch Creation Rate by Project",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, project_id) (rate(folding_branch_duration_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+          "legendFormat": "{{project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Branch Duration by Project",
       "type": "timeseries"
     }
   ],
@@ -1439,6 +1820,30 @@
         "options": [],
         "query": {
           "query": "label_values(folding_branch_created_total, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(folding_branch_created_total, project_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Project",
+        "multi": true,
+        "name": "project",
+        "options": [],
+        "query": {
+          "query": "label_values(folding_branch_created_total, project_id)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

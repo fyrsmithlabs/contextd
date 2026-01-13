@@ -11,6 +11,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/project"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
@@ -55,8 +56,13 @@ type Service struct {
 	logger        *zap.Logger
 
 	// Telemetry
-	meter      metric.Meter
-	totalGauge metric.Int64ObservableGauge
+	meter           metric.Meter
+	totalGauge      metric.Int64ObservableGauge
+	searchCounter   metric.Int64Counter
+	recordCounter   metric.Int64Counter
+	feedbackCounter metric.Int64Counter
+	outcomeCounter  metric.Int64Counter
+	errorCounter    metric.Int64Counter
 
 	// Stats tracking for statusline
 	statsMu        sync.RWMutex
@@ -204,6 +210,11 @@ func (s *Service) getStore(ctx context.Context, projectID string) (vectorstore.S
 func (s *Service) initMetrics() {
 	var err error
 
+	s.logger.Info("initializing OTEL metrics",
+		zap.String("instrumentation_scope", instrumentationName),
+		zap.Bool("meter_is_noop", s.meter == nil),
+	)
+
 	// Observable gauge for total memory count (queried on metrics scrape)
 	s.totalGauge, err = s.meter.Int64ObservableGauge(
 		"contextd.memory.count",
@@ -213,6 +224,62 @@ func (s *Service) initMetrics() {
 	)
 	if err != nil {
 		s.logger.Warn("failed to create memory count gauge", zap.Error(err))
+	}
+
+	s.searchCounter, err = s.meter.Int64Counter(
+		"contextd.memory.searches_total",
+		metric.WithDescription("Total number of memory searches"),
+		metric.WithUnit("{search}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create search counter", zap.Error(err))
+	}
+
+	s.recordCounter, err = s.meter.Int64Counter(
+		"contextd.memory.records_total",
+		metric.WithDescription("Total number of memories recorded"),
+		metric.WithUnit("{record}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create record counter", zap.Error(err))
+	}
+
+	s.feedbackCounter, err = s.meter.Int64Counter(
+		"contextd.memory.feedbacks_total",
+		metric.WithDescription("Total number of feedback events"),
+		metric.WithUnit("{feedback}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create feedback counter", zap.Error(err))
+	}
+
+	s.outcomeCounter, err = s.meter.Int64Counter(
+		"contextd.memory.outcomes_total",
+		metric.WithDescription("Total number of outcome events"),
+		metric.WithUnit("{outcome}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create outcome counter", zap.Error(err))
+	}
+
+	s.errorCounter, err = s.meter.Int64Counter(
+		"contextd.memory.errors_total",
+		metric.WithDescription("Total number of memory errors by operation"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create error counter", zap.Error(err))
+	}
+
+}
+
+// recordError records an error metric with operation and reason labels.
+func (s *Service) recordError(ctx context.Context, operation, reason string) {
+	if s.errorCounter != nil {
+		s.errorCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("operation", operation),
+			attribute.String("reason", reason),
+		))
 	}
 }
 
@@ -269,6 +336,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	// Get store and collection name for this project
 	store, collectionName, err := s.getStore(ctx, projectID)
 	if err != nil {
+		s.recordError(ctx, "search", "get_store_failed")
 		return nil, err
 	}
 
@@ -276,6 +344,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	// Fail-closed: require tenant ID to be set (no fallback)
 	tenantID := s.defaultTenant
 	if tenantID == "" {
+		s.recordError(ctx, "search", "tenant_not_configured")
 		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
 	}
 	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
@@ -286,6 +355,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
+		s.recordError(ctx, "search", "check_collection_failed")
 		return nil, fmt.Errorf("checking collection existence: %w", err)
 	}
 	if !exists {
@@ -310,6 +380,7 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 
 	results, err := store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
 	if err != nil {
+		s.recordError(ctx, "search", "search_failed")
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
 
@@ -406,6 +477,14 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		s.statsMu.Unlock()
 	}
 
+	// Record search metric
+	if s.searchCounter != nil {
+		s.searchCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", projectID),
+			attribute.Int("result_count", len(memories)),
+		))
+	}
+
 	s.logger.Debug("search completed",
 		zap.String("project_id", projectID),
 		zap.String("query", query),
@@ -449,12 +528,14 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 
 	// Validate memory
 	if err := memory.Validate(); err != nil {
+		s.recordError(ctx, "record", "validation_failed")
 		return fmt.Errorf("validating memory: %w", err)
 	}
 
 	// Get store and collection name
 	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
+		s.recordError(ctx, "record", "get_store_failed")
 		return err
 	}
 
@@ -462,6 +543,7 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 	// Fail-closed: require tenant ID to be set (no fallback)
 	tenantID := s.defaultTenant
 	if tenantID == "" {
+		s.recordError(ctx, "record", "tenant_not_configured")
 		return fmt.Errorf("tenant ID not configured for reasoningbank service")
 	}
 	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
@@ -472,11 +554,13 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 	// Ensure collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
 	if err != nil {
+		s.recordError(ctx, "record", "check_collection_failed")
 		return fmt.Errorf("checking collection existence: %w", err)
 	}
 	if !exists {
 		// Create collection with store's configured vector size (0 = use default)
 		if err := store.CreateCollection(ctx, collectionName, 0); err != nil {
+			s.recordError(ctx, "record", "create_collection_failed")
 			return fmt.Errorf("creating collection: %w", err)
 		}
 		s.logger.Info("created memories collection",
@@ -490,7 +574,16 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 	// Store in vector store
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		s.recordError(ctx, "record", "store_failed")
 		return fmt.Errorf("storing memory: %w", err)
+	}
+
+	// Record metric
+	if s.recordCounter != nil {
+		s.recordCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", memory.ProjectID),
+			attribute.String("outcome", string(memory.Outcome)),
+		))
 	}
 
 	s.logger.Info("memory recorded",
@@ -519,15 +612,18 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	// Get the memory first
 	memory, err := s.Get(ctx, memoryID)
 	if err != nil {
+		s.recordError(ctx, "feedback", "get_memory_failed")
 		return fmt.Errorf("getting memory: %w", err)
 	}
 
 	// Record explicit signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalExplicit, helpful, "")
 	if err != nil {
+		s.recordError(ctx, "feedback", "create_signal_failed")
 		return fmt.Errorf("creating signal: %w", err)
 	}
 	if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+		s.recordError(ctx, "feedback", "store_signal_failed")
 		return fmt.Errorf("storing signal: %w", err)
 	}
 
@@ -554,11 +650,13 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	// Get store and collection name
 	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
+		s.recordError(ctx, "feedback", "get_store_failed")
 		return err
 	}
 
 	// Delete old version from the correct collection
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+		s.recordError(ctx, "feedback", "delete_old_failed")
 		return fmt.Errorf("deleting old memory: %w", err)
 	}
 
@@ -566,7 +664,20 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		s.recordError(ctx, "feedback", "update_failed")
 		return fmt.Errorf("updating memory: %w", err)
+	}
+
+	// Record feedback metric
+	if s.feedbackCounter != nil {
+		helpfulStr := "negative"
+		if helpful {
+			helpfulStr = "positive"
+		}
+		s.feedbackCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", memory.ProjectID),
+			attribute.String("helpful", helpfulStr),
+		))
 	}
 
 	s.logger.Info("memory feedback recorded",
@@ -758,15 +869,18 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 	// Get the memory first
 	memory, err := s.Get(ctx, memoryID)
 	if err != nil {
+		s.recordError(ctx, "outcome", "get_memory_failed")
 		return 0, fmt.Errorf("getting memory: %w", err)
 	}
 
 	// Create and store outcome signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalOutcome, succeeded, sessionID)
 	if err != nil {
+		s.recordError(ctx, "outcome", "create_signal_failed")
 		return 0, fmt.Errorf("creating signal: %w", err)
 	}
 	if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+		s.recordError(ctx, "outcome", "store_signal_failed")
 		return 0, fmt.Errorf("storing signal: %w", err)
 	}
 
@@ -797,18 +911,33 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 	// Get store and collection name
 	store, collectionName, err := s.getStore(ctx, memory.ProjectID)
 	if err != nil {
+		s.recordError(ctx, "outcome", "get_store_failed")
 		return 0, err
 	}
 
 	// Delete old version and re-add with updated confidence
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
+		s.recordError(ctx, "outcome", "delete_old_failed")
 		return 0, fmt.Errorf("deleting old memory: %w", err)
 	}
 
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		s.recordError(ctx, "outcome", "update_failed")
 		return 0, fmt.Errorf("updating memory: %w", err)
+	}
+
+	// Record outcome metric
+	if s.outcomeCounter != nil {
+		successStr := "failure"
+		if succeeded {
+			successStr = "success"
+		}
+		s.outcomeCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", memory.ProjectID),
+			attribute.String("outcome", successStr),
+		))
 	}
 
 	s.logger.Info("outcome recorded",

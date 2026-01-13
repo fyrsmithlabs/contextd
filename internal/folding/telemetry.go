@@ -29,9 +29,9 @@ type Metrics struct {
 	branchActiveCount metric.Int64UpDownCounter
 
 	// Histograms
-	branchDuration     metric.Float64Histogram
-	budgetConsumed     metric.Int64Histogram
-	budgetUtilization  metric.Float64Histogram
+	branchDuration    metric.Float64Histogram
+	budgetConsumed    metric.Int64Histogram
+	budgetUtilization metric.Float64Histogram
 
 	// initialized tracks if metrics were successfully initialized
 	initialized bool
@@ -132,12 +132,13 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 // RecordBranchCreated records a branch creation.
 // Note: session_id is intentionally omitted from metrics to prevent cardinality explosion (SEC-FOLD-001).
 // Session correlation is available via trace context and structured logs.
-func (m *Metrics) RecordBranchCreated(ctx context.Context, sessionID string, depth int, budget int) {
+func (m *Metrics) RecordBranchCreated(ctx context.Context, sessionID string, depth int, budget int, projectID string) {
 	if m == nil || !m.initialized {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.Int("depth", depth),
+		attribute.String("project_id", projectID),
 	)
 	m.branchCreatedTotal.Add(ctx, 1, attrs)
 	m.branchActiveCount.Add(ctx, 1, attrs)
@@ -145,12 +146,13 @@ func (m *Metrics) RecordBranchCreated(ctx context.Context, sessionID string, dep
 
 // RecordBranchReturned records a successful branch return.
 // Note: session_id is intentionally omitted from metrics to prevent cardinality explosion (SEC-FOLD-001).
-func (m *Metrics) RecordBranchReturned(ctx context.Context, sessionID string, depth int, tokensUsed int, budget int, duration time.Duration) {
+func (m *Metrics) RecordBranchReturned(ctx context.Context, sessionID string, depth int, tokensUsed int, budget int, duration time.Duration, projectID string) {
 	if m == nil || !m.initialized {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.Int("depth", depth),
+		attribute.String("project_id", projectID),
 	)
 	m.branchReturnedTotal.Add(ctx, 1, attrs)
 	m.branchActiveCount.Add(ctx, -1, attrs)
@@ -163,12 +165,13 @@ func (m *Metrics) RecordBranchReturned(ctx context.Context, sessionID string, de
 
 // RecordBranchTimeout records a branch timeout.
 // Note: session_id is intentionally omitted from metrics to prevent cardinality explosion (SEC-FOLD-001).
-func (m *Metrics) RecordBranchTimeout(ctx context.Context, sessionID string, depth int, tokensUsed int, budget int, duration time.Duration) {
+func (m *Metrics) RecordBranchTimeout(ctx context.Context, sessionID string, depth int, tokensUsed int, budget int, duration time.Duration, projectID string) {
 	if m == nil || !m.initialized {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.Int("depth", depth),
+		attribute.String("project_id", projectID),
 	)
 	m.branchTimeoutTotal.Add(ctx, 1, attrs)
 	m.branchActiveCount.Add(ctx, -1, attrs)
@@ -181,13 +184,14 @@ func (m *Metrics) RecordBranchTimeout(ctx context.Context, sessionID string, dep
 
 // RecordBranchFailed records a branch failure.
 // Note: session_id is intentionally omitted from metrics to prevent cardinality explosion (SEC-FOLD-001).
-func (m *Metrics) RecordBranchFailed(ctx context.Context, sessionID string, depth int, reason string, tokensUsed int, budget int, duration time.Duration) {
+func (m *Metrics) RecordBranchFailed(ctx context.Context, sessionID string, depth int, reason string, tokensUsed int, budget int, duration time.Duration, projectID string) {
 	if m == nil || !m.initialized {
 		return
 	}
 	attrs := metric.WithAttributes(
 		attribute.Int("depth", depth),
 		attribute.String("failure_reason", reason),
+		attribute.String("project_id", projectID),
 	)
 	m.branchFailedTotal.Add(ctx, 1, attrs)
 	m.branchActiveCount.Add(ctx, -1, attrs)

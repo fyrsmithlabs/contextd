@@ -1,0 +1,6 @@
+# Generated binaries
+metrics-generator
+
+# Docker volumes
+prometheus-data/
+grafana-data/

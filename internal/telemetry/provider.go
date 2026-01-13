@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
@@ -112,11 +113,19 @@ func newMeterProvider(ctx context.Context, cfg *Config, res *resource.Resource) 
 		protocol = "grpc"
 	}
 
+	// Cumulative temporality selector - required for Prometheus-compatible backends
+	// like VictoriaMetrics. This overrides OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+	// environment variable which may be set by parent processes (e.g., Claude Code).
+	cumulativeSelector := func(metric.InstrumentKind) metricdata.Temporality {
+		return metricdata.CumulativeTemporality
+	}
+
 	switch protocol {
 	case "http/protobuf":
 		// HTTP/protobuf exporter for HTTPS endpoints
 		opts := []otlpmetrichttp.Option{
 			otlpmetrichttp.WithEndpoint(stripScheme(cfg.Endpoint)),
+			otlpmetrichttp.WithTemporalitySelector(cumulativeSelector),
 		}
 		if cfg.Insecure {
 			opts = append(opts, otlpmetrichttp.WithInsecure())
@@ -131,6 +140,7 @@ func newMeterProvider(ctx context.Context, cfg *Config, res *resource.Resource) 
 		// gRPC exporter (default)
 		opts := []otlpmetricgrpc.Option{
 			otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
+			otlpmetricgrpc.WithTemporalitySelector(cumulativeSelector),
 		}
 		if cfg.Insecure {
 			opts = append(opts, otlpmetricgrpc.WithInsecure())

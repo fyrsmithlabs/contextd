@@ -769,12 +769,12 @@ type troubleshootDiagnoseInput struct {
 }
 
 type troubleshootDiagnoseOutput struct {
-	ErrorMessage    string                     `json:"error_message" jsonschema:"Original error message"`
-	RootCause       string                     `json:"root_cause" jsonschema:"Likely root cause"`
-	Hypotheses      []troubleshoot.Hypothesis  `json:"hypotheses" jsonschema:"Diagnostic hypotheses"`
-	Recommendations []string                   `json:"recommendations" jsonschema:"Recommended actions"`
-	RelatedPatterns []troubleshoot.Pattern     `json:"related_patterns" jsonschema:"Similar known patterns"`
-	Confidence      float64                    `json:"confidence" jsonschema:"Overall confidence (0-1)"`
+	ErrorMessage    string                    `json:"error_message" jsonschema:"Original error message"`
+	RootCause       string                    `json:"root_cause" jsonschema:"Likely root cause"`
+	Hypotheses      []troubleshoot.Hypothesis `json:"hypotheses" jsonschema:"Diagnostic hypotheses"`
+	Recommendations []string                  `json:"recommendations" jsonschema:"Recommended actions"`
+	RelatedPatterns []troubleshoot.Pattern    `json:"related_patterns" jsonschema:"Similar known patterns"`
+	Confidence      float64                   `json:"confidence" jsonschema:"Overall confidence (0-1)"`
 }
 
 func (s *Server) registerTroubleshootTools() {
@@ -1066,6 +1066,7 @@ func (s *Server) registerMemoryTools() {
 
 type branchCreateInput struct {
 	SessionID      string `json:"session_id" jsonschema:"required,Session identifier"`
+	ProjectID      string `json:"project_id,omitempty" jsonschema:"Project identifier for metrics tracking"`
 	Description    string `json:"description" jsonschema:"required,Brief description of what the branch will do"`
 	Prompt         string `json:"prompt,omitempty" jsonschema:"Detailed prompt/instructions for the branch"`
 	Budget         int    `json:"budget,omitempty" jsonschema:"Token budget for this branch (default: 8192)"`
@@ -1090,18 +1091,18 @@ type branchReturnOutput struct {
 }
 
 type branchStatusInput struct {
-	BranchID string `json:"branch_id,omitempty" jsonschema:"Specific branch ID to check"`
+	BranchID  string `json:"branch_id,omitempty" jsonschema:"Specific branch ID to check"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to get active branch for"`
 }
 
 type branchStatusOutput struct {
-	BranchID       string `json:"branch_id,omitempty" jsonschema:"Branch ID"`
-	SessionID      string `json:"session_id,omitempty" jsonschema:"Session ID"`
-	Status         string `json:"status" jsonschema:"Branch status (active, completed, failed, timeout)"`
-	Depth          int    `json:"depth" jsonschema:"Branch depth"`
-	BudgetUsed     int    `json:"budget_used" jsonschema:"Tokens consumed"`
-	BudgetTotal    int    `json:"budget_total" jsonschema:"Total budget allocated"`
-	BudgetRemaining int   `json:"budget_remaining" jsonschema:"Remaining budget"`
+	BranchID        string `json:"branch_id,omitempty" jsonschema:"Branch ID"`
+	SessionID       string `json:"session_id,omitempty" jsonschema:"Session ID"`
+	Status          string `json:"status" jsonschema:"Branch status (active, completed, failed, timeout)"`
+	Depth           int    `json:"depth" jsonschema:"Branch depth"`
+	BudgetUsed      int    `json:"budget_used" jsonschema:"Tokens consumed"`
+	BudgetTotal     int    `json:"budget_total" jsonschema:"Total budget allocated"`
+	BudgetRemaining int    `json:"budget_remaining" jsonschema:"Remaining budget"`
 }
 
 func (s *Server) registerFoldingTools() {
@@ -1118,6 +1119,7 @@ func (s *Server) registerFoldingTools() {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
 		branchReq := folding.BranchRequest{
 			SessionID:      args.SessionID,
+			ProjectID:      args.ProjectID,
 			Description:    args.Description,
 			Prompt:         args.Prompt,
 			Budget:         args.Budget,

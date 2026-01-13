@@ -1,0 +1,44 @@
+# Gitleaks configuration for contextd
+# https://github.com/gitleaks/gitleaks
+
+title = "contextd gitleaks config"
+
+[extend]
+# Use the default gitleaks rules as a base
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''go\.sum$''',
+    '''go\.mod$''',
+    '''\.git/''',
+    '''vendor/''',
+    '''testdata/''',
+    '''.*_test\.go$''',
+    '''grafana/testdata/''',
+    '''test/fixtures/''',
+]
+
+# Allow example/placeholder values in documentation
+regexes = [
+    '''EXAMPLE_''',
+    '''example\.com''',
+    '''test[-_]?key''',
+    '''placeholder''',
+    '''xxxxxxxx''',
+    '''your[-_]?api[-_]?key''',
+]
+
+# Rule overrides
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key"
+regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret)['":\s]*[=:]\s*['"]?([a-zA-Z0-9_\-]{20,})['"]?'''
+allowlist = { paths = ['''config\.example\.yaml$''', '''\.md$''', '''docs/''']}
+
+[[rules]]
+id = "jwt-token"
+description = "JWT Token"
+regex = '''eyJ[A-Za-z0-9-_]+\.eyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*'''
+allowlist = { paths = ['''.*_test\.go$''', '''testdata/''']}

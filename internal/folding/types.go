@@ -50,6 +50,7 @@ func (s BranchStatus) IsTerminal() bool {
 type Branch struct {
 	ID                string       `json:"id"`
 	SessionID         string       `json:"session_id"`
+	ProjectID         string       `json:"project_id,omitempty"`
 	ParentID          *string      `json:"parent_id,omitempty"`
 	Depth             int          `json:"depth"`
 	Description       string       `json:"description"`
@@ -73,7 +74,8 @@ func (b *Branch) BudgetRemaining() int {
 // BranchRequest represents a request to create a new branch.
 type BranchRequest struct {
 	SessionID      string `json:"session_id"`
-	CallerID       string `json:"caller_id,omitempty"` // SEC-004: Caller identity for authorization
+	ProjectID      string `json:"project_id,omitempty"` // Project context for metrics
+	CallerID       string `json:"caller_id,omitempty"`  // SEC-004: Caller identity for authorization
 	Description    string `json:"description"`
 	Prompt         string `json:"prompt"`
 	Budget         int    `json:"budget,omitempty"`

@@ -87,6 +87,7 @@ type service struct {
 	searchCounter   metric.Int64Counter
 	recordCounter   metric.Int64Counter
 	feedbackCounter metric.Int64Counter
+	errorCounter    metric.Int64Counter
 
 	mu     sync.RWMutex
 	closed bool
@@ -178,6 +179,25 @@ func (s *service) initMetrics() {
 	)
 	if err != nil {
 		s.logger.Warn("failed to create feedback counter", zap.Error(err))
+	}
+
+	s.errorCounter, err = s.meter.Int64Counter(
+		"contextd.remediation.errors_total",
+		metric.WithDescription("Total number of remediation errors by operation"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create error counter", zap.Error(err))
+	}
+}
+
+// recordError records an error metric with operation and reason labels.
+func (s *service) recordError(ctx context.Context, operation, reason string) {
+	if s.errorCounter != nil {
+		s.errorCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("operation", operation),
+			attribute.String("reason", reason),
+		))
 	}
 }
 
@@ -358,6 +378,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 
 	// If no stores were accessible, return error instead of empty results
 	if storesAccessed == 0 && lastStoreErr != nil {
+		s.recordError(ctx, "search", "no_stores_accessible")
 		return nil, fmt.Errorf("failed to access any stores: %w", lastStoreErr)
 	}
 
@@ -368,6 +389,7 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	if s.searchCounter != nil {
 		s.searchCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scope", string(req.Scope)),
+			attribute.String("project_id", req.ProjectPath),
 			attribute.Int("result_count", len(allResults)),
 		))
 	}
@@ -485,6 +507,7 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	store, collection, err := s.getStore(ctx, req.TenantID, req.Scope, req.TeamID, req.ProjectPath)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "record", "get_store_failed")
 		return nil, err
 	}
 
@@ -499,12 +522,14 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	exists, err := store.CollectionExists(ctx, collection)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "record", "check_collection_failed")
 		return nil, fmt.Errorf("failed to check collection: %w", err)
 	}
 	if !exists {
 		// Use store's configured vector size (0 = use default from embedder)
 		if err := store.CreateCollection(ctx, collection, 0); err != nil {
 			span.RecordError(err)
+			s.recordError(ctx, "record", "create_collection_failed")
 			return nil, fmt.Errorf("failed to create collection: %w", err)
 		}
 	}
@@ -515,6 +540,7 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "record", "store_failed")
 		return nil, fmt.Errorf("failed to store remediation: %w", err)
 	}
 
@@ -522,6 +548,7 @@ func (s *service) Record(ctx context.Context, req *RecordRequest) (*Remediation,
 	if s.recordCounter != nil {
 		s.recordCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scope", string(req.Scope)),
+			attribute.String("project_id", req.ProjectPath),
 			attribute.String("category", string(req.Category)),
 		))
 	}
@@ -686,6 +713,7 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	rem, err := s.Get(ctx, req.TenantID, req.RemediationID)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "feedback", "get_remediation_failed")
 		return err
 	}
 
@@ -706,12 +734,14 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	store, collection, err := s.getStore(ctx, req.TenantID, rem.Scope, rem.TeamID, rem.ProjectPath)
 	if err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "feedback", "get_store_failed")
 		return err
 	}
 
 	// Delete old version
 	if err := store.DeleteDocumentsFromCollection(ctx, collection, []string{rem.ID}); err != nil {
 		span.RecordError(err)
+		s.recordError(ctx, "feedback", "delete_old_failed")
 		return fmt.Errorf("failed to delete old remediation: %w", err)
 	}
 
@@ -720,6 +750,7 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	if _, err := store.AddDocuments(ctx, []vectorstore.Document{doc}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.recordError(ctx, "feedback", "update_failed")
 		return fmt.Errorf("failed to update remediation: %w", err)
 	}
 
@@ -727,6 +758,7 @@ func (s *service) Feedback(ctx context.Context, req *FeedbackRequest) error {
 	if s.feedbackCounter != nil {
 		s.feedbackCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("rating", string(req.Rating)),
+			attribute.String("project_id", rem.ProjectPath),
 		))
 	}
 

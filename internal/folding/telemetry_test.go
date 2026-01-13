@@ -52,8 +52,8 @@ func TestMetrics_RecordBranchCreated(t *testing.T) {
 	ctx := context.Background()
 
 	// Record two branch creations
-	metrics.RecordBranchCreated(ctx, "sess_001", 0, 8192)
-	metrics.RecordBranchCreated(ctx, "sess_001", 1, 4096)
+	metrics.RecordBranchCreated(ctx, "sess_001", 0, 8192, "test-project")
+	metrics.RecordBranchCreated(ctx, "sess_001", 1, 4096, "test-project")
 
 	// Collect metrics
 	var rm metricdata.ResourceMetrics
@@ -97,10 +97,10 @@ func TestMetrics_NilReceiver(t *testing.T) {
 
 	// Should not panic with nil receiver
 	assert.NotPanics(t, func() {
-		metrics.RecordBranchCreated(ctx, "sess_001", 0, 8192)
-		metrics.RecordBranchReturned(ctx, "sess_001", 0, 5000, 8192, 30*time.Second)
-		metrics.RecordBranchTimeout(ctx, "sess_001", 0, 3000, 8192, 300*time.Second)
-		metrics.RecordBranchFailed(ctx, "sess_001", 0, "test", 100, 8192, 10*time.Second)
+		metrics.RecordBranchCreated(ctx, "sess_001", 0, 8192, "test-project")
+		metrics.RecordBranchReturned(ctx, "sess_001", 0, 5000, 8192, 30*time.Second, "test-project")
+		metrics.RecordBranchTimeout(ctx, "sess_001", 0, 3000, 8192, 300*time.Second, "test-project")
+		metrics.RecordBranchFailed(ctx, "sess_001", 0, "test", 100, 8192, 10*time.Second, "test-project")
 	})
 }
 

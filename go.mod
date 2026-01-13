@@ -3,6 +3,7 @@ module github.com/fyrsmithlabs/contextd
 go 1.25
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/anush008/fastembed-go v1.0.0
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/google/go-github/v57 v57.0.0
@@ -39,7 +40,6 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

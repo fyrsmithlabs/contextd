@@ -249,6 +249,7 @@ func (m *BranchManager) Create(ctx context.Context, req BranchRequest) (*BranchR
 	branch := &Branch{
 		ID:             "br_" + uuid.New().String()[:8],
 		SessionID:      req.SessionID,
+		ProjectID:      req.ProjectID,
 		ParentID:       parentID,
 		Depth:          depth,
 		Description:    req.Description,
@@ -282,7 +283,7 @@ func (m *BranchManager) Create(ctx context.Context, req BranchRequest) (*BranchR
 	atomic.AddInt64(&m.instanceBranchCount, 1)
 
 	// Record metrics and log
-	m.metrics.RecordBranchCreated(ctx, req.SessionID, depth, budget)
+	m.metrics.RecordBranchCreated(ctx, req.SessionID, depth, budget, branch.ProjectID)
 	m.logger.BranchCreated(ctx, branch.ID, req.SessionID, depth, budget)
 
 	SetSpanStatus(ctx, codes.Ok, "branch created successfully")
@@ -403,7 +404,7 @@ func (m *BranchManager) Return(ctx context.Context, req ReturnRequest) (*ReturnR
 
 	// Record metrics and log
 	duration := time.Since(startTime)
-	m.metrics.RecordBranchReturned(ctx, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, duration)
+	m.metrics.RecordBranchReturned(ctx, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, duration, branch.ProjectID)
 	m.logger.BranchReturned(ctx, branch.ID, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, duration)
 
 	// Emit completion event
@@ -493,10 +494,10 @@ func (m *BranchManager) ForceReturn(ctx context.Context, branchID string, reason
 	// Record metrics and log
 	duration := time.Since(startTime)
 	if status == BranchStatusTimeout {
-		m.metrics.RecordBranchTimeout(ctx, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, duration)
+		m.metrics.RecordBranchTimeout(ctx, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, duration, branch.ProjectID)
 		m.logger.BranchTimeout(ctx, branch.ID, branch.SessionID, branch.Depth, tokensUsed, branch.BudgetTotal, branch.TimeoutSeconds, duration)
 	} else {
-		m.metrics.RecordBranchFailed(ctx, branch.SessionID, branch.Depth, reason, tokensUsed, branch.BudgetTotal, duration)
+		m.metrics.RecordBranchFailed(ctx, branch.SessionID, branch.Depth, reason, tokensUsed, branch.BudgetTotal, duration, branch.ProjectID)
 		m.logger.BranchFailed(ctx, branch.ID, branch.SessionID, branch.Depth, reason, tokensUsed, branch.BudgetTotal, duration)
 	}
 	m.logger.ForceReturn(ctx, branch.ID, branch.SessionID, branch.Depth, reason)

@@ -46,3 +46,6 @@ coverage.txt
 .auto-claude/specs/*/*.json
 .auto-claude/specs/*/memory/
 !.auto-claude/specs/*/spec.md
+
+# Claude session artifacts (fyrsmithlabs standard)
+docs/.claude/
