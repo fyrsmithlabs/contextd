@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "002-memory-distiller-implementation",
-  "state": "complete",
+  "spec": "006-semantic-similarity-testing-infrastructure",
+  "state": "planning",
   "subtasks": {
-    "completed": 44,
-    "total": 44,
-    "in_progress": 0,
+    "completed": 0,
+    "total": 0,
+    "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "QA & Documentation",
+    "current": "Test Fixtures and Test Data",
     "id": null,
-    "total": 8
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 45,
-    "started_at": "2026-01-06T16:58:46.596396"
+    "number": 2,
+    "started_at": "2026-01-14T13:26:58.245248"
   },
-  "last_update": "2026-01-06T19:31:57.764849"
+  "last_update": "2026-01-14T13:31:07.688067"
 }
