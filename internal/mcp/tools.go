@@ -15,7 +15,18 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/repository"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
+
+// withTenantContext adds tenant context to the Go context for vectorstore operations.
+// This is required for payload-based tenant isolation to work correctly.
+func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) context.Context {
+	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		TeamID:    teamID,
+		ProjectID: projectID,
+	})
+}
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
@@ -138,6 +149,9 @@ func (s *Server) registerCheckpointTools() {
 			Metadata:    args.Metadata,
 		}
 
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, tenantID, "", projectID)
+
 		cp, err := s.checkpointSvc.Save(ctx, saveReq)
 		if err != nil {
 			return nil, checkpointSaveOutput{}, fmt.Errorf("checkpoint save failed: %w", err)
@@ -194,6 +208,9 @@ func (s *Server) registerCheckpointTools() {
 			AutoOnly:    args.AutoOnly,
 		}
 
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, tenantID, "", projectID)
+
 		checkpoints, err := s.checkpointSvc.List(ctx, listReq)
 		if err != nil {
 			return nil, checkpointListOutput{}, fmt.Errorf("checkpoint list failed: %w", err)
@@ -236,6 +253,9 @@ func (s *Server) registerCheckpointTools() {
 			TenantID:     args.TenantID,
 			Level:        args.Level,
 		}
+
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, args.TenantID, "", "")
 
 		response, err := s.checkpointSvc.Resume(ctx, resumeReq)
 		if err != nil {
@@ -335,6 +355,9 @@ func (s *Server) registerRemediationTools() {
 			IncludeHierarchy: args.IncludeHierarchy,
 		}
 
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, tenantID, args.TeamID, "")
+
 		results, err := s.remediationSvc.Search(ctx, searchReq)
 		if err != nil {
 			return nil, remediationSearchOutput{}, fmt.Errorf("remediation search failed: %w", err)
@@ -400,6 +423,9 @@ func (s *Server) registerRemediationTools() {
 			ProjectPath:   args.ProjectPath,
 			SessionID:     args.SessionID,
 		}
+
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, tenantID, args.TeamID, "")
 
 		rem, err := s.remediationSvc.Record(ctx, recordReq)
 		if err != nil {
@@ -498,6 +524,13 @@ func (s *Server) registerRepositoryTools() {
 			Branch:      args.Branch,
 			Limit:       args.Limit,
 		}
+
+		// Add tenant context to Go context for vectorstore operations
+		projectID := ""
+		if args.ProjectPath != "" {
+			projectID = filepath.Base(args.ProjectPath)
+		}
+		ctx = withTenantContext(ctx, tenantID, "", projectID)
 
 		// 1. Try Semantic Search
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
@@ -613,6 +646,13 @@ func (s *Server) registerRepositoryTools() {
 			Limit:          args.Limit,
 		}
 
+		// Add tenant context to Go context for vectorstore operations
+		projectID := ""
+		if args.ProjectPath != "" {
+			projectID = filepath.Base(args.ProjectPath)
+		}
+		ctx = withTenantContext(ctx, tenantID, "", projectID)
+
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
 		if err != nil {
 			return nil, repositorySearchOutput{}, fmt.Errorf("repository search failed: %w", err)
@@ -727,6 +767,18 @@ func (s *Server) registerRepositoryTools() {
 			ExcludePatterns: excludePatterns,
 			MaxFileSize:     args.MaxFileSize,
 		}
+
+		// Add tenant context to Go context for vectorstore operations
+		// Derive tenant from path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.Path != "" {
+			tenantID = tenant.GetTenantIDForPath(args.Path)
+		}
+		projectID := ""
+		if args.Path != "" {
+			projectID = filepath.Base(args.Path)
+		}
+		ctx = withTenantContext(ctx, tenantID, "", projectID)
 
 		result, err := s.repositorySvc.IndexRepository(ctx, args.Path, opts)
 		if err != nil {
@@ -882,6 +934,10 @@ func (s *Server) registerMemoryTools() {
 			limit = 5
 		}
 
+		// Add tenant context to Go context for vectorstore operations
+		// For memory tools, ProjectID serves as both tenant and project scope
+		ctx = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+
 		memories, err := s.reasoningbankSvc.Search(ctx, args.ProjectID, args.Query, limit)
 		if err != nil {
 			return nil, memorySearchOutput{}, fmt.Errorf("memory search failed: %w", err)
@@ -925,6 +981,9 @@ func (s *Server) registerMemoryTools() {
 		if err != nil {
 			return nil, memoryRecordOutput{}, fmt.Errorf("invalid memory: %w", err)
 		}
+
+		// Add tenant context to Go context for vectorstore operations
+		ctx = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
 
 		if err := s.reasoningbankSvc.Record(ctx, memory); err != nil {
 			return nil, memoryRecordOutput{}, fmt.Errorf("memory record failed: %w", err)
