@@ -395,7 +395,7 @@ Outputs:
 | Design docs | Yes | `docs/plans/`, `docs/spec/` |
 | Plugin usage includes | Yes | `.claude/includes/using-<plugin>.md` |
 | Plugin source | **No** | Use includes instead |
-| Policies | Yes | Via `/policies add` command |
+| Policies | Yes | Via `project-setup` skill |
 
 ## Behavioral Patterns to Surface
 

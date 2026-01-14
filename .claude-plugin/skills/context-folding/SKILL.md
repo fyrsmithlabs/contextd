@@ -5,98 +5,73 @@ description: Use when executing complex sub-tasks that need context isolation - 
 
 # Context Folding
 
-## Overview
-
-Context folding creates isolated branches for complex sub-tasks. Each branch has its own token budget and automatically cleans up when you return, preventing context bloat in the main conversation.
+Create isolated branches for complex sub-tasks. Each branch has its own token budget and cleans up on return, preventing context bloat.
 
 ## When to Use
 
 **Use context folding when:**
-- Executing a complex multi-step sub-task
-- Investigating a problem that requires reading many files
-- Running operations that would bloat the main context
-- You need to isolate exploratory work
+- Investigating a problem requiring many file reads
+- Running exploratory work that would bloat context
+- Multi-step sub-tasks with verbose intermediate steps
 
 **Don't use when:**
 - Task is simple (< 3 steps)
 - Results need to stay in main context
-- You're at the end of a session anyway
+- You're at end of session anyway
 
 ## Tools
 
 ### branch_create
 
-Create an isolated branch with a token budget:
 ```json
 {
   "session_id": "my-session",
   "description": "Brief description of the sub-task",
-  "prompt": "Detailed instructions for what to do in the branch",
+  "prompt": "Detailed instructions for the branch",
   "budget": 4096,
   "timeout_seconds": 300
 }
 ```
 
-**Parameters:**
-- `session_id` (required): Session identifier
-- `description` (required): Brief description (shown in status)
-- `prompt`: Detailed instructions
-- `budget`: Token budget (default: 8192)
-- `timeout_seconds`: Auto-return timeout (default: 300)
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `session_id` | Yes | - | Session identifier |
+| `description` | Yes | - | Brief description (shown in status) |
+| `prompt` | No | - | Detailed instructions |
+| `budget` | No | 8192 | Token budget |
+| `timeout_seconds` | No | 300 | Auto-return timeout |
 
 ### branch_return
 
-Return from a branch with results (auto-scrubs secrets):
 ```json
 {
   "branch_id": "br_abc123",
-  "message": "Summary of what was found/accomplished"
+  "message": "Summary of findings"
 }
 ```
 
-The message is scrubbed for secrets before being returned to the parent context. Child branches are force-returned first.
+Message is scrubbed for secrets before returning to parent context.
 
 ### branch_status
 
-Check branch state and budget usage:
 ```json
-{
-  "branch_id": "br_abc123"
-}
+{ "branch_id": "br_abc123" }
 ```
 
-Or check active branch for a session:
+Or check active branch:
 ```json
-{
-  "session_id": "my-session"
-}
+{ "session_id": "my-session" }
 ```
 
-**Response fields:**
-- `status`: "none", "active", or "completed"
-- `budget_total`: Allocated token budget
-- `budget_used`: Tokens consumed
-- `budget_remaining`: Tokens left
-- `depth`: Nesting level (0 = top level)
+Returns: `status`, `budget_total`, `budget_used`, `budget_remaining`, `depth`
 
 ## Workflow
 
 ```
-1. branch_create(session_id, description, budget)
-   → Get branch_id
-   → Budget allocated
-
-2. Do work in the branch
-   → Read files, search, analyze
-   → All within budget
-
-3. branch_status(branch_id)
-   → Check budget usage (optional)
-
-4. branch_return(branch_id, message)
-   → Summary returned to parent
-   → Secrets scrubbed
-   → Branch cleaned up
+1. branch_create(session_id, description, budget) -> branch_id
+2. Do work in the branch (read files, search, analyze)
+3. branch_status(branch_id) - optional budget check
+4. branch_return(branch_id, message) - summary returns, branch cleaned up
 ```
 
 ## Example
@@ -107,10 +82,9 @@ branch_create(
   session_id: "main",
   description: "Analyze auth module structure",
   budget: 4096
-)
-→ branch_id: "br_abc123"
+) -> branch_id: "br_abc123"
 
-# Do analysis work...
+# Do analysis...
 semantic_search("authentication handlers")
 Read files, analyze patterns...
 
@@ -119,8 +93,7 @@ branch_return(
   branch_id: "br_abc123",
   message: "Auth module has 3 handlers: login, logout, refresh. Uses JWT with 15min expiry."
 )
-→ Summary available in main context
-→ Branch cleaned up
+# Summary in main context, branch cleaned up
 ```
 
 ## Best Practices

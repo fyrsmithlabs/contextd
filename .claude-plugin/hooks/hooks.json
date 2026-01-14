@@ -5,8 +5,22 @@
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
+            "type": "prompt",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/session-start.md"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/prompt-reminder.md"
+          },
+          {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/session-start.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/context-monitor.sh"
           }
         ]
       }
@@ -17,6 +31,30 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/precompact.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": {
+          "tool_name": "Bash",
+          "exit_code_not": 0
+        },
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/error-diagnose.md"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/hooks/stop-reminder.md"
           }
         ]
       }

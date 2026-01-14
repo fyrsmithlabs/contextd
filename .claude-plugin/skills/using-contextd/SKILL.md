@@ -1,138 +1,110 @@
 ---
 name: using-contextd
-description: Use when starting any session with contextd MCP server available - introduces cross-session memory, checkpoints, and error remediation tools for persistent AI agent learning
+description: Use when starting any session with contextd - introduces core tools for cross-session memory, semantic code search, and error remediation
 ---
 
 # Using contextd
 
-## ⚠️ CRITICAL: Pre-Flight Checks (DO THIS FIRST)
+## Pre-Flight Protocol (MANDATORY)
 
-**BEFORE touching Read, Grep, or Glob, you MUST:**
+**BEFORE any filesystem operation (Read, Grep, Glob), you MUST:**
 
-1. **`mcp__contextd__semantic_search(query, project_path: ".")`**
-   - Semantic code search with automatic grep fallback
-   - This is your PRIMARY tool for code lookup
-   - NEVER skip this step
+1. **`semantic_search(query, project_path: ".")`** - Semantic code search with auto grep fallback
+2. **`memory_search(project_id, query)`** - Check past learnings and solutions
 
-2. **`mcp__contextd__memory_search(project_id, query)`**
-   - Check past learnings and solutions
-   - Required at the start of every task
+Skipping this is a protocol violation.
 
-**Skipping semantic_search is a protocol violation. Always search contextd first.**
-
-## Overview
-
-contextd provides cross-session memory and context management via MCP. Your learnings persist across sessions, errors get remembered, and context can be checkpointed and resumed.
-
-## Available Tools
+## Core Tools
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
+| **Search** | `semantic_search`, `repository_search`, `repository_index` | Code lookup by meaning |
 | **Memory** | `memory_search`, `memory_record`, `memory_feedback`, `memory_outcome` | Cross-session learning |
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context preservation |
-| **Remediation** | `remediation_search`, `remediation_record` | Error pattern tracking |
-| **Troubleshoot** | `troubleshoot_diagnose` | AI-powered error diagnosis |
-| **Repository** | `repository_index`, `repository_search`, `semantic_search` | Semantic code search |
-| **Context Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-tasks with token budgets |
+| **Remediation** | `remediation_search`, `remediation_record`, `troubleshoot_diagnose` | Error pattern tracking |
+| **Context Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-tasks |
 
-## When to Use Other Skills
-
-| Situation | Use Skill |
-|-----------|-----------|
-| Starting any task | `contextd:cross-session-memory` (search first) |
-| Context approaching 70% | `contextd:checkpoint-workflow` |
-| Encountering errors | `contextd:error-remediation` |
-| Setting up secret scrubbing | `contextd:secret-scrubbing` (PostToolUse hooks) |
-
-## Key Concepts
-
-**Tenant ID**: Derived from git remote URL as org/owner name (e.g., `github.com/fyrsmithlabs/contextd` -> `fyrsmithlabs`). For non-GitHub remotes or projects without remotes, provide tenant_id explicitly. Verify with: `git remote get-url origin | sed 's|.*github.com[:/]\([^/]*\).*|\1|'`
-
-**Project ID**: Scopes memories to project. Use consistent format:
-- Single-org: repository name only (e.g., `contextd`)
-- Multi-org: `org_repo` format (e.g., `fyrsmithlabs_contextd`)
-
-Changing project_id creates a new, separate memory space.
-
-**Confidence**: Memories have confidence scores (0-1) that adjust via feedback.
-
-**HTTP Server**: Required for `ctxd` CLI and PostToolUse hooks. Default port 9090. Check: `ctxd health`
-
-## Code Search Priority (CRITICAL)
-
-**Always search contextd FIRST, fallback to Read/Grep:**
+## Search Priority
 
 | Priority | Tool | When |
 |----------|------|------|
-| **1st** | `semantic_search` | Smart search - auto-fallback to grep if not indexed |
-| **2nd** | `repository_search` | Direct semantic code search (requires prior indexing) |
-| **3rd** | `memory_search` | Check past learnings |
-| **4th** | Read/Grep/Glob | Fallback for specific files or exact matches |
+| **1st** | `semantic_search` | Auto-selects best method (indexed or grep fallback) |
+| **2nd** | `memory_search` | Have I solved this before? |
+| **3rd** | Read/Grep/Glob | Fallback for exact matches only |
+
+## The Learning Loop
 
 ```
-# BEST workflow (auto-handles indexing)
-semantic_search(query: "authentication handler", project_path: ".")
-→ Uses indexed semantic search if available
-→ Falls back to grep automatically if not indexed
+1. SEARCH at task start (MANDATORY)
+   semantic_search(query, project_path)
+   memory_search(project_id, query)
 
-# ALTERNATIVE workflow (manual indexing)
-repository_search(query: "authentication handler", project_path: ".")
-→ Found relevant code? Use it
-→ Not indexed? repository_index(path: ".") then search
+2. DO the work
+   (apply relevant memories)
 
-# WRONG workflow
-grep "auth" **/*.go  ← Skipped contextd, wasted context
+3. RECORD at completion
+   memory_record(project_id, title, content, outcome)
+
+4. FEEDBACK when memories helped
+   memory_feedback(memory_id, helpful)
 ```
 
-**Why:** `semantic_search` is the preferred tool - it automatically chooses between semantic search (if indexed) and grep fallback. Repository search is semantic (finds by meaning), preserves context (returns only relevant snippets), and improves over time. Raw file reads bloat context.
+## Key Concepts
 
-## Quick Start
+**Tenant ID**: Derived from git remote (e.g., `github.com/fyrsmithlabs/contextd` -> `fyrsmithlabs`). Verify with: `git remote get-url origin | sed 's|.*github.com[:/]\([^/]*\).*|\1|'`
 
-```
-1. semantic_search - "Where is this in the code?" (auto-fallback to grep)
-2. memory_search - "Have I solved this before?"
-3. Do the work
-4. memory_record - "What did I learn?"
-5. checkpoint_save - If session is long or context is high
-```
+**Project ID**: Scopes memories. Use repository name (e.g., `contextd`) or `org_repo` format for multi-org.
 
-## Example Response: memory_search
+**Confidence**: Memories have scores (0-1) that adjust via feedback. Higher = ranks first.
+
+## What to Record
+
+**Good memories:**
+- Non-obvious solutions
+- Patterns that apply broadly
+- Design decisions with rationale (the WHY)
+- Mistakes and why they failed
+
+**Skip recording:**
+- Trivial fixes (typos, syntax)
+- Project-specific details (put in CLAUDE.md)
+
+## Recording Design Decisions
+
+When design involves significant discussion, capture the WHY:
 
 ```json
 {
-  "memories": [
-    {
-      "id": "mem_abc123",
-      "title": "Goroutine race condition fix",
-      "content": "Use sync.Mutex for shared state, or channels for communication. Run with -race flag to detect.",
-      "confidence": 0.85,
-      "outcome": "success",
-      "tags": ["go", "concurrency", "debugging"],
-      "created_at": "2025-12-10T14:30:00Z"
-    },
-    {
-      "id": "mem_def456",
-      "title": "Context cancellation pattern",
-      "content": "Pass context.Context as first arg, check ctx.Done() in loops.",
-      "confidence": 0.72,
-      "outcome": "success",
-      "tags": ["go", "concurrency", "context"],
-      "created_at": "2025-12-09T09:15:00Z"
-    }
-  ],
-  "total": 2
+  "project_id": "contextd",
+  "title": "ADR: Registry pattern for DI",
+  "content": "DECISION: Use Registry interface.\nWHY: Idiomatic Go, single mock for tests.\nREJECTED: Passing individual services (constructor bloat).",
+  "outcome": "success",
+  "tags": ["adr", "architecture", "design-decision"]
 }
 ```
 
-Higher confidence memories appear first. Use `memory_feedback` to improve rankings.
+## Optional: Conversation Indexing
+
+Index past Claude Code sessions to pre-warm contextd:
+
+```bash
+# Via /init command
+/init --conversations
+
+# What it extracts:
+# - Error -> fix patterns (remediations)
+# - Learnings (memories)
+# - User corrections (policies)
+```
+
+Conversations are scrubbed for secrets before processing.
 
 ## Common Mistakes
 
 | Mistake | Fix |
 |---------|-----|
-| Using Read/Grep before contextd | `semantic_search` FIRST (auto-fallback to grep) |
+| Using Read/Grep before contextd | `semantic_search` FIRST |
 | Not searching at task start | Always `memory_search` first |
 | Forgetting to record learnings | `memory_record` at task completion |
-| Letting context overflow | `checkpoint_save` at 70%, or use `branch_create` for sub-tasks |
 | Re-solving fixed errors | `remediation_search` when errors occur |
-| Long sub-tasks bloating context | Use context folding: `branch_create` → work → `branch_return` |
+| Context bloat from sub-tasks | Use `branch_create` for isolation |
