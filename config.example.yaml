@@ -84,6 +84,19 @@ embeddings:
   base_url: http://localhost:8080  # TEI server URL (default: http://localhost:8080)
   model: BAAI/bge-small-en-v1.5    # Embedding model (default: BAAI/bge-small-en-v1.5)
 
+# Extraction Configuration (LLM for Memory Consolidation)
+# ⚠️  SECURITY: Never commit API keys to version control!
+# API keys should be set via environment variables, not in this file.
+# If you must use this file, ensure it has 0600 permissions: chmod 0600 ~/.config/contextd/config.yaml
+extraction:
+  provider: disabled               # LLM provider: "anthropic", "openai", or "disabled" (default: disabled)
+  anthropic_api_key: ""            # Anthropic API key (env: EXTRACTION_ANTHROPIC_API_KEY)
+  anthropic_model: claude-3-5-sonnet-20241022  # Anthropic model (default: claude-3-5-sonnet-20241022)
+  openai_api_key: ""               # OpenAI API key (env: EXTRACTION_OPENAI_API_KEY)
+  openai_model: gpt-4              # OpenAI model (default: gpt-4)
+  timeout: 30s                     # Request timeout (default: 30s)
+  max_retries: 3                   # Maximum retry attempts (default: 3)
+
 # Example environment variable overrides:
 # export SERVER_HTTP_PORT=8080
 # export SERVER_SHUTDOWN_TIMEOUT=30s
@@ -99,3 +112,10 @@ embeddings:
 # export QDRANT_PORT=6334
 # export EMBEDDINGS_BASE_URL=http://tei.example.com:8080
 # export EMBEDDINGS_MODEL=BAAI/bge-small-en-v1.5
+# export EXTRACTION_PROVIDER=anthropic
+# export EXTRACTION_ANTHROPIC_API_KEY=sk-ant-api03-...
+# export EXTRACTION_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+# export EXTRACTION_OPENAI_API_KEY=sk-...
+# export EXTRACTION_OPENAI_MODEL=gpt-4
+# export EXTRACTION_TIMEOUT=30s
+# export EXTRACTION_MAX_RETRIES=3
