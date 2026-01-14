@@ -1,25 +1,25 @@
 {
   "active": true,
   "spec": "006-semantic-similarity-testing-infrastructure",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 6,
+    "completed": 11,
     "total": 11,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Real Embedding Tests",
-    "id": null,
-    "total": 3
+    "current": "",
+    "id": 0,
+    "total": 0
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
-    "started_at": "2026-01-14T13:26:58.245248"
+    "number": 0,
+    "started_at": "2026-01-14T14:19:59.897726"
   },
-  "last_update": "2026-01-14T13:48:13.719666"
+  "last_update": "2026-01-14T14:19:59.955104"
 }
