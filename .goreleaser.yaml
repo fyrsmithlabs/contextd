@@ -1,4 +1,5 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Windows-only builds - Mac/Linux users should use Homebrew
 version: 2
 
 project_name: contextd
@@ -6,50 +7,8 @@ project_name: contextd
 before:
   hooks:
     - go mod tidy
-    - go generate ./...
 
 builds:
-  # CGO builds for Linux/macOS (with ONNX runtime)
-  - id: contextd
-    main: ./cmd/contextd
-    binary: contextd
-    env:
-      - CGO_ENABLED=1
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: linux
-        goarch: arm64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
-
-  - id: ctxd
-    main: ./cmd/ctxd
-    binary: ctxd
-    env:
-      - CGO_ENABLED=1
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: linux
-        goarch: arm64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
-
   # Pure Go builds for Windows (no CGO, uses remote embeddings)
   - id: contextd-windows
     main: ./cmd/contextd
@@ -60,6 +19,7 @@ builds:
       - windows
     goarch:
       - amd64
+      - arm64
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -75,6 +35,7 @@ builds:
       - windows
     goarch:
       - amd64
+      - arm64
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -82,21 +43,6 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - id: contextd-archive
-    ids:
-      - contextd
-      - ctxd
-    formats:
-      - tar.gz
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}
-    files:
-      - README.md
-      - LICENSE*
-
   - id: contextd-windows-archive
     ids:
       - contextd-windows
@@ -141,26 +87,6 @@ changelog:
     - title: Others
       order: 999
 
-brews:
-  - name: contextd
-    ids:
-      - contextd-archive
-    repository:
-      owner: fyrsmithlabs
-      name: contextd
-    directory: Formula
-    homepage: "https://github.com/fyrsmithlabs/contextd"
-    description: "AI context and reasoning engine for Claude Code"
-    license: "MIT"
-    dependencies:
-      - name: onnxruntime
-    install: |
-      bin.install "contextd"
-      bin.install "ctxd"
-    test: |
-      system "#{bin}/contextd", "--help"
-      system "#{bin}/ctxd", "--help"
-
 chocolateys:
   - name: contextd
     ids:
@@ -181,6 +107,7 @@ chocolateys:
       and maintain context across sessions.
     release_notes: "https://github.com/fyrsmithlabs/contextd/releases/tag/v{{ .Version }}"
     api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
+    skip_publish: true  # Manual publish for now
 
 release:
   github:
@@ -189,6 +116,18 @@ release:
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
+  footer: |
+    ## Installation
+
+    ### Windows
+    Download the zip file and extract to a directory in your PATH.
+
+    ### macOS / Linux
+    Use Homebrew:
+    ```bash
+    brew tap fyrsmithlabs/contextd
+    brew install contextd
+    ```
 
 announce:
   skip: true

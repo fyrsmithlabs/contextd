@@ -1,7 +1,7 @@
 {
   "name": "contextd",
   "description": "Cross-session memory and context management for AI agents. Provides semantic search over past learnings, checkpoint save/resume, and error remediation tracking.",
-  "version": "0.4.0",
+  "version": "0.3.4",
   "author": {
     "name": "FyrSmith Labs",
     "email": "contact@fyrsmithlabs.com"

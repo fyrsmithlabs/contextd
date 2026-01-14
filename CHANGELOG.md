@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-01-14
+
+### Added
+- **Histogram Metrics** - Added performance histograms for key operations
+  - `contextd.memory.search_duration_seconds` - Memory search latency distribution
+  - `contextd.memory.confidence` - Confidence score distribution of retrieved memories
+  - `contextd.checkpoint.size_bytes` - Checkpoint size distribution
+- **Compression Service** - Wired compression service into main server startup
+
+### Changed
+- **Release Pipeline** - Windows-only binary builds via goreleaser
+  - Mac/Linux users should use Homebrew exclusively: `brew install fyrsmithlabs/contextd/contextd`
+  - Windows users download zip from GitHub releases
+
+### Fixed
+- **Telemetry Version** - Fixed `service_version` label reporting build-time version instead of hardcoded "0.1.0"
+
+## [0.3.3] - 2026-01-14
+
+### Fixed
+- **Telemetry Version** - Set `ServiceVersion` in telemetry config from build-time version variable
+
+## [0.3.2] - 2026-01-14
+
+### Fixed
+- **Grafana Metrics** - Initial hotfix for missing metrics instrumentation
+
 ## [0.3.1] - 2026-01-12
 
 ### Added
