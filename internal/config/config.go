@@ -24,6 +24,7 @@ type Config struct {
 	VectorStore             VectorStoreConfig
 	Qdrant                  QdrantConfig
 	Embeddings              EmbeddingsConfig
+	Extraction              ExtractionConfig
 	Repository              RepositoryConfig
 	Statusline              StatuslineConfig
 	ConsolidationScheduler  ConsolidationSchedulerConfig
@@ -132,6 +133,17 @@ type EmbeddingsConfig struct {
 	ONNXVersion string `koanf:"onnx_version"` // Optional ONNX runtime version override
 }
 
+// ExtractionConfig holds LLM extraction configuration for memory consolidation.
+type ExtractionConfig struct {
+	Provider         string        `koanf:"provider"`           // "anthropic", "openai", or "disabled" (default: "disabled")
+	AnthropicAPIKey  Secret        `koanf:"anthropic_api_key"`  // Anthropic API key
+	AnthropicModel   string        `koanf:"anthropic_model"`    // Anthropic model name (default: "claude-3-5-sonnet-20241022")
+	OpenAIAPIKey     Secret        `koanf:"openai_api_key"`     // OpenAI API key
+	OpenAIModel      string        `koanf:"openai_model"`       // OpenAI model name (default: "gpt-4")
+	Timeout          time.Duration `koanf:"timeout"`            // Request timeout (default: 30s)
+	MaxRetries       int           `koanf:"max_retries"`        // Maximum retry attempts (default: 3)
+}
+
 // CheckpointConfig holds checkpoint service configuration.
 type CheckpointConfig struct {
 	MaxContentSizeKB int `koanf:"max_content_size_kb"` // Maximum content size in KB (default: 1024 = 1MB)
@@ -204,6 +216,15 @@ type RuleConfig struct {
 //   - EMBEDDINGS_MODEL: Embedding model (default: BAAI/bge-small-en-v1.5)
 //   - EMBEDDING_BASE_URL: TEI URL if using TEI (default: http://localhost:8080)
 //   - EMBEDDINGS_CACHE_DIR: Model cache directory for fastembed (default: ./local_cache)
+//
+// Extraction:
+//   - EXTRACTION_PROVIDER: LLM provider: anthropic, openai, or disabled (default: disabled)
+//   - EXTRACTION_ANTHROPIC_API_KEY: Anthropic API key (required if provider=anthropic)
+//   - EXTRACTION_ANTHROPIC_MODEL: Anthropic model name (default: claude-3-5-sonnet-20241022)
+//   - EXTRACTION_OPENAI_API_KEY: OpenAI API key (required if provider=openai)
+//   - EXTRACTION_OPENAI_MODEL: OpenAI model name (default: gpt-4)
+//   - EXTRACTION_TIMEOUT: Request timeout (default: 30s)
+//   - EXTRACTION_MAX_RETRIES: Maximum retry attempts (default: 3)
 //
 // Checkpoint:
 //   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
@@ -299,6 +320,17 @@ func Load() *Config {
 		Model:       getEnvString("EMBEDDINGS_MODEL", "BAAI/bge-small-en-v1.5"),
 		CacheDir:    getEnvString("EMBEDDINGS_CACHE_DIR", ""),
 		ONNXVersion: getEnvString("EMBEDDINGS_ONNX_VERSION", ""),
+	}
+
+	// Extraction configuration
+	cfg.Extraction = ExtractionConfig{
+		Provider:        getEnvString("EXTRACTION_PROVIDER", "disabled"),
+		AnthropicAPIKey: getEnvSecret("EXTRACTION_ANTHROPIC_API_KEY", ""),
+		AnthropicModel:  getEnvString("EXTRACTION_ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+		OpenAIAPIKey:    getEnvSecret("EXTRACTION_OPENAI_API_KEY", ""),
+		OpenAIModel:     getEnvString("EXTRACTION_OPENAI_MODEL", "gpt-4"),
+		Timeout:         getEnvDuration("EXTRACTION_TIMEOUT", 30*time.Second),
+		MaxRetries:      getEnvInt("EXTRACTION_MAX_RETRIES", 3),
 	}
 
 	// Repository indexing configuration
@@ -473,6 +505,13 @@ func splitAndTrim(s, sep string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func getEnvSecret(key string, defaultValue string) Secret {
+	if value := os.Getenv(key); value != "" {
+		return Secret(value)
+	}
+	return Secret(defaultValue)
 }
 // ProductionConfig holds production deployment configuration.
 type ProductionConfig struct {
