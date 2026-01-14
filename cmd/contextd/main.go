@@ -142,6 +142,7 @@ func run() error {
 	// ============================================================================
 	telCfg := telemetry.NewDefaultConfig()
 	telCfg.ServiceName = cfg.Observability.ServiceName
+	telCfg.ServiceVersion = version
 	telCfg.Enabled = cfg.Observability.EnableTelemetry
 	if cfg.Observability.OTLPEndpoint != "" {
 		telCfg.Endpoint = cfg.Observability.OTLPEndpoint
