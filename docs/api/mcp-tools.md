@@ -1100,6 +1100,8 @@ Detected secrets are replaced with `[REDACTED]`.
 
 ## Error Handling
 
+> **📖 See Also:** [Comprehensive Error Codes Reference](./error-codes.md) - Complete catalog of all error codes with troubleshooting guides.
+
 All tools return errors in a consistent format:
 
 ```json
@@ -1122,6 +1124,8 @@ All tools return errors in a consistent format:
 | `RATE_LIMITED` | Too many requests |
 | `UNAUTHORIZED` | Invalid tenant ID or permissions |
 
+For complete error code documentation with troubleshooting guides and examples, see [error-codes.md](./error-codes.md).
+
 ---
 
 ## Related Documentation
@@ -1130,4 +1134,5 @@ All tools return errors in a consistent format:
 - [Architecture Overview](../architecture.md) - Detailed component descriptions
 - [Hook Setup Guide](../HOOKS.md) - Claude Code lifecycle integration
 - [Configuration Reference](../configuration.md) - All configuration options
+- [Error Codes Reference](./error-codes.md) - Complete error codes with troubleshooting
 - [Troubleshooting](../troubleshooting.md) - Common issues and fixes
