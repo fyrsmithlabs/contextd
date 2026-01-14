@@ -20,6 +20,16 @@ const (
 	maxConfigFileSize = 1024 * 1024 // 1MB
 )
 
+// getHomeDir returns the user's home directory.
+// It prefers the HOME environment variable when set (for testability),
+// falling back to os.UserHomeDir() which may use platform-specific methods.
+func getHomeDir() (string, error) {
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	return os.UserHomeDir()
+}
+
 // LoadWithFile loads configuration from YAML file, then overrides with environment variables.
 //
 // Configuration precedence (highest to lowest):
@@ -64,7 +74,7 @@ func LoadWithFile(configPath string) (*Config, error) {
 
 	// Use default config path if not specified
 	if configPath == "" {
-		home, err := os.UserHomeDir()
+		home, err := getHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
@@ -160,7 +170,7 @@ func LoadWithFile(configPath string) (*Config, error) {
 // This is called during startup to ensure new users have the config directory ready.
 // The directory is created with 0700 permissions (owner read/write/execute only).
 func EnsureConfigDir() error {
-	home, err := os.UserHomeDir()
+	home, err := getHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
@@ -176,34 +186,49 @@ func EnsureConfigDir() error {
 // validateConfigPath checks if path is in allowed directories.
 // This validation runs even if the file doesn't exist yet.
 func validateConfigPath(path string) error {
-	// Resolve to absolute path and follow symlinks to prevent path traversal
+	// Resolve to absolute path
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path: %w", err)
 	}
 
-	// Resolve symlinks to prevent attackers from using symlinks to escape allowed directories
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		// If symlink evaluation fails, continue with absPath
-		// This allows validation of paths that dont exist yet
-		resolvedPath = absPath
-	}
-
-	// Check if path is in allowed directories
-	home, err := os.UserHomeDir()
+	// Get home directory
+	home, err := getHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
+	// Resolve home directory symlinks to handle cases like /var -> /private/var on macOS
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		// If symlink resolution fails, use the original home path
+		resolvedHome = home
+	}
+
+	// Resolve symlinks in the input path.
+	// If the file doesn't exist yet, EvalSymlinks will fail. In that case,
+	// if the path starts with the unresolved home prefix, replace it with
+	// the resolved home to normalize symlink-based paths (e.g., /var -> /private/var).
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// File doesn't exist - normalize by replacing home prefix with resolved home
+		if strings.HasPrefix(absPath, home+string(filepath.Separator)) {
+			resolvedPath = resolvedHome + absPath[len(home):]
+		} else if absPath == home {
+			resolvedPath = resolvedHome
+		} else {
+			resolvedPath = absPath
+		}
+	}
+
 	allowedDirs := []string{
-		filepath.Join(home, ".config", "contextd"),
+		filepath.Join(resolvedHome, ".config", "contextd"),
 		"/etc/contextd",
 	}
 
 	// Clean the resolved path to normalize it (remove .. and . components)
 	cleanPath := filepath.Clean(resolvedPath)
-	
+
 	allowed := false
 	for _, dir := range allowedDirs {
 		// Check if path is exactly the allowed directory or is a subdirectory

@@ -52,7 +52,7 @@ func init() {
 	checkpointSaveCmd.Flags().StringVar(&cpDescription, "description", "", "Checkpoint description")
 	checkpointSaveCmd.Flags().StringVar(&cpSummary, "summary", "", "Brief summary of checkpoint")
 	checkpointSaveCmd.Flags().StringVar(&cpContext, "context", "", "Context content")
-	checkpointSaveCmd.MarkFlagRequired("name")
+	_ = checkpointSaveCmd.MarkFlagRequired("name")
 
 	// List-specific flags
 	checkpointListCmd.Flags().StringVar(&cpSessionID, "session-id", "", "Filter by session ID")

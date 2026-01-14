@@ -9,7 +9,12 @@ import (
 
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/workflows"
 
-// Metrics for version validation workflow
+// Metrics for version validation workflow.
+// These are registered with OpenTelemetry and will be used when workflow
+// recording is implemented. Keeping them initialized ensures the metrics
+// are available in the OTEL meter registry.
+//
+//nolint:unused // Metrics are registered with OTEL meter; usage pending workflow implementation
 var (
 	versionValidationCounter   metric.Int64Counter
 	versionValidationDuration  metric.Float64Histogram

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -64,8 +63,10 @@ func TestIntegration_FullLoggingPipeline(t *testing.T) {
 	named := logger.Named("subsystem")
 	named.Info(ctx, "named log")
 
-	// All logs should succeed without error
-	assert.NoError(t, logger.Sync())
+	// Sync may fail on stdout/stderr in some environments (e.g., CI, testing frameworks)
+	// This is expected behavior - zap's Sync() attempts to fsync stdout which fails
+	// when stdout is not a regular file. We just ensure no panic occurs.
+	_ = logger.Sync()
 }
 
 // testDBConfig for testing Secret marshaling
