@@ -34,6 +34,19 @@ docker logs --tail 100 <container_id>
 
 ---
 
+## Error Code Reference
+
+ContextD uses a systematic error code system for diagnosing issues. When you encounter an error message with a code like `CTX-XXX-YYY`, refer to the **[Error Codes Reference](./error-codes.md)** for:
+
+- Detailed error descriptions and root causes
+- Step-by-step resolution procedures
+- Related configuration parameters
+- Prevention strategies
+
+**Quick lookup:** Search for your error code in [error-codes.md](./error-codes.md) to find specific guidance.
+
+---
+
 ## Common Issues
 
 ### Container Won't Start
@@ -444,6 +457,7 @@ docker logs --tail 200 <container_id> 2>&1
 
 ## Related Documentation
 
+- [Error Codes Reference](./error-codes.md) - Systematic error code lookup and resolution
 - [Main Documentation](./CONTEXTD.md) - Quick start and overview
 - [Architecture Overview](./architecture.md) - Detailed component descriptions
 - [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
