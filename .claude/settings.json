@@ -11,16 +11,6 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "tdd-guard"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear",
