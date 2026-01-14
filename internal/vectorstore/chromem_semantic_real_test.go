@@ -734,3 +734,153 @@ func TestChromemStore_SemanticReal_BaselineComparison(t *testing.T) {
 	// The goal is to track quality over time, not enforce strict thresholds
 	t.Log("\nℹ️  This test tracks quality over time. Review logs for any concerning trends.")
 }
+
+// TestChromemStore_SemanticReal_RegressionDetection enforces quality thresholds
+// and fails if semantic search quality degrades beyond acceptable tolerance.
+// This is a BLOCKING test that prevents regressions from being merged.
+func TestChromemStore_SemanticReal_RegressionDetection(t *testing.T) {
+	skipIfFastEmbedUnavailable(t)
+
+	baseline := loadBaselineMetrics(t)
+	t.Logf("Running regression detection (model: %s, tolerance: %.1f%%)",
+		baseline.Model, baseline.Tolerance*100)
+
+	tmpDir, err := os.MkdirTemp("", "chromem_semantic_real_test_*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	embedder := createRealEmbedder(t)
+	defer embedder.Close()
+
+	// Track aggregate metrics
+	var totalNDCG, totalMRR, totalPrecision float64
+	var totalBaselineNDCG, totalBaselineMRR, totalBaselinePrecision float64
+	fixtures := testdata.AllFixtures()
+	fixtureCount := float64(len(fixtures))
+
+	// Run all fixtures and validate against baseline thresholds
+	for _, fixture := range fixtures {
+		// Create fresh store for each fixture
+		config := vectorstore.ChromemConfig{
+			Path:              tmpDir + "/" + fixture.Name,
+			Compress:          false,
+			DefaultCollection: "semantic_real_test",
+			VectorSize:        384,
+			Isolation:         vectorstore.NewNoIsolation(),
+		}
+
+		store, err := vectorstore.NewChromemStore(config, embedder, zap.NewNop())
+		require.NoError(t, err)
+		defer store.Close()
+
+		ctx := context.Background()
+
+		// Convert and add documents
+		docs := make([]vectorstore.Document, len(fixture.Documents))
+		for i, testDoc := range fixture.Documents {
+			docs[i] = vectorstore.Document{
+				ID:       testDoc.ID,
+				Content:  testDoc.Content,
+				Metadata: testDoc.Metadata,
+			}
+		}
+		_, err = store.AddDocuments(ctx, docs)
+		require.NoError(t, err)
+
+		// Search
+		results, err := store.Search(ctx, fixture.Query, len(fixture.Documents))
+		require.NoError(t, err)
+
+		// Determine relevant documents
+		var relevantDocs []string
+		switch fixture.Name {
+		case "high_similarity_pair":
+			relevantDocs = []string{"doc1", "doc2"}
+		case "low_similarity_pair":
+			relevantDocs = []string{"doc1", "doc3"}
+		case "synonym_handling":
+			relevantDocs = []string{"doc1", "doc2"}
+		case "multi_topic_documents":
+			relevantDocs = []string{"doc1", "doc3"}
+		case "gradual_relevance_decay":
+			relevantDocs = []string{"doc1", "doc2", "doc3"}
+		}
+
+		// Calculate metrics
+		k := 3
+		if fixture.Name == "gradual_relevance_decay" {
+			k = 5
+		}
+		metrics := vectorstore.CalculateAllMetrics(results, fixture.ExpectedRanking, relevantDocs, k)
+
+		// Find baseline for this fixture
+		var baselineNDCG, baselineMRR, baselinePrecision float64
+		for _, tc := range baseline.TestCases {
+			if tc.Name == fixture.Name {
+				baselineNDCG = tc.Metrics.NDCG
+				baselineMRR = tc.Metrics.MRR
+				baselinePrecision = tc.Metrics.PrecisionAtK
+				break
+			}
+		}
+
+		// Calculate minimum acceptable thresholds (baseline * (1 - tolerance))
+		minNDCG := baselineNDCG * (1 - baseline.Tolerance)
+		minMRR := baselineMRR * (1 - baseline.Tolerance)
+		minPrecision := baselinePrecision * (1 - baseline.Tolerance)
+
+		// ENFORCE thresholds - test will fail if quality degrades
+		assert.GreaterOrEqual(t, metrics.NDCG, minNDCG,
+			"REGRESSION: %s NDCG %.3f is below threshold %.3f (baseline: %.3f, tolerance: %.1f%%)",
+			fixture.Name, metrics.NDCG, minNDCG, baselineNDCG, baseline.Tolerance*100)
+
+		assert.GreaterOrEqual(t, metrics.MRR, minMRR,
+			"REGRESSION: %s MRR %.3f is below threshold %.3f (baseline: %.3f, tolerance: %.1f%%)",
+			fixture.Name, metrics.MRR, minMRR, baselineMRR, baseline.Tolerance*100)
+
+		assert.GreaterOrEqual(t, metrics.PrecisionAtK, minPrecision,
+			"REGRESSION: %s Precision@%d %.3f is below threshold %.3f (baseline: %.3f, tolerance: %.1f%%)",
+			fixture.Name, k, metrics.PrecisionAtK, minPrecision, baselinePrecision, baseline.Tolerance*100)
+
+		// Accumulate for aggregate validation
+		totalNDCG += metrics.NDCG
+		totalMRR += metrics.MRR
+		totalPrecision += metrics.PrecisionAtK
+		totalBaselineNDCG += baselineNDCG
+		totalBaselineMRR += baselineMRR
+		totalBaselinePrecision += baselinePrecision
+
+		t.Logf("✓ %s: NDCG=%.3f (>= %.3f), MRR=%.3f (>= %.3f), P@%d=%.3f (>= %.3f)",
+			fixture.Name, metrics.NDCG, minNDCG, metrics.MRR, minMRR, k, metrics.PrecisionAtK, minPrecision)
+	}
+
+	// Calculate and validate aggregate metrics
+	avgNDCG := totalNDCG / fixtureCount
+	avgMRR := totalMRR / fixtureCount
+	avgPrecision := totalPrecision / fixtureCount
+
+	// Calculate aggregate thresholds from baseline aggregate targets
+	minAvgNDCG := baseline.AggregateTargets.MinAvgNDCG * (1 - baseline.Tolerance)
+	minAvgMRR := baseline.AggregateTargets.MinAvgMRR * (1 - baseline.Tolerance)
+	minAvgPrecision := baseline.AggregateTargets.MinAvgPrecision * (1 - baseline.Tolerance)
+
+	t.Logf("\n=== Aggregate Regression Check ===")
+	t.Logf("Average NDCG:      %.3f (threshold: >= %.3f)", avgNDCG, minAvgNDCG)
+	t.Logf("Average MRR:       %.3f (threshold: >= %.3f)", avgMRR, minAvgMRR)
+	t.Logf("Average Precision: %.3f (threshold: >= %.3f)", avgPrecision, minAvgPrecision)
+
+	// ENFORCE aggregate thresholds
+	assert.GreaterOrEqual(t, avgNDCG, minAvgNDCG,
+		"REGRESSION: Average NDCG %.3f is below threshold %.3f (target: %.3f, tolerance: %.1f%%)",
+		avgNDCG, minAvgNDCG, baseline.AggregateTargets.MinAvgNDCG, baseline.Tolerance*100)
+
+	assert.GreaterOrEqual(t, avgMRR, minAvgMRR,
+		"REGRESSION: Average MRR %.3f is below threshold %.3f (target: %.3f, tolerance: %.1f%%)",
+		avgMRR, minAvgMRR, baseline.AggregateTargets.MinAvgMRR, baseline.Tolerance*100)
+
+	assert.GreaterOrEqual(t, avgPrecision, minAvgPrecision,
+		"REGRESSION: Average Precision %.3f is below threshold %.3f (target: %.3f, tolerance: %.1f%%)",
+		avgPrecision, minAvgPrecision, baseline.AggregateTargets.MinAvgPrecision, baseline.Tolerance*100)
+
+	t.Log("\n✅ All regression checks passed - semantic search quality is within acceptable thresholds")
+}
