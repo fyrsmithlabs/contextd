@@ -87,27 +87,46 @@ changelog:
     - title: Others
       order: 999
 
-chocolateys:
+brews:
   - name: contextd
-    ids:
-      - contextd-windows-archive
-    owners: fyrsmithlabs
-    authors: fyrsmithlabs
-    project_url: https://github.com/fyrsmithlabs/contextd
-    license_url: https://github.com/fyrsmithlabs/contextd/blob/main/LICENSE
-    require_license_acceptance: false
-    project_source_url: https://github.com/fyrsmithlabs/contextd
-    docs_url: https://github.com/fyrsmithlabs/contextd#readme
-    bug_tracker_url: https://github.com/fyrsmithlabs/contextd/issues
-    tags: "ai claude mcp context memory"
-    summary: AI context and reasoning engine for Claude Code
-    description: |
-      ContextD provides cross-session memory and context management for AI agents.
-      It helps AI coding assistants remember what works, learn from mistakes,
-      and maintain context across sessions.
-    release_notes: "https://github.com/fyrsmithlabs/contextd/releases/tag/v{{ .Version }}"
-    api_key: "{{ .Env.CHOCOLATEY_API_KEY }}"
-    skip_publish: true  # Manual publish for now
+    # Use source tarball, not binary archives
+    url_template: "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v{{ .Version }}.tar.gz"
+    download_strategy: CurlDownloadStrategy
+    repository:
+      owner: fyrsmithlabs
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/fyrsmithlabs/contextd"
+    description: "AI context and reasoning engine for Claude Code"
+    license: "AGPL-3.0"
+    skip_upload: auto
+    dependencies:
+      - name: go
+        type: build
+      - name: onnxruntime
+    custom_block: |
+      head "https://github.com/fyrsmithlabs/contextd.git", branch: "main"
+    install: |
+      ENV["CGO_ENABLED"] = "1"
+      ldflags = %W[
+        -s -w
+        -X main.version=#{version}
+        -X main.commit=#{Utils.git_head}
+        -X main.date=#{time.iso8601}
+      ]
+      system "go", "build", *std_go_args(ldflags:), "-o", bin/"contextd", "./cmd/contextd"
+      system "go", "build", *std_go_args(ldflags:), "-o", bin/"ctxd", "./cmd/ctxd"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/contextd --version 2>&1", 1)
+      assert_match version.to_s, shell_output("#{bin}/ctxd --version 2>&1", 1)
+
+# Chocolatey disabled - requires choco CLI on runner
+# chocolateys:
+#   - name: contextd
+#     ids:
+#       - contextd-windows-archive
+#     skip_publish: true
 
 release:
   github:
