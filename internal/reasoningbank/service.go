@@ -57,12 +57,14 @@ type Service struct {
 
 	// Telemetry
 	meter           metric.Meter
-	totalGauge      metric.Int64ObservableGauge
-	searchCounter   metric.Int64Counter
-	recordCounter   metric.Int64Counter
-	feedbackCounter metric.Int64Counter
-	outcomeCounter  metric.Int64Counter
-	errorCounter    metric.Int64Counter
+	totalGauge          metric.Int64ObservableGauge
+	searchCounter       metric.Int64Counter
+	recordCounter       metric.Int64Counter
+	feedbackCounter     metric.Int64Counter
+	outcomeCounter      metric.Int64Counter
+	errorCounter        metric.Int64Counter
+	searchDuration      metric.Float64Histogram
+	confidenceHistogram metric.Float64Histogram
 
 	// Stats tracking for statusline
 	statsMu        sync.RWMutex
@@ -271,6 +273,26 @@ func (s *Service) initMetrics() {
 		s.logger.Warn("failed to create error counter", zap.Error(err))
 	}
 
+	s.searchDuration, err = s.meter.Float64Histogram(
+		"contextd.memory.search_duration_seconds",
+		metric.WithDescription("Duration of memory search operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create search duration histogram", zap.Error(err))
+	}
+
+	s.confidenceHistogram, err = s.meter.Float64Histogram(
+		"contextd.memory.confidence",
+		metric.WithDescription("Confidence scores of retrieved memories"),
+		metric.WithUnit("1"),
+		metric.WithExplicitBucketBoundaries(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create confidence histogram", zap.Error(err))
+	}
+
 }
 
 // recordError records an error metric with operation and reason labels.
@@ -323,6 +345,8 @@ func (s *Service) observeMemoryCount(ctx context.Context, observer metric.Int64O
 // FR-003: Semantic search by similarity
 // FR-002: Memories include required fields
 func (s *Service) Search(ctx context.Context, projectID, query string, limit int) ([]Memory, error) {
+	startTime := time.Now()
+
 	if projectID == "" {
 		return nil, ErrEmptyProjectID
 	}
@@ -483,6 +507,23 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			attribute.String("project_id", projectID),
 			attribute.Int("result_count", len(memories)),
 		))
+	}
+
+	// Record search duration histogram
+	if s.searchDuration != nil {
+		duration := time.Since(startTime).Seconds()
+		s.searchDuration.Record(ctx, duration, metric.WithAttributes(
+			attribute.String("project_id", projectID),
+		))
+	}
+
+	// Record confidence histogram for each returned memory
+	if s.confidenceHistogram != nil {
+		for _, mem := range memories {
+			s.confidenceHistogram.Record(ctx, mem.Confidence, metric.WithAttributes(
+				attribute.String("project_id", projectID),
+			))
+		}
 	}
 
 	s.logger.Debug("search completed",
