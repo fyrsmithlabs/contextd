@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/compression"
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/embeddings"
 	"github.com/fyrsmithlabs/contextd/internal/folding"
@@ -337,6 +338,23 @@ func run() error {
 		)
 	}
 
+	// Initialize compression service
+	var compressionSvc *compression.Service
+	{
+		compressionCfg := compression.Config{
+			DefaultAlgorithm:  compression.AlgorithmHybrid,
+			TargetRatio:       2.0,
+			QualityThreshold:  0.7,
+			MaxProcessingTime: 30 * time.Second,
+		}
+		compressionSvc, err = compression.NewService(compressionCfg)
+		if err != nil {
+			logger.Warn(ctx, "compression service initialization failed", zap.Error(err))
+		} else {
+			logger.Info(ctx, "compression service initialized")
+		}
+	}
+
 	// Initialize hooks manager
 	hooksCfg := &hooks.Config{
 		AutoCheckpointOnClear: true,
@@ -358,6 +376,7 @@ func run() error {
 		Hooks:        hooksMgr,
 		Distiller:    distillerSvc,
 		Scrubber:     scrubber,
+		Compression:  compressionSvc,
 		VectorStore:  store,
 	})
 	logger.Info(ctx, "services registry initialized")
@@ -533,6 +552,11 @@ func run() error {
 		serviceStatus = append(serviceStatus, "folding:ok")
 	} else {
 		serviceStatus = append(serviceStatus, "folding:unavailable")
+	}
+	if compressionSvc != nil {
+		serviceStatus = append(serviceStatus, "compression:ok")
+	} else {
+		serviceStatus = append(serviceStatus, "compression:unavailable")
 	}
 
 	if httpSrv != nil {

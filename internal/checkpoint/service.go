@@ -80,6 +80,7 @@ type service struct {
 	resumeCounter metric.Int64Counter
 	errorCounter  metric.Int64Counter
 	totalGauge    metric.Int64ObservableGauge
+	sizeHistogram metric.Float64Histogram
 
 	mu     sync.RWMutex
 	closed bool
@@ -199,6 +200,17 @@ func (s *service) initMetrics() {
 	if err != nil {
 		s.logger.Warn("failed to create checkpoint count gauge", zap.Error(err))
 	}
+
+	// Histogram for checkpoint size in bytes
+	s.sizeHistogram, err = s.meter.Float64Histogram(
+		"contextd.checkpoint.size_bytes",
+		metric.WithDescription("Size of saved checkpoints in bytes"),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(1024, 4096, 16384, 65536, 262144, 1048576, 4194304),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create checkpoint size histogram", zap.Error(err))
+	}
 }
 
 // recordError records an error metric with operation and reason labels.
@@ -316,6 +328,15 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 		s.saveCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("project_id", req.ProjectID),
 			attribute.Bool("auto_created", req.AutoCreated),
+		))
+	}
+
+	// Record checkpoint size histogram
+	if s.sizeHistogram != nil {
+		// Calculate approximate size of checkpoint content
+		size := float64(len(cp.Summary) + len(cp.Context) + len(cp.FullState))
+		s.sizeHistogram.Record(ctx, size, metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
 		))
 	}
 
