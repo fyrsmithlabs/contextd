@@ -87,39 +87,8 @@ changelog:
     - title: Others
       order: 999
 
-brews:
-  - name: contextd
-    # Use source tarball, not binary archives
-    url_template: "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v{{ .Version }}.tar.gz"
-    download_strategy: CurlDownloadStrategy
-    repository:
-      owner: fyrsmithlabs
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/fyrsmithlabs/contextd"
-    description: "AI context and reasoning engine for Claude Code"
-    license: "AGPL-3.0"
-    skip_upload: auto
-    dependencies:
-      - name: go
-        type: build
-      - name: onnxruntime
-    custom_block: |
-      head "https://github.com/fyrsmithlabs/contextd.git", branch: "main"
-    install: |
-      ENV["CGO_ENABLED"] = "1"
-      ldflags = %W[
-        -s -w
-        -X main.version=#{version}
-        -X main.commit=#{Utils.git_head}
-        -X main.date=#{time.iso8601}
-      ]
-      system "go", "build", *std_go_args(ldflags:), "-o", bin/"contextd", "./cmd/contextd"
-      system "go", "build", *std_go_args(ldflags:), "-o", bin/"ctxd", "./cmd/ctxd"
-    test: |
-      assert_match version.to_s, shell_output("#{bin}/contextd --version 2>&1", 1)
-      assert_match version.to_s, shell_output("#{bin}/ctxd --version 2>&1", 1)
+# Homebrew: Use separate job to update homebrew-tap (source-based formula)
+# goreleaser brews section requires binary archives, we only build Windows
 
 # Chocolatey disabled - requires choco CLI on runner
 # chocolateys:

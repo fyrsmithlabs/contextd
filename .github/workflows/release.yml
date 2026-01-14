@@ -1,6 +1,6 @@
 # Release Workflow
 # Builds Windows binaries using goreleaser on tag push
-# Updates Homebrew tap automatically
+# Updates Homebrew tap automatically (separate job for source formula)
 # Mac/Linux users: brew install fyrsmithlabs/tap/contextd
 
 name: Release
@@ -15,14 +15,20 @@ permissions:
 
 jobs:
   release:
-    name: Release
+    name: Release Windows Binaries
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -38,4 +44,94 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    runs-on: ubuntu-latest
+    needs: release
+    # Skip prereleases
+    if: ${{ !contains(needs.release.outputs.version, 'rc') && !contains(needs.release.outputs.version, 'beta') }}
+    continue-on-error: true  # Don't fail release if homebrew update fails
+
+    steps:
+      - name: Check token
+        id: check
+        run: |
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "HOMEBREW_TAP_TOKEN not configured, skipping homebrew update"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get version and SHA256
+        if: steps.check.outputs.skip != 'true'
+        id: info
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Get SHA256 of source tarball
+          SHA256=$(curl -sL "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${VERSION}.tar.gz" | sha256sum | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+          echo "Version: $VERSION"
+          echo "SHA256: $SHA256"
+
+      - name: Checkout homebrew-tap
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: fyrsmithlabs/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          cat > homebrew-tap/Formula/contextd.rb << 'FORMULA'
+          # typed: false
+          # frozen_string_literal: true
+
+          class Contextd < Formula
+            desc "AI context and reasoning engine for Claude Code"
+            homepage "https://github.com/fyrsmithlabs/contextd"
+            version "${{ steps.info.outputs.version }}"
+            license "AGPL-3.0"
+
+            url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${{ steps.info.outputs.version }}.tar.gz"
+            sha256 "${{ steps.info.outputs.sha256 }}"
+
+            head "https://github.com/fyrsmithlabs/contextd.git", branch: "main"
+
+            depends_on "go" => :build
+            depends_on "onnxruntime"
+
+            def install
+              ENV["CGO_ENABLED"] = "1"
+
+              ldflags = %W[
+                -s -w
+                -X main.version=#{version}
+              ]
+
+              system "go", "build", *std_go_args(ldflags:), "-o", bin/"contextd", "./cmd/contextd"
+              system "go", "build", *std_go_args(ldflags:), "-o", bin/"ctxd", "./cmd/ctxd"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/contextd --version 2>&1", 1)
+              assert_match version.to_s, shell_output("#{bin}/ctxd --version 2>&1", 1)
+            end
+          end
+          FORMULA
+
+      - name: Commit and push
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/contextd.rb
+          git commit -m "Update contextd to v${{ steps.info.outputs.version }}"
+          git push
