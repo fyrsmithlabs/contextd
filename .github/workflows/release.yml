@@ -46,26 +46,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-homebrew:
-    name: Update Homebrew Tap
+    name: Update Homebrew Formula
     runs-on: ubuntu-latest
     needs: release
     # Skip prereleases
     if: ${{ !contains(needs.release.outputs.version, 'rc') && !contains(needs.release.outputs.version, 'beta') }}
-    continue-on-error: true  # Don't fail release if homebrew update fails
 
     steps:
-      - name: Check token
-        id: check
-        run: |
-          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
-            echo "HOMEBREW_TAP_TOKEN not configured, skipping homebrew update"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version and SHA256
-        if: steps.check.outputs.skip != 'true'
+      - name: Get SHA256
         id: info
         run: |
           VERSION="${{ needs.release.outputs.version }}"
@@ -78,18 +72,9 @@ jobs:
           echo "Version: $VERSION"
           echo "SHA256: $SHA256"
 
-      - name: Checkout homebrew-tap
-        if: steps.check.outputs.skip != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: fyrsmithlabs/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
-
       - name: Update formula
-        if: steps.check.outputs.skip != 'true'
         run: |
-          cat > homebrew-tap/Formula/contextd.rb << 'FORMULA'
+          cat > Formula/contextd.rb << 'EOF'
           # typed: false
           # frozen_string_literal: true
 
@@ -101,8 +86,6 @@ jobs:
 
             url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${{ steps.info.outputs.version }}.tar.gz"
             sha256 "${{ steps.info.outputs.sha256 }}"
-
-            head "https://github.com/fyrsmithlabs/contextd.git", branch: "main"
 
             depends_on "go" => :build
             depends_on "onnxruntime"
@@ -120,18 +103,16 @@ jobs:
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/contextd --version 2>&1", 1)
-              assert_match version.to_s, shell_output("#{bin}/ctxd --version 2>&1", 1)
+              assert_match version.to_s, shell_output("#{bin}/contextd --version")
+              assert_match version.to_s, shell_output("#{bin}/ctxd --version")
             end
           end
-          FORMULA
+          EOF
 
       - name: Commit and push
-        if: steps.check.outputs.skip != 'true'
         run: |
-          cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/contextd.rb
-          git commit -m "Update contextd to v${{ steps.info.outputs.version }}"
+          git diff --staged --quiet || git commit -m "Update Homebrew formula to v${{ steps.info.outputs.version }}"
           git push
