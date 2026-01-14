@@ -4,11 +4,11 @@
 class Contextd < Formula
   desc "AI context and reasoning engine for Claude Code"
   homepage "https://github.com/fyrsmithlabs/contextd"
-  version "0.3.0"
-  license "MIT"
+  version "0.3.3"
+  license "AGPL-3.0"
 
-  url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v0.3.0.tar.gz"
-  sha256 "c8d484a8da17565d5cc7df3d0f33db34e34726136d01b164f2c2d995cafac75a"
+  url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v0.3.3.tar.gz"
+  sha256 "7155700c946c18b7097fbcbd8d106dfc5fbff265a0105156c0ce502c99a15998"
 
   depends_on "go" => :build
   depends_on "onnxruntime"
