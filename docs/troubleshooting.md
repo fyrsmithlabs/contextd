@@ -74,6 +74,48 @@ docker run -it --rm ghcr.io/fyrsmithlabs/contextd:latest
 
 ---
 
+### chromem Issues (Default Provider)
+
+chromem is the default embedded vector store. Most issues are related to disk space or file permissions.
+
+**Symptom:** Errors mentioning chromem, persistence, or file access.
+
+**Common Causes:**
+
+1. **Disk full**
+   ```bash
+   # Check disk space
+   df -h ~/.local/share/contextd
+   ```
+   **Solution:** Free up disk space or change the data directory via `CONTEXTD_VECTORSTORE_CHROMEM_PATH`.
+
+2. **Permission denied**
+   ```bash
+   # Check permissions
+   ls -la ~/.local/share/contextd
+   ```
+   **Solution:** Ensure your user has read/write access to the data directory.
+
+3. **Corrupted database**
+   ```bash
+   # Backup and reset (WARNING: deletes all data)
+   mv ~/.local/share/contextd ~/.local/share/contextd.bak
+   ```
+   **Solution:** If the database is corrupted, backup and reset. Re-index repositories after reset.
+
+4. **Collection not found**
+   ```
+   Error: collection not found
+   ```
+   **Cause:** First run or data directory was reset.
+   **Solution:** Collections are created automatically on first use. Re-record memories or re-index repositories.
+
+---
+
+### Qdrant Issues (External Provider)
+
+The following issues apply when using Qdrant instead of chromem (set `CONTEXTD_VECTORSTORE_PROVIDER=qdrant`).
+
 ### Qdrant Client Version Warning
 
 **Symptom:** Log message like:

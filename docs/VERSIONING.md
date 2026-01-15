@@ -138,4 +138,11 @@ git checkout VERSION
 
 - Semantic Versioning: https://semver.org/
 - Git tagging: `git help tag`
-- Release process: `docs/release-process.md` (if exists)
+
+---
+
+## Related Documentation
+
+- [Releasing Guide](./RELEASING.md) - Creating releases
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Configuration Reference](./configuration.md) - All configuration options

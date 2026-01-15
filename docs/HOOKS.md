@@ -300,6 +300,7 @@ docker run --rm -v contextd-data:/data alpine chown -R 1000:1000 /data
 | `memory_search` | Find relevant past strategies/learnings |
 | `memory_record` | Save new learning from current session |
 | `memory_feedback` | Rate if a memory was helpful (adjusts confidence) |
+| `memory_outcome` | Report task success after using memory |
 | `checkpoint_save` | Save session state for later resumption |
 | `checkpoint_list` | List available checkpoints |
 | `checkpoint_resume` | Resume from a checkpoint (summary/context/full) |
@@ -307,12 +308,24 @@ docker run --rm -v contextd-data:/data alpine chown -R 1000:1000 /data
 | `remediation_record` | Record a new error fix |
 | `repository_index` | Index repository for semantic search |
 | `repository_search` | Semantic search over indexed code |
+| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `branch_create` | Create isolated context branch with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Check branch status and budget usage |
+| `conversation_index` | Index Claude Code conversation files |
+| `conversation_search` | Search indexed conversations |
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
+| `reflect_report` | Generate self-reflection report on memories |
+| `reflect_analyze` | Analyze behavioral patterns in memories |
+
+For complete tool documentation, see [MCP Tools API Reference](./api/mcp-tools.md).
 
 ---
 
 ## Related Documentation
 
-- [Architecture Overview](./architecture.md)
-- [Configuration Reference](./configuration.md)
-- [Troubleshooting Guide](./troubleshooting.md)
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Architecture Overview](./architecture.md) - Detailed component descriptions
+- [Configuration Reference](./configuration.md) - All configuration options
+- [MCP Tools API Reference](./api/mcp-tools.md) - Complete tool documentation
+- [Troubleshooting Guide](./troubleshooting.md) - Common issues and fixes

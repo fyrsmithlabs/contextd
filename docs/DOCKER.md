@@ -211,3 +211,12 @@ docker run --rm \
   -v "$(pwd):/backup" \
   alpine tar xzf /backup/contextd-backup.tar.gz -C /
 ```
+
+---
+
+## Related Documentation
+
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Configuration Reference](./configuration.md) - All configuration options
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [Troubleshooting](./troubleshooting.md) - Common issues and fixes

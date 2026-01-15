@@ -38,19 +38,53 @@ go build -o contextd ./cmd/contextd
 
 ## MCP Tools
 
+### Memory
 | Tool | Purpose |
 |------|---------|
 | `memory_search` | Find relevant past strategies/learnings |
 | `memory_record` | Save new learning from current session |
 | `memory_feedback` | Rate memory helpfulness (adjusts confidence) |
+| `memory_outcome` | Report task success after using memory |
+
+### Checkpoint
+| Tool | Purpose |
+|------|---------|
 | `checkpoint_save` | Save session state for later resumption |
 | `checkpoint_list` | List available checkpoints |
 | `checkpoint_resume` | Resume from checkpoint (summary/context/full) |
+
+### Remediation
+| Tool | Purpose |
+|------|---------|
 | `remediation_search` | Find fixes for error patterns |
 | `remediation_record` | Record a new error fix |
+
+### Repository & Search
+| Tool | Purpose |
+|------|---------|
 | `repository_index` | Index repository for semantic search |
 | `repository_search` | Semantic search over indexed code |
+| `semantic_search` | Smart search with semantic understanding + grep fallback |
+
+### Context Folding
+| Tool | Purpose |
+|------|---------|
+| `branch_create` | Create isolated context branch with token budget |
+| `branch_return` | Return from branch with scrubbed results |
+| `branch_status` | Check branch status and budget usage |
+
+### Conversation
+| Tool | Purpose |
+|------|---------|
+| `conversation_index` | Index Claude Code conversation files |
+| `conversation_search` | Search indexed conversations |
+
+### Utility
+| Tool | Purpose |
+|------|---------|
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
+| `reflect_report` | Generate self-reflection report on memories |
+| `reflect_analyze` | Analyze behavioral patterns in memories
 
 ---
 
@@ -146,6 +180,7 @@ Claude Code / AI Agent
 |  | - Checkpoint|  |
 |  | - Remediate |  |
 |  | - Repository|  |
+|  | - Branching |  |
 |  +------+------+  |
 |         |         |
 |  +------v------+  |
@@ -187,10 +222,15 @@ Add to `~/.claude/settings.json`:
 
 ## Documentation
 
+- [Onboarding Guide](./ONBOARDING.md) - Getting started with contextd
 - [Architecture Overview](./architecture.md) - Detailed component descriptions
-- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
 - [Configuration Reference](./configuration.md) - All configuration options
+- [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration
+- [MCP Tools API Reference](./api/mcp-tools.md) - Complete tool documentation
+- [Docker Guide](./DOCKER.md) - Running contextd in Docker
 - [Troubleshooting](./troubleshooting.md) - Common issues and fixes
+- [Versioning](./VERSIONING.md) - Version management
+- [Releasing](./RELEASING.md) - Creating releases
 
 ---
 
