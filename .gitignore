@@ -49,3 +49,6 @@ coverage.txt
 
 # Claude session artifacts (fyrsmithlabs standard)
 docs/.claude/
+
+# Auto Claude data directory
+.auto-claude/
