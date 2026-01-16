@@ -11,6 +11,7 @@ Cross-session memory and context management for AI agents.
 - **Context Folding** - Isolated sub-tasks with token budgets that auto-cleanup
 - **Self-Reflection** - Analyze behavior patterns and improve documentation
 - **Secret Scrubbing** - Automatic detection via gitleaks
+- **Tool Search** - Dynamic tool discovery with defer_loading for ~80% context reduction
 
 ## Installation
 
@@ -112,6 +113,38 @@ Or manually edit `~/.claude/settings.json`:
 3. **During work**: Use contextd-first search, memories auto-recorded
 4. **At 70% context**: `/contextd:checkpoint` then `/clear`
 5. **Next session**: Resume offered automatically via SessionStart hook
+
+## Tool Search (Context Optimization)
+
+contextd implements the [Anthropic tool search protocol](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool) to dramatically reduce context usage. Instead of loading all 23 tool definitions at startup (~5000 tokens), only 3 essential tools are loaded initially.
+
+**How it works:**
+- **Non-deferred tools (always loaded):** `tool_search`, `semantic_search`, `memory_search`
+- **Deferred tools (20):** Discoverable via `tool_search`, loaded on-demand
+- **Context savings:** ~80% reduction in initial tool definition tokens
+
+**MCP Tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `tool_search` | Search for tools by query (regex-supported), returns `tool_reference` blocks |
+| `tool_list` | List all tools with optional category/deferred filtering |
+
+**Example workflow:**
+```
+User: "I need to save my progress"
+
+Claude: [Uses tool_search("checkpoint")]
+        → Returns tool_reference for checkpoint_save, checkpoint_list, checkpoint_resume
+
+Claude: [Uses checkpoint_save with discovered tool definition]
+```
+
+**Configuration:**
+
+Tool search is enabled by default. Configure via environment variables:
+- `CONTEXTD_TOOL_SEARCH_DEFERRED_LOADING=true` - Enable/disable defer loading
+- `CONTEXTD_TOOL_SEARCH_NON_DEFERRED=tool_search,semantic_search,memory_search` - Tools to always load
 
 ## Context Folding
 

@@ -1,7 +1,7 @@
 {
   "name": "contextd",
-  "description": "Cross-session memory and context management for AI agents. Provides semantic search over past learnings, checkpoint save/resume, and error remediation tracking.",
-  "version": "0.3.4",
+  "description": "Cross-session memory and context management for AI agents. Provides semantic search over past learnings, checkpoint save/resume, and error remediation tracking. Supports tool search with defer_loading for ~80% context reduction.",
+  "version": "0.3.5",
   "author": {
     "name": "FyrSmith Labs",
     "email": "contact@fyrsmithlabs.com"
@@ -16,7 +16,10 @@
     "checkpoint",
     "ai-agent",
     "semantic-search",
-    "remediation"
+    "remediation",
+    "tool-search",
+    "defer-loading",
+    "context-optimization"
   ],
   "commands": [
     "./.claude-plugin/commands/search.md",
