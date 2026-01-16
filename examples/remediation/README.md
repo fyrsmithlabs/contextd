@@ -179,7 +179,16 @@ Mark a remediation as helpful or not.
 {
   "remediation_id": "rem_abc123",
   "helpful": true,
-  "notes": "Fixed the issue completely, no side effects"
+  "project_path": "/path/to/project"
+}
+```
+
+**Output**:
+```json
+{
+  "remediation_id": "rem_abc123",
+  "new_confidence": 0.95,
+  "helpful": true
 }
 ```
 

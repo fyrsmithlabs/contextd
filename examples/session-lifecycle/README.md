@@ -115,9 +115,7 @@ Save new learnings after completing a task.
   "project_id": "my-project",
   "title": "Concise strategy name",
   "content": "Detailed explanation of what worked and why",
-  "description": "One-sentence summary",
   "outcome": "success",
-  "confidence": 0.8,
   "tags": ["relevant", "tags"]
 }
 ```
@@ -125,8 +123,10 @@ Save new learnings after completing a task.
 **Output**:
 ```json
 {
-  "memory_id": "mem_xyz789",
-  "recorded": true
+  "id": "mem_xyz789",
+  "title": "Concise strategy name",
+  "outcome": "success",
+  "confidence": 0.7
 }
 ```
 
@@ -134,7 +134,7 @@ Save new learnings after completing a task.
 - Record **why** something worked, not just **what** you did
 - Include failure cases and gotchas
 - Use specific, searchable tags
-- Set confidence based on how well-tested the approach is
+- Confidence starts at 0.7 and adjusts based on feedback/outcomes
 
 ---
 
@@ -168,15 +168,23 @@ Track task success/failure for confidence adjustment.
 ```json
 {
   "memory_id": "mem_abc123",
-  "outcome": "success",
-  "notes": "Worked perfectly for OAuth2 implementation"
+  "succeeded": true,
+  "session_id": "optional-session-id"
 }
 ```
 
-**Outcomes**:
-- `success` → Memory confidence increases
-- `failure` → Memory confidence decreases
-- `partial` → Small confidence adjustment
+**Output**:
+```json
+{
+  "recorded": true,
+  "new_confidence": 0.92,
+  "message": "Outcome recorded successfully"
+}
+```
+
+**Effect**:
+- `succeeded: true` → Memory confidence increases
+- `succeeded: false` → Memory confidence decreases
 
 ---
 
@@ -201,10 +209,10 @@ Claude: "Based on past learnings, I'll create both up and down migrations..."
 
 # Step 3: Record new learning
 Claude uses: memory_record(
+  project_id="api",
   title="Users table with email uniqueness constraint",
   content="Created users table with: 1) UUID primary key 2) Unique index on email 3) Timestamps with defaults 4) Check constraint on email format",
-  outcome="success",
-  confidence=0.85
+  outcome="success"
 )
 
 # Step 4: Provide feedback
@@ -232,10 +240,10 @@ Claude: "I'll update the error responses to use proper status codes..."
 
 # Step 3: Record refinement
 Claude uses: memory_record(
+  project_id="api",
   title="Auth error responses with rate limit headers",
   content="Updated auth endpoint to: 1) Return 401 for invalid creds 2) Include Retry-After header on rate limit 3) Log attempts with IP and user-agent 4) Return generic message to prevent user enumeration",
-  outcome="success",
-  confidence=0.9
+  outcome="success"
 )
 ```
 
@@ -259,20 +267,20 @@ Claude: "Let me try adding connection pooling first..."
 [Implements connection pooling]
 [Tests - still slow]
 
-Claude uses: memory_outcome(memory_id="connection-pooling", outcome="partial", notes="Helped but not enough")
+Claude uses: memory_outcome(memory_id="connection-pooling", succeeded=false)
 
 # Step 3: Try second approach
 [Adds Redis caching]
 [Tests - much better]
 
-Claude uses: memory_outcome(memory_id="redis-caching", outcome="success", notes="Reduced response time from 2s to 200ms")
+Claude uses: memory_outcome(memory_id="redis-caching", succeeded=true)
 
 # Step 4: Record combined strategy
 Claude uses: memory_record(
+  project_id="api",
   title="Connection pooling + Redis caching for read-heavy APIs",
   content="For read-heavy endpoints: 1) Use connection pool (max 20 conns) 2) Cache with Redis (TTL 5min) 3) Invalidate cache on writes 4) Use cache-aside pattern",
-  outcome="success",
-  confidence=0.95
+  outcome="success"
 )
 ```
 
