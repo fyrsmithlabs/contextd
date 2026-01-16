@@ -1,3 +1,12 @@
+---
+name: diagnose
+description: Diagnose an error message using AI analysis and past fixes. Searches remediations and provides root cause analysis with recommended next steps.
+arguments:
+  - name: error
+    description: "The error message to diagnose"
+    required: false
+---
+
 Diagnose an error message using contextd.
 
 Take the error message from the command argument or ask the user to provide it.

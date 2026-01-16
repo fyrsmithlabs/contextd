@@ -1,3 +1,12 @@
+---
+name: reflect
+description: Analyze memories and remediations for behavior patterns, evaluate policy compliance, and optionally remediate with pressure-tested doc updates. Use for self-improvement and quality assurance.
+arguments:
+  - name: flags
+    description: "Flags: --health (bank report), --policies (compliance only), --apply (make changes), --scope=project|global, --behavior=<type>, --severity=CRITICAL|HIGH|MEDIUM|LOW"
+    required: false
+---
+
 Analyze memories and remediations for behavior patterns, evaluate policy compliance, and optionally remediate with pressure-tested doc updates.
 
 ## Flags

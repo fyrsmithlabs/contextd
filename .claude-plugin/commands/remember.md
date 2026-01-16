@@ -1,3 +1,8 @@
+---
+name: remember
+description: Record a learning or insight from the current session. Captures what was learned, details, and outcome (success/failure) into contextd memory.
+---
+
 Record a learning or insight from the current session.
 
 Ask the user (if not provided):

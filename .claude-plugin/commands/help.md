@@ -1,3 +1,8 @@
+---
+name: help
+description: List all available skills and commands for contextd Claude Code plugin.
+---
+
 # contextd Help
 
 List all available skills and commands for contextd Claude Code plugin.

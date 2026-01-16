@@ -1,3 +1,8 @@
+---
+name: status
+description: Show contextd status for current session and project including memories, checkpoints, and remediations.
+---
+
 Show contextd status for current session and project.
 
 Gather and display:

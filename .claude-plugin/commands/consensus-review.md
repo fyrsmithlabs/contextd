@@ -1,3 +1,12 @@
+---
+name: consensus-review
+description: Run a multi-agent consensus code review on specified files or directories. Dispatches 4 parallel agents (Security, Correctness, Architecture, UX/Docs) and synthesizes findings.
+arguments:
+  - name: path
+    description: "File path, directory, PR reference, or scope description to review"
+    required: true
+---
+
 # /consensus-review
 
 Run a multi-agent consensus code review on specified files or directories.

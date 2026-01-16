@@ -1,3 +1,12 @@
+---
+name: search
+description: Search across memories, remediations, and code using semantic search. Combines results from contextd memory, remediations, and indexed code.
+arguments:
+  - name: query
+    description: "The search query"
+    required: false
+---
+
 Search across memories, remediations, and code.
 
 Take the search query from the command argument or ask the user.

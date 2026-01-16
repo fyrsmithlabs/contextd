@@ -1,3 +1,12 @@
+---
+name: init
+description: Initialize contextd for a project repository. Creates CLAUDE.md, indexes the repo, and optionally extracts learnings from past conversations.
+arguments:
+  - name: flags
+    description: "Flags: --full (analyze codebase), --conversations (index past conversations), --batch (offline processing), --skip-claude-md"
+    required: false
+---
+
 Initialize contextd for a project repository.
 
 ## Flags
