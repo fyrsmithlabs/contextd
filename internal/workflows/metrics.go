@@ -13,15 +13,13 @@ const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/workflows
 // These are registered with OpenTelemetry and will be used when workflow
 // recording is implemented. Keeping them initialized ensures the metrics
 // are available in the OTEL meter registry.
-//
-//nolint:unused // Metrics are registered with OTEL meter; usage pending workflow implementation
 var (
-	versionValidationCounter   metric.Int64Counter
-	versionValidationDuration  metric.Float64Histogram
-	versionMismatchCounter     metric.Int64Counter
-	versionMatchCounter        metric.Int64Counter
-	activityDuration           metric.Float64Histogram
-	activityErrorCounter       metric.Int64Counter
+	versionValidationCounter   metric.Int64Counter       //nolint:unused // Registered with OTEL meter; usage pending
+	versionValidationDuration  metric.Float64Histogram   //nolint:unused // Registered with OTEL meter; usage pending
+	versionMismatchCounter     metric.Int64Counter       //nolint:unused // Registered with OTEL meter; usage pending
+	versionMatchCounter        metric.Int64Counter       //nolint:unused // Registered with OTEL meter; usage pending
+	activityDuration           metric.Float64Histogram   //nolint:unused // Registered with OTEL meter; usage pending
+	activityErrorCounter       metric.Int64Counter       //nolint:unused // Registered with OTEL meter; usage pending
 )
 
 // initMetrics initializes OpenTelemetry metrics for workflows.
