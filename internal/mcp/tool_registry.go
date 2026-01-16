@@ -294,3 +294,202 @@ func sortSearchResults(results []*SearchResult) {
 		}
 	}
 }
+
+// GetDefaultToolMetadata returns the default metadata for all contextd tools.
+// This includes proper defer_loading configuration following Anthropic's recommendation
+// to keep 3-5 most frequently used tools non-deferred.
+//
+// Non-deferred tools (always loaded):
+//   - tool_search: Required for tool discovery
+//   - semantic_search: Primary search tool
+//   - memory_search: Primary memory lookup
+//
+// All other tools are defer-loaded to minimize context usage.
+func GetDefaultToolMetadata() []*ToolMetadata {
+	return []*ToolMetadata{
+		// ===== SEARCH TOOLS (CategorySearch) =====
+		{
+			Name:         "tool_search",
+			Description:  "Search for available tools by name, description, or keyword. Returns tool_reference blocks for discovered tools. Use this to find relevant tools without loading all tool definitions into context.",
+			Category:     CategorySearch,
+			DeferLoading: false, // Core tool - always loaded
+			Keywords:     []string{"find", "discover", "lookup", "tools", "search"},
+		},
+		{
+			Name:         "tool_list",
+			Description:  "List all available tools in the registry with their metadata. Use this to see what tools are available without searching.",
+			Category:     CategorySearch,
+			DeferLoading: true,
+			Keywords:     []string{"list", "all", "tools", "catalog"},
+		},
+
+		// ===== MEMORY TOOLS (CategoryMemory) =====
+		{
+			Name:         "memory_search",
+			Description:  "Search for relevant memories/strategies from past sessions",
+			Category:     CategoryMemory,
+			DeferLoading: false, // Core tool - always loaded
+			Keywords:     []string{"find", "lookup", "recall", "strategy", "past", "reasoning"},
+		},
+		{
+			Name:         "memory_record",
+			Description:  "Record a new memory/learning from the current session",
+			Category:     CategoryMemory,
+			DeferLoading: true,
+			Keywords:     []string{"save", "store", "remember", "learning"},
+		},
+		{
+			Name:         "memory_feedback",
+			Description:  "Provide feedback on a memory to adjust its confidence",
+			Category:     CategoryMemory,
+			DeferLoading: true,
+			Keywords:     []string{"rate", "feedback", "helpful", "confidence"},
+		},
+		{
+			Name:         "memory_outcome",
+			Description:  "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
+			Category:     CategoryMemory,
+			DeferLoading: true,
+			Keywords:     []string{"outcome", "success", "failure", "result", "report"},
+		},
+		{
+			Name:         "memory_consolidate",
+			Description:  "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
+			Category:     CategoryMemory,
+			DeferLoading: true,
+			Keywords:     []string{"merge", "consolidate", "deduplicate", "optimize", "distill"},
+		},
+
+		// ===== CHECKPOINT TOOLS (CategoryCheckpoint) =====
+		{
+			Name:         "checkpoint_save",
+			Description:  "Save a session checkpoint for later resumption",
+			Category:     CategoryCheckpoint,
+			DeferLoading: true,
+			Keywords:     []string{"save", "persist", "snapshot", "context"},
+		},
+		{
+			Name:         "checkpoint_list",
+			Description:  "List checkpoints for a session or project",
+			Category:     CategoryCheckpoint,
+			DeferLoading: true,
+			Keywords:     []string{"list", "show", "available", "snapshots"},
+		},
+		{
+			Name:         "checkpoint_resume",
+			Description:  "Resume from a checkpoint at specified level (summary, context, or full)",
+			Category:     CategoryCheckpoint,
+			DeferLoading: true,
+			Keywords:     []string{"resume", "restore", "load", "recover"},
+		},
+
+		// ===== REMEDIATION TOOLS (CategoryRemediation) =====
+		{
+			Name:         "remediation_search",
+			Description:  "Search for remediations by error message or pattern",
+			Category:     CategoryRemediation,
+			DeferLoading: true,
+			Keywords:     []string{"error", "fix", "solution", "debug", "troubleshoot"},
+		},
+		{
+			Name:         "remediation_record",
+			Description:  "Record a new remediation for an error that was successfully fixed",
+			Category:     CategoryRemediation,
+			DeferLoading: true,
+			Keywords:     []string{"record", "save", "document", "error", "fix"},
+		},
+
+		// ===== REPOSITORY TOOLS (CategoryRepository) =====
+		{
+			Name:         "semantic_search",
+			Description:  "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
+			Category:     CategoryRepository,
+			DeferLoading: false, // Core tool - always loaded
+			Keywords:     []string{"search", "find", "code", "semantic", "grep", "pattern"},
+		},
+		{
+			Name:         "repository_search",
+			Description:  "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
+			Category:     CategoryRepository,
+			DeferLoading: true,
+			Keywords:     []string{"search", "code", "indexed", "vector", "similar"},
+		},
+		{
+			Name:         "repository_index",
+			Description:  "Index a repository for semantic code search",
+			Category:     CategoryRepository,
+			DeferLoading: true,
+			Keywords:     []string{"index", "embed", "vectorize", "codebase"},
+		},
+
+		// ===== TROUBLESHOOT TOOLS (CategoryTroubleshoot) =====
+		{
+			Name:         "troubleshoot_diagnose",
+			Description:  "Diagnose an error using AI and known patterns",
+			Category:     CategoryTroubleshoot,
+			DeferLoading: true,
+			Keywords:     []string{"diagnose", "analyze", "error", "debug", "root cause"},
+		},
+
+		// ===== FOLDING TOOLS (CategoryFolding) =====
+		{
+			Name:         "branch_create",
+			Description:  "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
+			Category:     CategoryFolding,
+			DeferLoading: true,
+			Keywords:     []string{"branch", "isolate", "context", "budget", "subtask"},
+		},
+		{
+			Name:         "branch_return",
+			Description:  "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
+			Category:     CategoryFolding,
+			DeferLoading: true,
+			Keywords:     []string{"return", "complete", "branch", "result", "summary"},
+		},
+		{
+			Name:         "branch_status",
+			Description:  "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
+			Category:     CategoryFolding,
+			DeferLoading: true,
+			Keywords:     []string{"status", "budget", "depth", "branch", "info"},
+		},
+
+		// ===== CONVERSATION TOOLS (CategoryConversation) =====
+		{
+			Name:         "conversation_index",
+			Description:  "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search.",
+			Category:     CategoryConversation,
+			DeferLoading: true,
+			Keywords:     []string{"index", "conversation", "chat", "history", "parse"},
+		},
+		{
+			Name:         "conversation_search",
+			Description:  "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
+			Category:     CategoryConversation,
+			DeferLoading: true,
+			Keywords:     []string{"search", "conversation", "history", "context", "decision"},
+		},
+
+		// ===== REFLECTION TOOLS (CategoryReflection) =====
+		{
+			Name:         "reflect_report",
+			Description:  "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
+			Category:     CategoryReflection,
+			DeferLoading: true,
+			Keywords:     []string{"report", "reflect", "analyze", "patterns", "insights"},
+		},
+		{
+			Name:         "reflect_analyze",
+			Description:  "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
+			Category:     CategoryReflection,
+			DeferLoading: true,
+			Keywords:     []string{"analyze", "patterns", "behavior", "trends", "categories"},
+		},
+	}
+}
+
+// PopulateDefaults registers all default contextd tools with their metadata.
+// This should be called during server initialization before tools are registered.
+func (r *ToolRegistry) PopulateDefaults() {
+	r.RegisterAll(GetDefaultToolMetadata())
+}

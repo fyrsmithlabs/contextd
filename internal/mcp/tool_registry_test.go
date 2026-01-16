@@ -569,3 +569,218 @@ func TestToolCategories(t *testing.T) {
 		require.Equal(t, ToolCategory(expected[i]), cat)
 	}
 }
+
+func TestGetDefaultToolMetadata(t *testing.T) {
+	tools := GetDefaultToolMetadata()
+
+	t.Run("returns all 23 tools", func(t *testing.T) {
+		require.Len(t, tools, 23, "Expected 23 tools, got %d", len(tools))
+	})
+
+	t.Run("has correct non-deferred tools", func(t *testing.T) {
+		// According to implementation plan, these 3 tools should NOT be deferred
+		nonDeferredExpected := []string{"tool_search", "semantic_search", "memory_search"}
+
+		var nonDeferred []string
+		for _, tool := range tools {
+			if !tool.DeferLoading {
+				nonDeferred = append(nonDeferred, tool.Name)
+			}
+		}
+
+		sort.Strings(nonDeferred)
+		sort.Strings(nonDeferredExpected)
+		require.Equal(t, nonDeferredExpected, nonDeferred,
+			"Expected exactly 3 non-deferred tools: tool_search, semantic_search, memory_search")
+	})
+
+	t.Run("has correct deferred tool count", func(t *testing.T) {
+		var deferredCount int
+		for _, tool := range tools {
+			if tool.DeferLoading {
+				deferredCount++
+			}
+		}
+		require.Equal(t, 20, deferredCount, "Expected 20 deferred tools (23 - 3 non-deferred)")
+	})
+
+	t.Run("all tools have required fields", func(t *testing.T) {
+		for _, tool := range tools {
+			require.NotEmpty(t, tool.Name, "Tool name should not be empty")
+			require.NotEmpty(t, tool.Description, "Tool %s should have description", tool.Name)
+			require.NotEmpty(t, tool.Category, "Tool %s should have category", tool.Name)
+		}
+	})
+
+	t.Run("all tools have keywords", func(t *testing.T) {
+		for _, tool := range tools {
+			require.NotEmpty(t, tool.Keywords, "Tool %s should have keywords", tool.Name)
+		}
+	})
+
+	t.Run("contains expected tool names", func(t *testing.T) {
+		expectedTools := []string{
+			// Search tools
+			"tool_search", "tool_list",
+			// Memory tools
+			"memory_search", "memory_record", "memory_feedback", "memory_outcome", "memory_consolidate",
+			// Checkpoint tools
+			"checkpoint_save", "checkpoint_list", "checkpoint_resume",
+			// Remediation tools
+			"remediation_search", "remediation_record",
+			// Repository tools
+			"semantic_search", "repository_search", "repository_index",
+			// Troubleshoot tools
+			"troubleshoot_diagnose",
+			// Folding tools
+			"branch_create", "branch_return", "branch_status",
+			// Conversation tools
+			"conversation_index", "conversation_search",
+			// Reflection tools
+			"reflect_report", "reflect_analyze",
+		}
+
+		toolNames := make(map[string]bool)
+		for _, tool := range tools {
+			toolNames[tool.Name] = true
+		}
+
+		for _, expected := range expectedTools {
+			require.True(t, toolNames[expected], "Expected tool %s not found in defaults", expected)
+		}
+	})
+
+	t.Run("tools have correct categories", func(t *testing.T) {
+		categoryMap := make(map[string]ToolCategory)
+		for _, tool := range tools {
+			categoryMap[tool.Name] = tool.Category
+		}
+
+		// Verify category assignments
+		require.Equal(t, CategorySearch, categoryMap["tool_search"])
+		require.Equal(t, CategorySearch, categoryMap["tool_list"])
+		require.Equal(t, CategoryMemory, categoryMap["memory_search"])
+		require.Equal(t, CategoryMemory, categoryMap["memory_record"])
+		require.Equal(t, CategoryCheckpoint, categoryMap["checkpoint_save"])
+		require.Equal(t, CategoryRemediation, categoryMap["remediation_search"])
+		require.Equal(t, CategoryRepository, categoryMap["semantic_search"])
+		require.Equal(t, CategoryRepository, categoryMap["repository_index"])
+		require.Equal(t, CategoryTroubleshoot, categoryMap["troubleshoot_diagnose"])
+		require.Equal(t, CategoryFolding, categoryMap["branch_create"])
+		require.Equal(t, CategoryConversation, categoryMap["conversation_index"])
+		require.Equal(t, CategoryReflection, categoryMap["reflect_report"])
+	})
+}
+
+func TestToolRegistry_PopulateDefaults(t *testing.T) {
+	t.Run("populates all default tools", func(t *testing.T) {
+		registry := NewToolRegistry()
+		require.Equal(t, 0, registry.Count(), "Registry should start empty")
+
+		registry.PopulateDefaults()
+
+		require.Equal(t, 23, registry.Count(), "Registry should have 23 tools after PopulateDefaults")
+	})
+
+	t.Run("all tools retrievable by name", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+
+		expectedTools := []string{
+			"tool_search", "tool_list",
+			"memory_search", "memory_record", "memory_feedback", "memory_outcome", "memory_consolidate",
+			"checkpoint_save", "checkpoint_list", "checkpoint_resume",
+			"remediation_search", "remediation_record",
+			"semantic_search", "repository_search", "repository_index",
+			"troubleshoot_diagnose",
+			"branch_create", "branch_return", "branch_status",
+			"conversation_index", "conversation_search",
+			"reflect_report", "reflect_analyze",
+		}
+
+		for _, name := range expectedTools {
+			tool, ok := registry.Get(name)
+			require.True(t, ok, "Tool %s should be retrievable", name)
+			require.NotNil(t, tool, "Tool %s should not be nil", name)
+			require.Equal(t, name, tool.Name)
+		}
+	})
+
+	t.Run("non-deferred tools retrievable via ListNonDeferred", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+
+		nonDeferred := registry.ListNonDeferred()
+		require.Len(t, nonDeferred, 3, "Should have exactly 3 non-deferred tools")
+
+		names := make([]string, len(nonDeferred))
+		for i, tool := range nonDeferred {
+			names[i] = tool.Name
+		}
+		sort.Strings(names)
+
+		require.Equal(t, []string{"memory_search", "semantic_search", "tool_search"}, names)
+	})
+
+	t.Run("deferred tools retrievable via ListDeferred", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+
+		deferred := registry.ListDeferred()
+		require.Len(t, deferred, 20, "Should have exactly 20 deferred tools")
+
+		// Verify all deferred tools have DeferLoading = true
+		for _, tool := range deferred {
+			require.True(t, tool.DeferLoading, "Tool %s should be deferred", tool.Name)
+		}
+	})
+
+	t.Run("tools searchable by category", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+
+		// Test each category has expected count
+		categoryExpected := map[ToolCategory]int{
+			CategorySearch:       2,
+			CategoryMemory:       5,
+			CategoryCheckpoint:   3,
+			CategoryRemediation:  2,
+			CategoryRepository:   3,
+			CategoryTroubleshoot: 1,
+			CategoryFolding:      3,
+			CategoryConversation: 2,
+			CategoryReflection:   2,
+		}
+
+		for cat, expectedCount := range categoryExpected {
+			tools := registry.ListByCategory(cat)
+			require.Len(t, tools, expectedCount, "Category %s should have %d tools", cat, expectedCount)
+		}
+	})
+
+	t.Run("tools searchable by query", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+
+		// Search for "memory" should find all memory tools
+		results := registry.Search("memory")
+		require.GreaterOrEqual(t, len(results), 5, "Should find at least 5 memory-related tools")
+
+		// Search for "search" should find multiple tools
+		results = registry.Search("search")
+		require.GreaterOrEqual(t, len(results), 3, "Should find at least 3 search-related tools")
+
+		// Search for "branch" should find folding tools
+		results = registry.Search("branch")
+		require.GreaterOrEqual(t, len(results), 3, "Should find at least 3 branch tools")
+	})
+
+	t.Run("idempotent - calling twice doesn't duplicate", func(t *testing.T) {
+		registry := NewToolRegistry()
+		registry.PopulateDefaults()
+		registry.PopulateDefaults() // Call again
+
+		// Should still have exactly 23 tools (not 46)
+		require.Equal(t, 23, registry.Count(), "PopulateDefaults should be idempotent")
+	})
+}

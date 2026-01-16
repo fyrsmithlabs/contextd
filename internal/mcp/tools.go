@@ -30,6 +30,12 @@ func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) 
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
+	// Populate the tool registry with all tool metadata and defer_loading config.
+	// This must be done before registering any tools so tool_search can discover them.
+	if s.toolRegistry != nil {
+		s.toolRegistry.PopulateDefaults()
+	}
+
 	// Search tools (tool_search, tool_list) - registered first as they help discover other tools
 	s.registerSearchTools()
 
