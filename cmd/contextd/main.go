@@ -57,6 +57,45 @@ func (a *foldingScrubberAdapter) Scrub(content string) (string, error) {
 	return result.Scrubbed, nil
 }
 
+// memorySearcherAdapter adapts reasoningbank.Service to folding.MemorySearcher interface.
+type memorySearcherAdapter struct {
+	service   *reasoningbank.Service
+	projectID string // Default project ID for searches
+}
+
+// Search implements folding.MemorySearcher.
+func (a *memorySearcherAdapter) Search(ctx context.Context, query string, limit int, minConfidence float64) ([]folding.InjectedItem, error) {
+	if a.service == nil {
+		return nil, nil
+	}
+
+	// Search memories using reasoningbank service
+	memories, err := a.service.Search(ctx, a.projectID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter by confidence and convert to InjectedItem
+	items := make([]folding.InjectedItem, 0, len(memories))
+	for _, mem := range memories {
+		if mem.Confidence >= minConfidence {
+			// Estimate tokens (rough heuristic: 1 token ≈ 4 characters)
+			contentLen := len(mem.Title) + len(mem.Content)
+			estimatedTokens := contentLen / 4
+
+			items = append(items, folding.InjectedItem{
+				Type:    "memory",
+				ID:      mem.ID,
+				Title:   mem.Title,
+				Content: mem.Content,
+				Tokens:  estimatedTokens,
+			})
+		}
+	}
+
+	return items, nil
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -323,6 +362,16 @@ func run() error {
 		// Create the branch manager with OTEL metrics
 		foldingMetrics, _ := folding.NewMetrics(nil) // uses global meter provider
 		foldingLogger := folding.NewLogger(logger.Underlying())
+
+		// Create memory searcher adapter if reasoningbank service is available
+		var memSearcher folding.MemorySearcher
+		if reasoningbankSvc != nil {
+			memSearcher = &memorySearcherAdapter{
+				service:   reasoningbankSvc,
+				projectID: "default", // Use default project for now
+			}
+		}
+
 		foldingSvc = folding.NewBranchManager(
 			foldingRepo,
 			foldingBudget,
@@ -331,6 +380,7 @@ func run() error {
 			foldingConfig,
 			folding.WithMetrics(foldingMetrics),
 			folding.WithLogger(foldingLogger),
+			folding.WithMemorySearcher(memSearcher),
 		)
 		logger.Info(ctx, "folding service initialized",
 			zap.Int("max_depth", foldingConfig.MaxDepth),

@@ -53,6 +53,9 @@ type BranchManager struct {
 	metrics  *Metrics
 	logger   *Logger
 
+	// Memory injection (FR-005)
+	memorySearcher MemorySearcher
+
 	// Session validation (SEC-004)
 	sessionValidator SessionValidator
 
@@ -91,6 +94,14 @@ func WithLogger(l *Logger) BranchManagerOption {
 func WithSessionValidator(v SessionValidator) BranchManagerOption {
 	return func(bm *BranchManager) {
 		bm.sessionValidator = v
+	}
+}
+
+// WithMemorySearcher sets a memory searcher for context injection (FR-005).
+// If not set, memory injection is disabled.
+func WithMemorySearcher(ms MemorySearcher) BranchManagerOption {
+	return func(bm *BranchManager) {
+		bm.memorySearcher = ms
 	}
 }
 
@@ -266,6 +277,59 @@ func (m *BranchManager) Create(ctx context.Context, req BranchRequest) (*BranchR
 		RecordError(ctx, err)
 		SetSpanStatus(ctx, codes.Error, "budget allocation failed")
 		return nil, fmt.Errorf("failed to allocate budget: %w", err)
+	}
+
+	// Memory injection (FR-005)
+	if req.InjectMemories && m.memorySearcher != nil {
+		memories, err := m.memorySearcher.Search(
+			ctx,
+			req.Description,
+			m.config.MemoryMaxItems,
+			m.config.MemoryMinConfidence,
+		)
+		if err != nil {
+			// Log error but don't fail the branch creation
+			m.logger.Warn(ctx, "memory injection failed",
+				zap.String("branch_id", branch.ID),
+				zap.Error(err),
+			)
+		} else if len(memories) > 0 {
+			// Store memory IDs
+			branch.InjectedMemoryIDs = make([]string, len(memories))
+			totalInjectionTokens := 0
+			for i, mem := range memories {
+				branch.InjectedMemoryIDs[i] = mem.ID
+				totalInjectionTokens += mem.Tokens
+			}
+
+			// Reserve budget for injected memories (FR-005)
+			injectionBudget := int(float64(budget) * m.config.InjectionBudgetRatio)
+			if totalInjectionTokens > injectionBudget {
+				m.logger.Warn(ctx, "injected memories exceed budget allocation",
+					zap.String("branch_id", branch.ID),
+					zap.Int("total_tokens", totalInjectionTokens),
+					zap.Int("allocated_budget", injectionBudget),
+				)
+			}
+
+			// Consume budget for injected memories
+			if err := m.budget.Consume(branch.ID, totalInjectionTokens); err != nil {
+				// If consumption fails, deallocate and fail creation
+				m.budget.Deallocate(branch.ID)
+				RecordError(ctx, err)
+				SetSpanStatus(ctx, codes.Error, "memory injection budget consumption failed")
+				return nil, fmt.Errorf("failed to consume budget for memory injection: %w", err)
+			}
+
+			// Record budget usage in branch
+			branch.BudgetUsed = totalInjectionTokens
+
+			m.logger.Info(ctx, "injected memories into branch",
+				zap.String("branch_id", branch.ID),
+				zap.Int("memory_count", len(memories)),
+				zap.Int("tokens_used", totalInjectionTokens),
+			)
+		}
 	}
 
 	// Store branch
