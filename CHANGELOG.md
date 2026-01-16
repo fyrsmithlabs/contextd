@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Config Loader** - Fixed symlink resolution for macOS `/var` -> `/private/var` paths
+- **Logging Tests** - Fixed stdout sync assertion failing in CI environments
+- **Integration Tests** - Fixed race condition in semantic embedder vocabulary map access
+- **Lint Compliance** - Fixed errcheck issue in ctxd checkpoint command
+
+### Changed
+- **Workflow Metrics** - Added nolint directive for OTEL metrics pending workflow implementation
+
 ## [0.3.4] - 2026-01-14
 
 ### Added

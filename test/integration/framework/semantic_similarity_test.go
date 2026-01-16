@@ -9,6 +9,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
@@ -24,6 +25,7 @@ type semanticEmbedder struct {
 	vectorSize int
 	// vocabulary maps words to consistent vector positions
 	vocabulary map[string]int
+	mu         sync.RWMutex
 }
 
 func newSemanticEmbedder(vectorSize int) *semanticEmbedder {
@@ -57,7 +59,10 @@ func (e *semanticEmbedder) makeSemanticEmbedding(text string) []float32 {
 	// Add each word's contribution to the embedding
 	for _, word := range words {
 		// Get or create vocabulary index for this word
+		e.mu.RLock()
 		idx, exists := e.vocabulary[word]
+		e.mu.RUnlock()
+
 		if !exists {
 			// Use hash-based position for unknown words
 			hash := 0
@@ -68,7 +73,9 @@ func (e *semanticEmbedder) makeSemanticEmbedding(text string) []float32 {
 			if idx < 0 {
 				idx = -idx
 			}
+			e.mu.Lock()
 			e.vocabulary[word] = idx
+			e.mu.Unlock()
 		}
 
 		// Add to multiple dimensions for better distribution
