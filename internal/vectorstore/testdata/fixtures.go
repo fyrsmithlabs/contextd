@@ -39,7 +39,7 @@ type TestDocument struct {
 	Content string
 
 	// Metadata are optional key-value pairs associated with the document
-	Metadata map[string]string
+	Metadata map[string]interface{}
 }
 
 // ScoreRange defines the expected range of similarity scores.
@@ -73,7 +73,7 @@ func HighSimilarityPair() SemanticTestCase {
 			{
 				ID:      "doc1",
 				Content: "Go programming language tutorial for beginners",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "programming",
 					"language": "go",
 				},
@@ -81,7 +81,7 @@ func HighSimilarityPair() SemanticTestCase {
 			{
 				ID:      "doc2",
 				Content: "Golang programming guide and best practices",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "programming",
 					"language": "golang",
 				},
@@ -89,7 +89,7 @@ func HighSimilarityPair() SemanticTestCase {
 			{
 				ID:      "doc3",
 				Content: "Python machine learning tutorial with examples",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "programming",
 					"language": "python",
 				},
@@ -115,21 +115,21 @@ func LowSimilarityPair() SemanticTestCase {
 			{
 				ID:      "doc1",
 				Content: "Go programming language concurrency patterns with goroutines and channels",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "programming",
 				},
 			},
 			{
 				ID:      "doc2",
 				Content: "Italian cooking recipes with fresh ingredients and herbs",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "cooking",
 				},
 			},
 			{
 				ID:      "doc3",
 				Content: "Advanced Go concurrency: context, select, and synchronization primitives",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"category": "programming",
 				},
 			},
@@ -154,28 +154,28 @@ func SynonymHandling() SemanticTestCase {
 			{
 				ID:      "doc1",
 				Content: "Comprehensive database tutorial for beginners: SQL, tables, and queries",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"type": "tutorial",
 				},
 			},
 			{
 				ID:      "doc2",
 				Content: "Database guide for beginners: introduction to relational databases",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"type": "guide",
 				},
 			},
 			{
 				ID:      "doc3",
 				Content: "Advanced database optimization techniques for production systems",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"type": "advanced",
 				},
 			},
 			{
 				ID:      "doc4",
 				Content: "Web development framework comparison: React, Vue, and Angular",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"type": "comparison",
 				},
 			},
@@ -201,28 +201,28 @@ func MultiTopicDocuments() SemanticTestCase {
 			{
 				ID:      "doc1",
 				Content: "Machine learning with Python: scikit-learn, TensorFlow, and PyTorch tutorials",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"topics": "ml,python",
 				},
 			},
 			{
 				ID:      "doc2",
 				Content: "Python programming basics: variables, loops, and functions",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"topics": "python,basics",
 				},
 			},
 			{
 				ID:      "doc3",
 				Content: "Machine learning fundamentals: supervised learning, neural networks, and deep learning",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"topics": "ml,theory",
 				},
 			},
 			{
 				ID:      "doc4",
 				Content: "Java enterprise application development with Spring Boot",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"topics": "java,enterprise",
 				},
 			},
@@ -248,35 +248,35 @@ func GradualRelevanceDecay() SemanticTestCase {
 			{
 				ID:      "doc1",
 				Content: "REST API authentication using JWT tokens: implementation guide",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"relevance": "exact",
 				},
 			},
 			{
 				ID:      "doc2",
 				Content: "API authentication methods: JWT, OAuth2, and API keys",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"relevance": "high",
 				},
 			},
 			{
 				ID:      "doc3",
 				Content: "Building RESTful APIs with proper security practices",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"relevance": "medium",
 				},
 			},
 			{
 				ID:      "doc4",
 				Content: "Web security basics: HTTPS, CORS, and authentication overview",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"relevance": "low",
 				},
 			},
 			{
 				ID:      "doc5",
 				Content: "Database indexing strategies for query performance optimization",
-				Metadata: map[string]string{
+				Metadata: map[string]interface{}{
 					"relevance": "none",
 				},
 			},
