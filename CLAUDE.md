@@ -131,12 +131,13 @@ Main Context (16K tokens used)
 | `branch_return` | Return from branch with scrubbed results | `branch_return("Found in src/auth.go:42")` |
 | `branch_status` | Check branch budget and status | `branch_status()` → `{used: 3500, budget: 4000, depth: 1}` |
 
-### Security
+### Security & Features
 
 - **Secret Scrubbing**: All `branch_return()` content is automatically scrubbed for secrets using gitleaks
 - **Budget Enforcement**: Branches are force-terminated when budget is exhausted
 - **Nested Limits**: Max 3 levels of nesting (configurable)
 - **Rate Limiting**: Max 10 concurrent branches per session
+- **Memory Injection**: Branches can optionally inject relevant ReasoningBank memories to provide context (20% of branch budget)
 
 ### See Also
 
