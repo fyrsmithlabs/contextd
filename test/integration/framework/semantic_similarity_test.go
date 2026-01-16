@@ -3,15 +3,20 @@
 // This file contains semantic similarity tests that use real chromem store
 // with deterministic embeddings to validate that semantic search works correctly.
 // These tests address the HIGH priority gap from KNOWN-GAPS.md.
+//
+// By default, tests use a fake semantic embedder for fast, deterministic testing.
+// Set USE_REAL_EMBEDDINGS=1 to run tests with real FastEmbed embeddings (requires ONNX runtime).
 package framework
 
 import (
 	"context"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/fyrsmithlabs/contextd/internal/embeddings"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/stretchr/testify/assert"
@@ -103,14 +108,79 @@ func (e *semanticEmbedder) makeSemanticEmbedding(text string) []float32 {
 	return embedding
 }
 
+// embedderCloser wraps an embedder with optional cleanup
+type embedderCloser struct {
+	embedder vectorstore.Embedder
+	cleanup  func() error
+}
+
+func (e *embedderCloser) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	return e.embedder.EmbedDocuments(ctx, texts)
+}
+
+func (e *embedderCloser) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return e.embedder.EmbedQuery(ctx, text)
+}
+
+func (e *embedderCloser) Close() error {
+	if e.cleanup != nil {
+		return e.cleanup()
+	}
+	return nil
+}
+
+// createEmbedder creates an embedder for testing.
+// By default, returns a fake semantic embedder for fast, deterministic tests.
+// Set USE_REAL_EMBEDDINGS=1 to use real FastEmbed embeddings (requires ONNX runtime).
+func createEmbedder(t *testing.T) *embedderCloser {
+	t.Helper()
+
+	useReal := os.Getenv("USE_REAL_EMBEDDINGS") == "1"
+
+	if !useReal {
+		// Use fake semantic embedder (default)
+		return &embedderCloser{
+			embedder: newSemanticEmbedder(384),
+			cleanup:  nil,
+		}
+	}
+
+	// Use real FastEmbed embeddings
+	// Skip in short mode as this downloads models
+	if testing.Short() {
+		t.Skip("skipping real embedding test in short mode")
+	}
+
+	// Skip if ONNX runtime not available
+	if _, err := os.Stat("/usr/lib/libonnxruntime.so"); os.IsNotExist(err) {
+		if os.Getenv("ONNX_PATH") == "" {
+			t.Skip("ONNX runtime not available, skipping real embedding test")
+		}
+	}
+
+	provider, err := embeddings.NewFastEmbedProvider(embeddings.FastEmbedConfig{
+		Model: "BAAI/bge-small-en-v1.5",
+	})
+	if err != nil {
+		t.Fatalf("failed to create FastEmbed provider: %v", err)
+	}
+
+	return &embedderCloser{
+		embedder: provider,
+		cleanup:  provider.Close,
+	}
+}
+
 // TestSemanticSimilarity_SimilarQueriesReturnRelatedResults validates that
 // semantically similar queries return relevant results.
 func TestSemanticSimilarity_SimilarQueriesReturnRelatedResults(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	// Create chromem store with semantic embedder
-	embedder := newSemanticEmbedder(384)
+	// Create embedder (fake or real based on environment)
+	embedder := createEmbedder(t)
+	defer embedder.Close()
+
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
 		Path: "", // In-memory
 	}, embedder, logger)
@@ -225,8 +295,10 @@ func TestSemanticSimilarity_DissimilarQueriesReturnLowScores(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	// Create chromem store with semantic embedder
-	embedder := newSemanticEmbedder(384)
+	// Create embedder (fake or real based on environment)
+	embedder := createEmbedder(t)
+	defer embedder.Close()
+
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
 		Path: "", // In-memory
 	}, embedder, logger)
@@ -295,7 +367,10 @@ func TestSemanticSimilarity_VaryingSemanticDistances(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	embedder := newSemanticEmbedder(384)
+	// Create embedder (fake or real based on environment)
+	embedder := createEmbedder(t)
+	defer embedder.Close()
+
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
 		Path: "", // In-memory
 	}, embedder, logger)
@@ -390,7 +465,10 @@ func TestSemanticSimilarity_NegativeTestCases(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 
-	embedder := newSemanticEmbedder(384)
+	// Create embedder (fake or real based on environment)
+	embedder := createEmbedder(t)
+	defer embedder.Close()
+
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
 		Path: "", // In-memory
 	}, embedder, logger)
