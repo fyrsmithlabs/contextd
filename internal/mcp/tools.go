@@ -30,6 +30,9 @@ func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) 
 
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
+	// Search tools (tool_search, tool_list) - registered first as they help discover other tools
+	s.registerSearchTools()
+
 	// Checkpoint tools
 	s.registerCheckpointTools()
 

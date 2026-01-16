@@ -126,6 +126,9 @@ func NewServer(
 	// Create ignore parser for repository indexing
 	ignoreParser := ignore.NewParser(cfg.IgnoreFiles, cfg.FallbackExcludes)
 
+	// Create tool registry for tool_search functionality
+	toolRegistry := NewToolRegistry()
+
 	s := &Server{
 		mcp:              mcpServer,
 		checkpointSvc:    checkpointSvc,
@@ -137,6 +140,7 @@ func NewServer(
 		distiller:        distiller,
 		scrubber:         scrubber,
 		ignoreParser:     ignoreParser,
+		toolRegistry:     toolRegistry,
 		logger:           cfg.Logger,
 	}
 
