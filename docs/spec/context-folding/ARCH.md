@@ -1,8 +1,11 @@
 # Context-Folding Architecture
 
 **Feature**: Context-Folding (Layer 1)
-**Status**: Draft
+**Status**: Implemented
 **Created**: 2025-11-22
+**Updated**: 2026-01-16
+
+**Implementation**: `internal/folding/`
 
 ## Architectural Decisions (from Consensus Review 2025-12-13)
 

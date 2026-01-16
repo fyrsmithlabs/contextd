@@ -1,8 +1,13 @@
 # ReasoningBank Design
 
 **Feature**: ReasoningBank (Layer 2)
-**Status**: Draft
+**Status**: Implemented (MCP tools active, consolidation pending)
 **Created**: 2025-11-22
+**Updated**: 2026-01-16
+
+**Note**: The MCP tool definitions below are accurate. The distillation pipeline and memory
+consolidation features described are designed but not yet implemented.
+See `internal/reasoningbank/` for current implementation.
 
 ## MCP Tool Definitions
 

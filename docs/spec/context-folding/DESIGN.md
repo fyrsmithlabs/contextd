@@ -1,8 +1,14 @@
 # Context-Folding Design
 
 **Feature**: Context-Folding (Layer 1)
-**Status**: Draft
+**Status**: Implemented
 **Created**: 2025-11-22
+**Updated**: 2026-01-16
+
+**Implementation**: `internal/folding/`
+
+**Note**: Tool names have been updated from `branch`/`return` to `branch_create`/`branch_return`
+in the actual implementation. See SPEC.md for current tool definitions.
 
 ## MCP Tool Definitions
 

@@ -13,6 +13,8 @@ deprecated_reason: "contextd v2 uses MCP (Model Context Protocol) via stdio tran
 
 **⚠️ DEPRECATED**: This specification describes a gRPC-based interface that was planned but never implemented. contextd v2 uses the **MCP (Model Context Protocol)** with stdio transport instead. See `internal/mcp/server.go` for the current implementation.
 
+**Archived Files**: The detailed architecture and requirements documents have been moved to `docs/archive/obsolete-specs/` as they reference the old gRPC design.
+
 ## Overview
 
 ~~gRPC interface for contextd server enabling Claude to use secure, scrubbed tools via programmatic code execution.~~

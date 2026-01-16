@@ -1,65 +1,72 @@
 # ReasoningBank Architecture
 
 **Feature**: ReasoningBank (Layer 2)
-**Status**: Draft
+**Status**: Implemented
 **Created**: 2025-11-22
+**Updated**: 2026-01-16
 
 ## System Context
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    contextd MCP Server                          │
+│                    (internal/mcp/)                              │
 └─────────────────────────────────────────────────────────────────┘
          │                    │                    │
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ Memory Manager  │  │   Distiller     │  │ Confidence      │
-│                 │  │   (async)       │  │ Evaluator       │
+│ ReasoningBank   │  │   Distiller     │  │ Confidence      │
+│ Service         │  │   (async)       │  │ Calculator      │
+│ (internal/      │  │                 │  │                 │
+│ reasoningbank/) │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
          │                    │                    │
          └────────────────────┼────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Qdrant                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │ {org}_      │  │ {org}_{team}│  │ {org}_{team}│             │
-│  │ memories    │  │ _memories   │  │ _{proj}_mem │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│                   VectorStore Abstraction                       │
+│                   (internal/vectorstore/)                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ chromem (default, embedded) OR Qdrant (optional)        │   │
+│  │ Database-per-project isolation via StoreProvider        │   │
+│  │ Payload-based tenant filtering                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component Architecture
 
-### Memory Manager
+### ReasoningBank Service
 
 **Responsibility**: CRUD operations on memories, search, and feedback handling.
 
+**Location**: `internal/reasoningbank/service.go`
+
 ```go
-type MemoryManager interface {
-    Search(ctx context.Context, req SearchRequest) ([]Memory, error)
-    Record(ctx context.Context, memory Memory) (string, error)
-    Feedback(ctx context.Context, id string, helpful bool, comment string) error
-    Get(ctx context.Context, id string) (*Memory, error)
-    Update(ctx context.Context, id string, updates MemoryUpdates) error
+// Service interface (simplified view of actual implementation)
+type Service interface {
+    Search(ctx context.Context, projectID, query string, limit int) ([]Memory, error)
+    Record(ctx context.Context, projectID string, memory Memory) (string, error)
+    Feedback(ctx context.Context, memoryID string, helpful bool) error
+    RecordOutcome(ctx context.Context, memoryID string, succeeded bool, sessionID string) error
+    Get(ctx context.Context, memoryID string) (*Memory, error)
+    GetByProjectID(ctx context.Context, projectID, memoryID string) (*Memory, error)
 }
 
 type Memory struct {
     ID           string            `json:"id"`
+    ProjectID    string            `json:"project_id"`
     Title        string            `json:"title"`
     Description  string            `json:"description"`
     Content      string            `json:"content"`
-    Outcome      Outcome           `json:"outcome"` // success, failure, mixed
+    Outcome      Outcome           `json:"outcome"` // success, failure
     Confidence   float64           `json:"confidence"`
     UsageCount   int               `json:"usage_count"`
     Tags         []string          `json:"tags"`
-    Scope        Scope             `json:"scope"` // project, team, org
-    Project      string            `json:"project,omitempty"`
-    Team         string            `json:"team,omitempty"`
-    Org          string            `json:"org"`
     SourceSession string           `json:"source_session,omitempty"`
     CreatedAt    time.Time         `json:"created_at"`
+    UpdatedAt    time.Time         `json:"updated_at"`
     LastUsed     *time.Time        `json:"last_used,omitempty"`
-    Embedding    []float32         `json:"-"` // not serialized to JSON
 }
 ```
 
@@ -98,21 +105,23 @@ type ConfidenceEvaluator interface {
 
 ```
 ┌──────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Agent   │────►│ MCP Handler  │────►│MemoryManager │────►│   Qdrant     │
-└──────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-                                              │
+│  Agent   │────►│ MCP Handler  │────►│ ReasoningBank│────►│ VectorStore  │
+│          │     │(internal/mcp)│     │   Service    │     │  (chromem/   │
+└──────────┘     └──────────────┘     └──────────────┘     │   Qdrant)    │
+                                              │            └──────────────┘
                                               ▼
                                       ┌──────────────┐
-                                      │  Embedder    │
+                                      │  FastEmbed   │
+                                      │  (local ONNX)│
                                       └──────────────┘
 ```
 
 **Sequence**:
-1. Agent calls `memory_search(query, scope, limit)`
-2. MemoryManager embeds the query
-3. Search each scope level (project → team → org)
-4. Merge and rank results by relevance × confidence
-5. Return top-k memories
+1. Agent calls `memory_search(project_id, query, limit)` via MCP
+2. ReasoningBank service embeds the query using FastEmbed
+3. Search project's vectorstore with confidence filtering (MinConfidence=0.7)
+4. Results ranked by semantic similarity
+5. Return top-k memories (scrubbed for secrets)
 
 ### Distillation Flow
 
@@ -149,67 +158,71 @@ type ConfidenceEvaluator interface {
 ## Collection Schema
 
 ```
-Collection: {org}_{team}_{project}_memories
+Collection: memories (per-project database via StoreProvider)
 
-Points:
+Documents:
 ├── id: UUID
-├── vector: [1536] (embedding)
-└── payload:
+├── vector: [384] (FastEmbed all-MiniLM-L6-v2)
+└── metadata:
+    ├── tenant_id: string (required for isolation)
+    ├── project_id: string
     ├── title: string
     ├── description: string
     ├── content: string
-    ├── outcome: "success" | "failure" | "mixed"
+    ├── outcome: "success" | "failure"
     ├── confidence: float (0.0 - 1.0)
     ├── usage_count: int
     ├── tags: string[]
     ├── source_session: string?
     ├── created_at: timestamp
+    ├── updated_at: timestamp
     └── last_used: timestamp?
 ```
 
+**Note**: Team/org scoping (mentioned in original architecture) is NOT implemented.
+All memories are project-scoped with database-per-project isolation.
+
 ## Search Strategy
 
-### Scope Cascade
+### Current Implementation (Project-Scoped)
 
 ```go
-func (m *MemoryManager) Search(ctx context.Context, req SearchRequest) ([]Memory, error) {
-    var allResults []Memory
-
-    scopes := []string{
-        fmt.Sprintf("%s_%s_%s_memories", req.Org, req.Team, req.Project),
-        fmt.Sprintf("%s_%s_memories", req.Org, req.Team),
-        fmt.Sprintf("%s_memories", req.Org),
+// Simplified view of actual implementation in internal/reasoningbank/service.go
+func (s *Service) Search(ctx context.Context, projectID, query string, limit int) ([]Memory, error) {
+    // Get project-specific store via StoreProvider
+    store, err := s.stores.GetProjectStore(ctx, tenant, "", projectID)
+    if err != nil {
+        return nil, err
     }
 
-    for _, collection := range scopes {
-        results, err := m.qdrant.Search(ctx, collection, SearchParams{
-            Vector:         req.Embedding,
-            Filter:         buildFilter(req),
-            Limit:          req.Limit,
-            ScoreThreshold: req.MinConfidence,
-        })
-        if err != nil {
-            continue // skip unavailable collections
+    // Search with semantic similarity
+    results, err := store.Search(ctx, query, limit)
+    if err != nil {
+        return nil, err
+    }
+
+    // Post-filter by confidence threshold (MinConfidence = 0.7)
+    var filtered []Memory
+    for _, mem := range results {
+        if mem.Confidence >= MinConfidence {
+            filtered = append(filtered, mem)
         }
-        allResults = append(allResults, results...)
     }
 
-    // Deduplicate and rank
-    return m.rankAndDedupe(allResults, req.Limit), nil
+    return filtered, nil
 }
 ```
 
 ### Ranking Formula
 
 ```
-score = semantic_similarity × confidence × recency_boost × scope_weight
+score = semantic_similarity (cosine distance from vectorstore, 0.0 - 1.0)
 
-where:
-- semantic_similarity: cosine distance from Qdrant (0.0 - 1.0)
-- confidence: memory confidence score (0.0 - 1.0)
-- recency_boost: 1.0 + 0.1 × (1 - days_since_used / 365)
-- scope_weight: project=1.0, team=0.9, org=0.8
+Post-filtering: confidence >= 0.7 (MinConfidence)
 ```
+
+**Note**: Scope cascade (project -> team -> org) and complex ranking formulas
+described in original architecture are NOT implemented. Search is project-scoped only.
 
 ## Integration Points
 
