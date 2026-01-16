@@ -34,6 +34,19 @@ docker logs --tail 100 <container_id>
 
 ---
 
+## Error Code Reference
+
+ContextD uses a systematic error code system for diagnosing issues. When you encounter an error message with a code like `CTX-XXX-YYY`, refer to the **[Error Codes Reference](./error-codes.md)** for:
+
+- Detailed error descriptions and root causes
+- Step-by-step resolution procedures
+- Related configuration parameters
+- Prevention strategies
+
+**Quick lookup:** Search for your error code in [error-codes.md](./error-codes.md) to find specific guidance.
+
+---
+
 ## Common Issues
 
 ### Container Won't Start
@@ -73,6 +86,48 @@ docker run -it --rm ghcr.io/fyrsmithlabs/contextd:latest
    **Solution:** Allocate at least 512MB RAM to the container.
 
 ---
+
+### chromem Issues (Default Provider)
+
+chromem is the default embedded vector store. Most issues are related to disk space or file permissions.
+
+**Symptom:** Errors mentioning chromem, persistence, or file access.
+
+**Common Causes:**
+
+1. **Disk full**
+   ```bash
+   # Check disk space
+   df -h ~/.local/share/contextd
+   ```
+   **Solution:** Free up disk space or change the data directory via `CONTEXTD_VECTORSTORE_CHROMEM_PATH`.
+
+2. **Permission denied**
+   ```bash
+   # Check permissions
+   ls -la ~/.local/share/contextd
+   ```
+   **Solution:** Ensure your user has read/write access to the data directory.
+
+3. **Corrupted database**
+   ```bash
+   # Backup and reset (WARNING: deletes all data)
+   mv ~/.local/share/contextd ~/.local/share/contextd.bak
+   ```
+   **Solution:** If the database is corrupted, backup and reset. Re-index repositories after reset.
+
+4. **Collection not found**
+   ```
+   Error: collection not found
+   ```
+   **Cause:** First run or data directory was reset.
+   **Solution:** Collections are created automatically on first use. Re-record memories or re-index repositories.
+
+---
+
+### Qdrant Issues (External Provider)
+
+The following issues apply when using Qdrant instead of chromem (set `CONTEXTD_VECTORSTORE_PROVIDER=qdrant`).
 
 ### Qdrant Client Version Warning
 
@@ -402,6 +457,7 @@ docker logs --tail 200 <container_id> 2>&1
 
 ## Related Documentation
 
+- [Error Codes Reference](./error-codes.md) - Systematic error code lookup and resolution
 - [Main Documentation](./CONTEXTD.md) - Quick start and overview
 - [Architecture Overview](./architecture.md) - Detailed component descriptions
 - [Hook Setup Guide](./HOOKS.md) - Claude Code lifecycle integration

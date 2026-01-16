@@ -1,6 +1,41 @@
 # MCP Tools API Reference
 
-ContextD exposes its functionality through the Model Context Protocol (MCP). This document provides complete reference documentation for all available tools.
+contextd exposes its functionality through the Model Context Protocol (MCP). This document provides complete reference documentation for all available tools.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Memory Tools](#memory-tools)
+  - [memory_search](#memory_search)
+  - [memory_record](#memory_record)
+  - [memory_feedback](#memory_feedback)
+  - [memory_outcome](#memory_outcome)
+- [Checkpoint Tools](#checkpoint-tools)
+  - [checkpoint_save](#checkpoint_save)
+  - [checkpoint_list](#checkpoint_list)
+  - [checkpoint_resume](#checkpoint_resume)
+- [Remediation Tools](#remediation-tools)
+  - [remediation_search](#remediation_search)
+  - [remediation_record](#remediation_record)
+- [Context-Folding Tools](#context-folding-tools)
+  - [branch_create](#branch_create)
+  - [branch_return](#branch_return)
+  - [branch_status](#branch_status)
+- [Repository Tools](#repository-tools)
+  - [repository_index](#repository_index)
+  - [repository_search](#repository_search)
+  - [semantic_search](#semantic_search)
+- [Conversation Tools](#conversation-tools)
+  - [conversation_index](#conversation_index)
+  - [conversation_search](#conversation_search)
+- [Utility Tools](#utility-tools)
+  - [troubleshoot_diagnose](#troubleshoot_diagnose)
+  - [reflect_report](#reflect_report)
+  - [reflect_analyze](#reflect_analyze)
+- [Security Notes](#security-notes)
+- [Error Handling](#error-handling)
 
 ---
 
@@ -1065,6 +1100,8 @@ Detected secrets are replaced with `[REDACTED]`.
 
 ## Error Handling
 
+> **📖 See Also:** [Comprehensive Error Codes Reference](./error-codes.md) - Complete catalog of all error codes with troubleshooting guides.
+
 All tools return errors in a consistent format:
 
 ```json
@@ -1086,3 +1123,16 @@ All tools return errors in a consistent format:
 | `INTERNAL_ERROR` | Server-side error |
 | `RATE_LIMITED` | Too many requests |
 | `UNAUTHORIZED` | Invalid tenant ID or permissions |
+
+For complete error code documentation with troubleshooting guides and examples, see [error-codes.md](./error-codes.md).
+
+---
+
+## Related Documentation
+
+- [Main Documentation](../CONTEXTD.md) - Quick start and overview
+- [Architecture Overview](../architecture.md) - Detailed component descriptions
+- [Hook Setup Guide](../HOOKS.md) - Claude Code lifecycle integration
+- [Configuration Reference](../configuration.md) - All configuration options
+- [Error Codes Reference](./error-codes.md) - Complete error codes with troubleshooting
+- [Troubleshooting](../troubleshooting.md) - Common issues and fixes

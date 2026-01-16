@@ -425,8 +425,8 @@ This only happens once. Subsequent runs are instant.
 ### Still Stuck?
 
 Check:
-- [Main Documentation](README.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
+- [Main Documentation](./CONTEXTD.md)
+- [Troubleshooting Guide](./troubleshooting.md)
 - [GitHub Issues](https://github.com/fyrsmithlabs/contextd/issues)
 
 Or run:
@@ -444,6 +444,15 @@ Now that you're set up:
 2. **Create a checkpoint** - Practice the checkpoint workflow
 3. **Record learnings** - Use `/contextd:remember` after solving something
 4. **Explore skills** - Run `/contextd:help` to see all available skills
-5. **Read the docs** - Check [README.md](README.md) for advanced features
+5. **Read the docs** - Check [CONTEXTD.md](./CONTEXTD.md) for advanced features
 
-Welcome to contextd! Your AI assistant just got a memory upgrade. 🚀
+Welcome to contextd! Your AI assistant just got a memory upgrade.
+
+---
+
+## Related Documentation
+
+- [Main Documentation](./CONTEXTD.md) - Quick start and overview
+- [Architecture Overview](./architecture.md) - Detailed component descriptions
+- [Configuration Reference](./configuration.md) - All configuration options
+- [Troubleshooting](./troubleshooting.md) - Common issues and fixes

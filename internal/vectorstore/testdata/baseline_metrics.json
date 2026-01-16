@@ -1,0 +1,88 @@
+{
+  "version": "1.0.0",
+  "model": "BAAI/bge-small-en-v1.5",
+  "description": "Baseline quality metrics for semantic similarity regression testing. These values represent expected performance of the embedding model on known test fixtures.",
+  "created_at": "2026-01-14",
+  "tolerance": 0.05,
+  "notes": "Tolerance of 0.05 (5%) allows for minor variations while catching significant regressions. Update baselines when embedding model changes.",
+  "test_cases": [
+    {
+      "name": "high_similarity_pair",
+      "description": "Validates that semantically similar documents (Go/Golang) receive high similarity scores",
+      "k": 3,
+      "metrics": {
+        "ndcg": 0.95,
+        "mrr": 1.0,
+        "precision_at_k": 0.667
+      },
+      "expected_ranking": ["doc1", "doc2", "doc3"],
+      "relevant_docs": ["doc1", "doc2"],
+      "notes": "doc1 and doc2 should both score high (>0.7) as Go and Golang are synonyms"
+    },
+    {
+      "name": "low_similarity_pair",
+      "description": "Validates that dissimilar documents from different domains receive low similarity scores",
+      "k": 3,
+      "metrics": {
+        "ndcg": 0.95,
+        "mrr": 1.0,
+        "precision_at_k": 0.667
+      },
+      "expected_ranking": ["doc1", "doc3", "doc2"],
+      "relevant_docs": ["doc1", "doc3"],
+      "notes": "doc2 (cooking) should have very low score (<0.3) compared to programming docs"
+    },
+    {
+      "name": "synonym_handling",
+      "description": "Validates that synonyms (tutorial/guide) are recognized as semantically similar",
+      "k": 3,
+      "metrics": {
+        "ndcg": 0.92,
+        "mrr": 1.0,
+        "precision_at_k": 0.667
+      },
+      "expected_ranking": ["doc1", "doc2", "doc3", "doc4"],
+      "relevant_docs": ["doc1", "doc2"],
+      "notes": "doc1 (tutorial) and doc2 (guide) should both rank high for 'tutorial' query"
+    },
+    {
+      "name": "multi_topic_documents",
+      "description": "Validates correct ranking when documents contain multiple topics with partial query matches",
+      "k": 3,
+      "metrics": {
+        "ndcg": 0.88,
+        "mrr": 1.0,
+        "precision_at_k": 0.667
+      },
+      "expected_ranking": ["doc1", "doc3", "doc2", "doc4"],
+      "relevant_docs": ["doc1", "doc3"],
+      "notes": "doc1 matches both ML and Python; doc3 has ML; doc2 has Python but not ML; doc4 is unrelated"
+    },
+    {
+      "name": "gradual_relevance_decay",
+      "description": "Validates that similarity scores decay gradually as document relevance decreases",
+      "k": 5,
+      "metrics": {
+        "ndcg": 0.93,
+        "mrr": 1.0,
+        "precision_at_k": 0.60
+      },
+      "expected_ranking": ["doc1", "doc2", "doc3", "doc4", "doc5"],
+      "relevant_docs": ["doc1", "doc2", "doc3"],
+      "notes": "Scores should decay gradually: doc1 (0.8-1.0), doc2 (0.6-0.9), doc3 (0.4-0.7), doc4 (0.2-0.5), doc5 (0.0-0.3)"
+    }
+  ],
+  "aggregate_targets": {
+    "description": "Expected aggregate performance across all test cases",
+    "min_avg_ndcg": 0.90,
+    "min_avg_mrr": 0.95,
+    "min_avg_precision": 0.65
+  },
+  "regression_thresholds": {
+    "description": "Fail tests if metrics drop below these thresholds",
+    "ndcg_threshold_multiplier": 0.95,
+    "mrr_threshold_multiplier": 0.95,
+    "precision_threshold_multiplier": 0.95,
+    "note": "Threshold multiplier of 0.95 means metrics must be >= 95% of baseline (allowing 5% degradation)"
+  }
+}

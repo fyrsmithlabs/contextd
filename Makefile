@@ -1,4 +1,4 @@
-.PHONY: help build build-all go-install test test-race lint fmt vet coverage cover audit clean install start stop logs backup restore profile-test debug monitor all build-linux build-darwin build-windows build-all-platforms test-integration test-integration-cleanup deps setup-dev install-pre-commit install-trufflehog install-tools version-check version-check-strict version-sync
+.PHONY: help build build-all go-install test test-race test-regression test-semantic-real lint fmt vet coverage cover audit clean install start stop logs backup restore profile-test debug monitor all build-linux build-darwin build-windows build-all-platforms test-integration test-integration-cleanup deps setup-dev install-pre-commit install-trufflehog install-tools version-check version-check-strict version-sync
 
 # Default target
 help:
@@ -30,6 +30,7 @@ help:
 	@echo "  make test-tdd       Run Go tests with TDD Guard enforcement"
 	@echo "  make test-race      Run Go tests with race detection"
 	@echo "  make test-regression Run regression tests only"
+	@echo "  make test-semantic-real Run semantic similarity tests with real embeddings"
 	@echo "  make test-integration Run integration tests (requires Docker)"
 	@echo "  make test-integration-cleanup Clean up integration test resources"
 	@echo "  make test-integration-framework Run framework tests (no Docker)"
@@ -180,6 +181,11 @@ test-regression:
 	@echo "Running regression tests..."
 	@go test -v -run TestRegression ./...
 	@echo "✓ All regression tests passed"
+
+test-semantic-real:
+	@echo "Running semantic similarity tests with real embeddings..."
+	@go test -v ./internal/vectorstore -run SemanticReal
+	@echo "✓ Semantic similarity tests complete"
 
 coverage:
 	@echo "Running tests with coverage..."

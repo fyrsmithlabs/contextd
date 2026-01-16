@@ -228,7 +228,7 @@ telemetry:
 
 ### MCP Configuration
 
-Add to `~/.claude/claude_desktop_config.json`:
+**Claude Code CLI** (`~/.claude/settings.json`):
 
 ```json
 {
@@ -244,6 +244,10 @@ Add to `~/.claude/claude_desktop_config.json`:
   }
 }
 ```
+
+**Claude Desktop** (`~/.config/claude/claude_desktop_config.json`):
+
+Use the same configuration as above.
 
 ### With Custom Configuration
 
