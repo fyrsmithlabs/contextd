@@ -28,6 +28,24 @@ func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) 
 	})
 }
 
+// getDeferLoading returns the defer_loading value for a tool from the registry.
+// Returns false if the tool is not found in the registry (fail-safe default).
+func (s *Server) getDeferLoading(toolName string) bool {
+	if s.toolRegistry == nil {
+		return false
+	}
+	meta, ok := s.toolRegistry.Get(toolName)
+	if !ok {
+		return false
+	}
+	return meta.DeferLoading
+}
+
+// toolMeta creates an mcp.Meta map with the defer_loading field set from the registry.
+func (s *Server) toolMeta(toolName string) mcp.Meta {
+	return mcp.Meta{"defer_loading": s.getDeferLoading(toolName)}
+}
+
 // registerTools registers all MCP tools with the server.
 func (s *Server) registerTools() error {
 	// Populate the tool registry with all tool metadata and defer_loading config.
@@ -123,6 +141,7 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
+		Meta:        s.toolMeta("checkpoint_save"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
 		// Auto-derive tenant_id from project_path if not provided
 		tenantID := args.TenantID
@@ -189,6 +208,7 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
+		Meta:        s.toolMeta("checkpoint_list"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
 		// Auto-derive tenant_id from project_path if not provided
 		tenantID := args.TenantID
@@ -256,6 +276,7 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_resume",
 		Description: "Resume from a checkpoint at specified level (summary, context, or full)",
+		Meta:        s.toolMeta("checkpoint_resume"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointResumeInput) (*mcp.CallToolResult, checkpointResumeOutput, error) {
 		resumeReq := &checkpoint.ResumeRequest{
 			CheckpointID: args.CheckpointID,
@@ -340,6 +361,7 @@ func (s *Server) registerRemediationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
+		Meta:        s.toolMeta("remediation_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
 		// Auto-derive tenant_id from project_path if not provided
 		tenantID := args.TenantID
@@ -403,6 +425,7 @@ func (s *Server) registerRemediationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
+		Meta:        s.toolMeta("remediation_record"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
 		// Auto-derive tenant_id from project_path if not provided
 		tenantID := args.TenantID
@@ -515,6 +538,7 @@ func (s *Server) registerRepositoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "semantic_search",
 		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
+		Meta:        s.toolMeta("semantic_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
 		// Default tenant ID from project path if not specified
 		tenantID := args.TenantID
@@ -632,6 +656,7 @@ func (s *Server) registerRepositoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "repository_search",
 		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
+		Meta:        s.toolMeta("repository_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
 		// project_path is always required for tenant context (fail-closed security)
 		if args.ProjectPath == "" {
@@ -741,6 +766,7 @@ func (s *Server) registerRepositoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
+		Meta:        s.toolMeta("repository_index"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
 		// Default include patterns to ["*"] for full indexing (explicit patterns for differential)
 		includePatterns := args.IncludePatterns
@@ -843,6 +869,7 @@ func (s *Server) registerTroubleshootTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "troubleshoot_diagnose",
 		Description: "Diagnose an error using AI and known patterns",
+		Meta:        s.toolMeta("troubleshoot_diagnose"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args troubleshootDiagnoseInput) (*mcp.CallToolResult, troubleshootDiagnoseOutput, error) {
 		diagnosis, err := s.troubleshootSvc.Diagnose(ctx, args.ErrorMessage, args.ErrorContext)
 		if err != nil {
@@ -937,6 +964,7 @@ func (s *Server) registerMemoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_search",
 		Description: "Search for relevant memories/strategies from past sessions",
+		Meta:        s.toolMeta("memory_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
 		limit := args.Limit
 		if limit <= 0 {
@@ -980,6 +1008,7 @@ func (s *Server) registerMemoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_record",
 		Description: "Record a new memory/learning from the current session",
+		Meta:        s.toolMeta("memory_record"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
 		outcome := reasoningbank.OutcomeSuccess
 		if args.Outcome == "failure" {
@@ -1016,6 +1045,7 @@ func (s *Server) registerMemoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_feedback",
 		Description: "Provide feedback on a memory to adjust its confidence",
+		Meta:        s.toolMeta("memory_feedback"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryFeedbackInput) (*mcp.CallToolResult, memoryFeedbackOutput, error) {
 		if err := s.reasoningbankSvc.Feedback(ctx, args.MemoryID, args.Helpful); err != nil {
 			return nil, memoryFeedbackOutput{}, fmt.Errorf("memory feedback failed: %w", err)
@@ -1044,6 +1074,7 @@ func (s *Server) registerMemoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_outcome",
 		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
+		Meta:        s.toolMeta("memory_outcome"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
 		// Record the outcome signal
 		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
@@ -1068,6 +1099,7 @@ func (s *Server) registerMemoryTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_consolidate",
 		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
+		Meta:        s.toolMeta("memory_consolidate"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
 		// Validate input
 		if args.ProjectID == "" {
@@ -1184,6 +1216,7 @@ func (s *Server) registerFoldingTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_create",
 		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
+		Meta:        s.toolMeta("branch_create"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
 		branchReq := folding.BranchRequest{
 			SessionID:      args.SessionID,
@@ -1216,6 +1249,7 @@ func (s *Server) registerFoldingTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_return",
 		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
+		Meta:        s.toolMeta("branch_return"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
 		returnReq := folding.ReturnRequest{
 			BranchID: args.BranchID,
@@ -1244,6 +1278,7 @@ func (s *Server) registerFoldingTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_status",
 		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
+		Meta:        s.toolMeta("branch_status"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
 		var branch *folding.Branch
 		var err error

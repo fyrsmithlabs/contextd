@@ -56,6 +56,7 @@ func (s *Server) registerConversationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "conversation_index",
 		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
+		Meta:        s.toolMeta("conversation_index"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
 		tenantID := args.TenantID
 		if tenantID == "" && args.ProjectPath != "" {
@@ -105,6 +106,7 @@ func (s *Server) registerConversationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "conversation_search",
 		Description: "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
+		Meta:        s.toolMeta("conversation_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationSearchInput) (*mcp.CallToolResult, conversationSearchOutput, error) {
 		tenantID := args.TenantID
 		if tenantID == "" && args.ProjectPath != "" {

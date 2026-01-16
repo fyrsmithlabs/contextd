@@ -70,6 +70,7 @@ func (s *Server) registerReflectionTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "reflect_report",
 		Description: "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
+		Meta:        s.toolMeta("reflect_report"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectReportInput) (*mcp.CallToolResult, reflectReportOutput, error) {
 		// Set defaults
 		periodDays := args.PeriodDays
@@ -173,6 +174,7 @@ func (s *Server) registerReflectionTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "reflect_analyze",
 		Description: "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
+		Meta:        s.toolMeta("reflect_analyze"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectAnalyzeInput) (*mcp.CallToolResult, reflectAnalyzeOutput, error) {
 		// Set defaults
 		minConfidence := args.MinConfidence

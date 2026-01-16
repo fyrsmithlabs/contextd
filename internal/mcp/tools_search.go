@@ -45,6 +45,7 @@ func (s *Server) registerSearchTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "tool_search",
 		Description: "Search for available tools by name, description, or keyword. Returns tool_reference blocks for discovered tools. Use this to find relevant tools without loading all tool definitions into context. Uses regex pattern matching (Python re.search() syntax).",
+		Meta:        s.toolMeta("tool_search"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args toolSearchInput) (*mcp.CallToolResult, toolSearchOutput, error) {
 		if args.Query == "" {
 			return nil, toolSearchOutput{}, fmt.Errorf("query is required")
@@ -128,6 +129,7 @@ func (s *Server) registerSearchTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "tool_list",
 		Description: "List all available tools in the registry with their metadata. Use this to see what tools are available without searching.",
+		Meta:        s.toolMeta("tool_list"),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args toolListInput) (*mcp.CallToolResult, toolListOutput, error) {
 		var tools []*ToolMetadata
 
