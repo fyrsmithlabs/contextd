@@ -27,6 +27,7 @@ type Config struct {
 	Repository              RepositoryConfig
 	Statusline              StatuslineConfig
 	ConsolidationScheduler  ConsolidationSchedulerConfig
+	ToolSearch              ToolSearchConfig
 }
 
 // StatuslineConfig holds statusline display configuration.
@@ -144,6 +145,23 @@ type ConsolidationSchedulerConfig struct {
 	SimilarityThreshold float64 `koanf:"similarity_threshold"` // Similarity threshold for consolidation (default: 0.8)
 }
 
+// ToolSearchConfig holds tool search and defer loading configuration.
+// This enables context optimization by loading only essential tools upfront
+// and allowing other tools to be discovered via the tool_search MCP tool.
+type ToolSearchConfig struct {
+	// EnableDeferredLoading enables defer_loading behavior for tools.
+	// When true, only NonDeferredTools are loaded immediately, and other
+	// tools can be discovered via tool_search.
+	// Default: true
+	EnableDeferredLoading bool `koanf:"enable_deferred_loading"`
+
+	// NonDeferredTools is the list of tool names that should always be loaded
+	// immediately (not deferred). These are essential tools that should be
+	// available without using tool_search.
+	// Default: ["tool_search", "semantic_search", "memory_search"]
+	NonDeferredTools []string `koanf:"non_deferred_tools"`
+}
+
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
 	Port            int           `koanf:"http_port"`
@@ -221,6 +239,11 @@ type RuleConfig struct {
 //   - PREFETCH_ENABLED: Enable pre-fetch engine (default: true)
 //   - PREFETCH_CACHE_TTL: Cache TTL (default: 5m)
 //   - PREFETCH_CACHE_MAX_ENTRIES: Maximum cache entries (default: 100)
+//
+// Tool Search (context optimization):
+//   - CONTEXTD_TOOL_SEARCH_DEFERRED_LOADING: Enable deferred tool loading (default: true)
+//   - CONTEXTD_TOOL_SEARCH_NON_DEFERRED: Comma-separated list of tools to load immediately
+//     (default: tool_search,semantic_search,memory_search)
 //
 // Example:
 //
@@ -343,6 +366,16 @@ func Load() *Config {
 			ContextWarning:  getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_WARNING", 70),
 			ContextCritical: getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_CRITICAL", 85),
 		},
+	}
+
+	// Tool Search configuration (context optimization via deferred loading)
+	cfg.ToolSearch = ToolSearchConfig{
+		EnableDeferredLoading: getEnvBool("CONTEXTD_TOOL_SEARCH_DEFERRED_LOADING", true),
+		NonDeferredTools: getEnvStringSlice("CONTEXTD_TOOL_SEARCH_NON_DEFERRED", []string{
+			"tool_search",
+			"semantic_search",
+			"memory_search",
+		}),
 	}
 
 	return cfg

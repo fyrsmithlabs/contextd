@@ -3,23 +3,23 @@
   "spec": "012-tol-search-support",
   "state": "building",
   "subtasks": {
-    "completed": 2,
+    "completed": 6,
     "total": 13,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Tool Search MCP Tool",
+    "current": "Defer Loading Configuration",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
+    "number": 8,
     "started_at": "2026-01-16T09:27:37.938008"
   },
-  "last_update": "2026-01-16T09:36:35.222685"
+  "last_update": "2026-01-16T09:47:57.585449"
 }
