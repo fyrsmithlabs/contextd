@@ -2,8 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.fyrsmithlabs/contextd",
   "title": "ContextD",
-  "description": "Cross-session memory, checkpoints, and error remediation for AI agents. Uses semantic search over past learnings to provide relevant context.",
+  "description": "Cross-session memory, checkpoints, and error remediation for AI agents. Supports tool search with defer_loading for context optimization (~80% reduction). Uses semantic search over past learnings to provide relevant context.",
   "version": "0.3.0",
+  "_meta": {
+    "io.github.fyrsmithlabs/toolSearch": {
+      "enabled": true,
+      "description": "Server implements tool_search MCP tool for dynamic tool discovery. Tools marked with defer_loading: true are loaded on-demand via tool search.",
+      "nonDeferredTools": ["tool_search", "semantic_search", "memory_search"],
+      "deferredToolCount": 20,
+      "contextSavings": "~80% reduction in initial tool definition tokens"
+    }
+  },
   "packages": [
     {
       "registryType": "mcpb",
