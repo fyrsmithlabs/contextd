@@ -3,13 +3,13 @@
   "spec": "012-tol-search-support",
   "state": "building",
   "subtasks": {
-    "completed": 6,
+    "completed": 11,
     "total": 13,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Defer Loading Configuration",
+    "current": "Integration Testing",
     "id": null,
     "total": 2
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 8,
+    "number": 13,
     "started_at": "2026-01-16T09:27:37.938008"
   },
-  "last_update": "2026-01-16T09:47:57.585449"
+  "last_update": "2026-01-16T10:02:53.058410"
 }
