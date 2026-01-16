@@ -3,23 +3,23 @@
   "spec": "012-tol-search-support",
   "state": "building",
   "subtasks": {
-    "completed": 1,
+    "completed": 2,
     "total": 13,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Tool Registry Infrastructure",
+    "current": "Tool Search MCP Tool",
     "id": null,
-    "total": 2
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 3,
+    "number": 4,
     "started_at": "2026-01-16T09:27:37.938008"
   },
-  "last_update": "2026-01-16T09:34:00.556137"
+  "last_update": "2026-01-16T09:36:35.222685"
 }

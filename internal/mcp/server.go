@@ -35,6 +35,7 @@ type Server struct {
 	distiller        *reasoningbank.Distiller
 	scrubber         secrets.Scrubber
 	ignoreParser     *ignore.Parser
+	toolRegistry     *ToolRegistry
 	logger           *zap.Logger
 }
 
