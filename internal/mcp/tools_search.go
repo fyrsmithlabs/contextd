@@ -2,11 +2,49 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// ===== TOOL REFERENCE CONTENT =====
+
+// ToolReferenceContent represents a tool_reference content block as specified by the
+// Anthropic tool search protocol. It embeds *mcp.TextContent to satisfy the mcp.Content
+// interface (which has an unexported method), while providing custom JSON marshaling
+// to produce the correct wire format: { "type": "tool_reference", "tool_name": "..." }
+//
+// See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool#custom-tool-search-implementation
+type ToolReferenceContent struct {
+	// Embed TextContent to satisfy the mcp.Content interface
+	// The embedded type provides the required fromWire method
+	*mcp.TextContent
+	// ToolName is the name of the discovered tool being referenced
+	ToolName string
+}
+
+// NewToolReferenceContent creates a new tool_reference content block for the given tool name.
+func NewToolReferenceContent(toolName string) *ToolReferenceContent {
+	return &ToolReferenceContent{
+		TextContent: &mcp.TextContent{Text: ""}, // Placeholder to satisfy interface
+		ToolName:    toolName,
+	}
+}
+
+// MarshalJSON produces the tool_reference wire format expected by the Anthropic API.
+// This overrides the embedded TextContent's MarshalJSON to output:
+// { "type": "tool_reference", "tool_name": "tool_name_here" }
+func (c *ToolReferenceContent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type     string `json:"type"`
+		ToolName string `json:"tool_name"`
+	}{
+		Type:     "tool_reference",
+		ToolName: c.ToolName,
+	})
+}
 
 // ===== TOOL SEARCH TOOLS =====
 
@@ -110,15 +148,18 @@ func (s *Server) registerSearchTools() {
 		}
 
 		// Build content with tool_reference blocks
-		// The MCP protocol should expand these to full tool definitions
+		// The MCP protocol (Claude) expands these to full tool definitions automatically
 		content := make([]mcp.Content, 0, len(toolNames)+1)
 		content = append(content, &mcp.TextContent{Text: resultText})
 
 		// Add tool_reference blocks for each discovered tool
-		// Note: The MCP SDK may need to be extended to support tool_reference blocks.
-		// For now, we include the tool names in the structured output so clients
-		// can expand them to full tool definitions as needed.
-		// When the SDK supports tool_reference, this can be updated.
+		// These blocks follow the Anthropic tool search protocol format:
+		// { "type": "tool_reference", "tool_name": "discovered_tool_name" }
+		// When Claude receives these, it automatically expands them to full tool
+		// definitions from the tools provided with defer_loading: true
+		for _, toolName := range toolNames {
+			content = append(content, NewToolReferenceContent(toolName))
+		}
 
 		return &mcp.CallToolResult{
 			Content: content,

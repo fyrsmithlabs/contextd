@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -577,4 +578,166 @@ func TestToolSearch_DeferLoadingField(t *testing.T) {
 		require.Len(t, results, 1)
 		assert.False(t, results[0].Tool.DeferLoading)
 	})
+}
+
+// ===== TOOL REFERENCE CONTENT TESTS =====
+
+// TestToolSearchResponse_ToolReferenceContent verifies that ToolReferenceContent
+// produces the correct JSON wire format for the Anthropic tool search protocol.
+func TestToolSearchResponse_ToolReferenceContent(t *testing.T) {
+	t.Run("marshals_to_correct_format", func(t *testing.T) {
+		ref := NewToolReferenceContent("memory_search")
+		data, err := ref.MarshalJSON()
+		require.NoError(t, err)
+
+		// Verify JSON structure
+		var result map[string]string
+		err = json.Unmarshal(data, &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, "tool_reference", result["type"])
+		assert.Equal(t, "memory_search", result["tool_name"])
+	})
+
+	t.Run("produces_valid_json", func(t *testing.T) {
+		ref := NewToolReferenceContent("checkpoint_save")
+		data, err := ref.MarshalJSON()
+		require.NoError(t, err)
+
+		// Verify it's valid JSON
+		assert.True(t, json.Valid(data))
+
+		// Verify exact format
+		expected := `{"type":"tool_reference","tool_name":"checkpoint_save"}`
+		assert.JSONEq(t, expected, string(data))
+	})
+
+	t.Run("handles_special_characters_in_name", func(t *testing.T) {
+		// Tool names with underscores and numbers should work
+		ref := NewToolReferenceContent("get_user_data_v2")
+		data, err := ref.MarshalJSON()
+		require.NoError(t, err)
+
+		var result map[string]string
+		err = json.Unmarshal(data, &result)
+		require.NoError(t, err)
+		assert.Equal(t, "get_user_data_v2", result["tool_name"])
+	})
+}
+
+// TestToolSearchResponse_ContentArray verifies that tool_reference blocks are
+// correctly added to the content array in tool search results.
+func TestToolSearchResponse_ContentArray(t *testing.T) {
+	t.Run("builds_content_with_text_and_references", func(t *testing.T) {
+		// Simulate what the handler does
+		toolNames := []string{"memory_search", "memory_record"}
+		resultText := "Found 2 tool(s) for query 'memory': memory_search, memory_record"
+
+		content := make([]interface{}, 0, len(toolNames)+1)
+		content = append(content, map[string]string{"type": "text", "text": resultText})
+
+		for _, toolName := range toolNames {
+			ref := NewToolReferenceContent(toolName)
+			data, err := ref.MarshalJSON()
+			require.NoError(t, err)
+
+			var refMap map[string]string
+			err = json.Unmarshal(data, &refMap)
+			require.NoError(t, err)
+			content = append(content, refMap)
+		}
+
+		// Verify structure
+		assert.Len(t, content, 3) // 1 text + 2 references
+
+		// First is text
+		textBlock := content[0].(map[string]string)
+		assert.Equal(t, "text", textBlock["type"])
+
+		// Second is tool_reference
+		ref1 := content[1].(map[string]string)
+		assert.Equal(t, "tool_reference", ref1["type"])
+		assert.Equal(t, "memory_search", ref1["tool_name"])
+
+		// Third is tool_reference
+		ref2 := content[2].(map[string]string)
+		assert.Equal(t, "tool_reference", ref2["type"])
+		assert.Equal(t, "memory_record", ref2["tool_name"])
+	})
+
+	t.Run("no_references_when_no_results", func(t *testing.T) {
+		toolNames := []string{}
+		resultText := "No tools found matching: nonexistent"
+
+		content := make([]interface{}, 0, 1)
+		content = append(content, map[string]string{"type": "text", "text": resultText})
+
+		for _, toolName := range toolNames {
+			ref := NewToolReferenceContent(toolName)
+			data, _ := ref.MarshalJSON()
+			var refMap map[string]string
+			json.Unmarshal(data, &refMap)
+			content = append(content, refMap)
+		}
+
+		// Only text, no references
+		assert.Len(t, content, 1)
+	})
+}
+
+// TestToolSearchResponse_ImplementsContentInterface verifies that ToolReferenceContent
+// satisfies the mcp.Content interface through embedding.
+func TestToolSearchResponse_ImplementsContentInterface(t *testing.T) {
+	t.Run("satisfies_content_interface", func(t *testing.T) {
+		ref := NewToolReferenceContent("test_tool")
+
+		// The embedded TextContent should not be nil
+		require.NotNil(t, ref.TextContent)
+
+		// Should have a ToolName
+		assert.Equal(t, "test_tool", ref.ToolName)
+
+		// The embedded TextContent allows this to satisfy mcp.Content
+		// We can verify MarshalJSON works
+		data, err := ref.MarshalJSON()
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "tool_reference")
+	})
+
+	t.Run("constructor_creates_valid_content", func(t *testing.T) {
+		ref := NewToolReferenceContent("my_tool")
+
+		// TextContent is initialized
+		require.NotNil(t, ref.TextContent)
+		assert.Equal(t, "", ref.TextContent.Text) // Placeholder
+
+		// ToolName is set
+		assert.Equal(t, "my_tool", ref.ToolName)
+	})
+}
+
+// TestToolSearchResponse_MultipleReferences tests serialization of multiple tool references.
+func TestToolSearchResponse_MultipleReferences(t *testing.T) {
+	toolNames := []string{
+		"memory_search",
+		"checkpoint_save",
+		"remediation_search",
+		"repository_index",
+		"troubleshoot_diagnose",
+	}
+
+	for _, name := range toolNames {
+		t.Run("reference_for_"+name, func(t *testing.T) {
+			ref := NewToolReferenceContent(name)
+			data, err := ref.MarshalJSON()
+			require.NoError(t, err)
+
+			var result map[string]string
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			assert.Equal(t, "tool_reference", result["type"])
+			assert.Equal(t, name, result["tool_name"])
+		})
+	}
 }
