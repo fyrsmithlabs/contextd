@@ -324,7 +324,7 @@ func (m *BranchManager) Create(ctx context.Context, req BranchRequest) (*BranchR
 			// Record budget usage in branch
 			branch.BudgetUsed = totalInjectionTokens
 
-			m.logger.Info(ctx, "injected memories into branch",
+			m.logger.Debug(ctx, "injected memories into branch",
 				zap.String("branch_id", branch.ID),
 				zap.Int("memory_count", len(memories)),
 				zap.Int("tokens_used", totalInjectionTokens),

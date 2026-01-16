@@ -20,6 +20,19 @@ func (m *MockScrubber) Scrub(content string) (string, error) {
 	return content, nil
 }
 
+// MockMemorySearcher is a test implementation of MemorySearcher.
+type MockMemorySearcher struct {
+	SearchFunc func(ctx context.Context, query string, limit int, minConfidence float64) ([]InjectedItem, error)
+}
+
+func (m *MockMemorySearcher) Search(ctx context.Context, query string, limit int, minConfidence float64) ([]InjectedItem, error) {
+	if m.SearchFunc != nil {
+		return m.SearchFunc(ctx, query, limit, minConfidence)
+	}
+	// Default: return empty list
+	return []InjectedItem{}, nil
+}
+
 func newTestManager() (*BranchManager, *SimpleEventEmitter, *MemoryBranchRepository) {
 	repo := NewMemoryBranchRepository()
 	emitter := NewSimpleEventEmitter()
@@ -138,6 +151,91 @@ func TestBranchManager_CreateMaxConcurrentExceeded(t *testing.T) {
 	_, err := manager.Create(ctx, BranchRequest{SessionID: "sess_001", Description: "d4", Prompt: "p4"})
 	if err != ErrMaxConcurrentBranches {
 		t.Errorf("Create error = %v, want ErrMaxConcurrentBranches", err)
+	}
+}
+
+func TestBranchManager_MemoryInjection(t *testing.T) {
+	repo := NewMemoryBranchRepository()
+	emitter := NewSimpleEventEmitter()
+	budget := NewBudgetTracker(emitter)
+	config := DefaultFoldingConfig()
+	config.MemoryMaxItems = 3
+	config.MemoryMinConfidence = 0.7
+	config.InjectionBudgetRatio = 0.2
+
+	// Create mock memory searcher
+	var searchQuery string
+	var searchLimit int
+	var searchMinConf float64
+	mockSearcher := &MockMemorySearcher{
+		SearchFunc: func(ctx context.Context, query string, limit int, minConfidence float64) ([]InjectedItem, error) {
+			// Capture search parameters for verification
+			searchQuery = query
+			searchLimit = limit
+			searchMinConf = minConfidence
+
+			// Return test memories
+			return []InjectedItem{
+				{Type: "memory", ID: "mem_001", Title: "Auth flow", Content: "Use JWT tokens", Tokens: 100},
+				{Type: "memory", ID: "mem_002", Title: "DB config", Content: "PostgreSQL settings", Tokens: 150},
+			}, nil
+		},
+	}
+
+	manager := NewBranchManager(repo, budget, &MockScrubber{}, emitter, config, WithMemorySearcher(mockSearcher))
+	ctx := context.Background()
+
+	// Create branch with memory injection enabled
+	req := BranchRequest{
+		SessionID:      "sess_001",
+		Description:    "Find database config",
+		Prompt:         "Search for DB connection settings",
+		InjectMemories: true,
+	}
+
+	resp, err := manager.Create(ctx, req)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Verify search was called with correct parameters
+	if searchQuery != req.Description {
+		t.Errorf("Search query = %q, want %q", searchQuery, req.Description)
+	}
+	if searchLimit != config.MemoryMaxItems {
+		t.Errorf("Search limit = %d, want %d", searchLimit, config.MemoryMaxItems)
+	}
+	if searchMinConf != config.MemoryMinConfidence {
+		t.Errorf("Search minConfidence = %f, want %f", searchMinConf, config.MemoryMinConfidence)
+	}
+
+	// Verify branch was created successfully
+	branch, err := manager.Get(ctx, resp.BranchID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	// Verify injected memory IDs were stored
+	if len(branch.InjectedMemoryIDs) != 2 {
+		t.Errorf("InjectedMemoryIDs count = %d, want 2", len(branch.InjectedMemoryIDs))
+	}
+	if len(branch.InjectedMemoryIDs) >= 1 && branch.InjectedMemoryIDs[0] != "mem_001" {
+		t.Errorf("InjectedMemoryIDs[0] = %s, want mem_001", branch.InjectedMemoryIDs[0])
+	}
+	if len(branch.InjectedMemoryIDs) >= 2 && branch.InjectedMemoryIDs[1] != "mem_002" {
+		t.Errorf("InjectedMemoryIDs[1] = %s, want mem_002", branch.InjectedMemoryIDs[1])
+	}
+
+	// Verify budget was consumed for injected memories (100 + 150 = 250 tokens)
+	expectedTokensUsed := 250
+	if branch.BudgetUsed != expectedTokensUsed {
+		t.Errorf("BudgetUsed = %d, want %d", branch.BudgetUsed, expectedTokensUsed)
+	}
+
+	// Verify budget tracker has consumed tokens
+	used, _ := budget.Used(branch.ID)
+	if used != expectedTokensUsed {
+		t.Errorf("BudgetTracker.Used() = %d, want %d", used, expectedTokensUsed)
 	}
 }
 
