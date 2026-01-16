@@ -7,14 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Error Codes Reference** - Comprehensive error codes documentation in `docs/api/error-codes.md`
+  - All 17 error codes with descriptions, causes, and resolutions
+  - 14 example scenarios with expected behavior
+  - Troubleshooting flowcharts for common errors
+  - Links integrated into mcp-tools.md and troubleshooting.md
+- **Semantic Similarity Testing** - Infrastructure for measuring embedding quality
+  - Quality metrics tracking (precision, recall, MRR)
+  - Baseline metrics comparison framework
+  - Integration test suite for semantic search accuracy
+
+### Changed
+- **Documentation Improvements** - Comprehensive updates across all docs
+  - CONTEXTD.md: Added all 20 MCP tools organized by category
+  - HOOKS.md: Completed MCP tools reference table
+  - troubleshooting.md: Added chromem troubleshooting section
+  - mcp-tools.md: Added navigation Table of Contents
+  - Added Related Documentation footers to all docs
+  - Fixed broken links in ONBOARDING.md
+  - Clarified Claude Code CLI vs Desktop config paths
+- **Workflow Metrics** - Added nolint directive for OTEL metrics pending workflow implementation
+
 ### Fixed
 - **Config Loader** - Fixed symlink resolution for macOS `/var` -> `/private/var` paths
 - **Logging Tests** - Fixed stdout sync assertion failing in CI environments
 - **Integration Tests** - Fixed race condition in semantic embedder vocabulary map access
 - **Lint Compliance** - Fixed errcheck issue in ctxd checkpoint command
-
-### Changed
-- **Workflow Metrics** - Added nolint directive for OTEL metrics pending workflow implementation
 
 ## [0.3.4] - 2026-01-14
 
