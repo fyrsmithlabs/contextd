@@ -326,6 +326,19 @@ type remediationRecordOutput struct {
 	Confidence float64 `json:"confidence" jsonschema:"Confidence score"`
 }
 
+type remediationFeedbackInput struct {
+	RemediationID string `json:"remediation_id" jsonschema:"required,Remediation ID to provide feedback on"`
+	Helpful       bool   `json:"helpful" jsonschema:"required,Whether the remediation was helpful (true) or not (false)"`
+	TenantID      string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived if not provided)"`
+	ProjectPath   string `json:"project_path,omitempty" jsonschema:"Project path (used to auto-derive tenant_id if empty)"`
+}
+
+type remediationFeedbackOutput struct {
+	RemediationID string  `json:"remediation_id" jsonschema:"Remediation ID that received feedback"`
+	NewConfidence float64 `json:"new_confidence" jsonschema:"Updated confidence score after feedback"`
+	Helpful       bool    `json:"helpful" jsonschema:"Feedback provided (helpful or not)"`
+}
+
 func (s *Server) registerRemediationTools() {
 	// remediation_search
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -444,6 +457,72 @@ func (s *Server) registerRemediationTools() {
 				&mcp.TextContent{Text: fmt.Sprintf("Remediation recorded: %s", result.ID)},
 			},
 		}, result, nil
+	})
+
+	// remediation_feedback
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "remediation_feedback",
+		Description: "Provide feedback on whether a remediation was helpful. Updates confidence score based on real-world success/failure.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationFeedbackInput) (*mcp.CallToolResult, remediationFeedbackOutput, error) {
+		// Validate input
+		if args.RemediationID == "" {
+			return nil, remediationFeedbackOutput{}, fmt.Errorf("remediation_id is required")
+		}
+
+		// Auto-derive tenant_id from project_path if not provided
+		tenantID := args.TenantID
+		if tenantID == "" && args.ProjectPath != "" {
+			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		}
+
+		// Validate tenant_id was derived successfully
+		if tenantID == "" {
+			return nil, remediationFeedbackOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+
+		// Convert boolean helpful to Rating enum
+		rating := remediation.RatingNotHelpful
+		if args.Helpful {
+			rating = remediation.RatingHelpful
+		}
+
+		// Call service method
+		feedbackReq := &remediation.FeedbackRequest{
+			RemediationID: args.RemediationID,
+			TenantID:      tenantID,
+			Rating:        rating,
+		}
+
+		if err := s.remediationSvc.Feedback(ctx, feedbackReq); err != nil {
+			return nil, remediationFeedbackOutput{}, fmt.Errorf("remediation feedback failed: %w", err)
+		}
+
+		// Get updated remediation to return new confidence (mirror memory_feedback pattern)
+		rem, err := s.remediationSvc.Get(ctx, tenantID, args.RemediationID)
+		if err != nil {
+			// Fallback if we can't fetch the updated remediation
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Feedback recorded for remediation %s", args.RemediationID)},
+				},
+			}, remediationFeedbackOutput{
+				RemediationID: args.RemediationID,
+				Helpful:       args.Helpful,
+				NewConfidence: 0.0, // Unknown since get failed
+			}, nil
+		}
+
+		output := remediationFeedbackOutput{
+			RemediationID: args.RemediationID,
+			NewConfidence: rem.Confidence,
+			Helpful:       args.Helpful,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("Feedback recorded. New confidence: %.2f", output.NewConfidence)},
+			},
+		}, output, nil
 	})
 }
 
