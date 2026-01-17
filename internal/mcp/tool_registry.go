@@ -98,11 +98,47 @@ func (r *ToolRegistry) Register(tool *ToolMetadata) error {
 }
 
 // RegisterAll registers multiple tools in a batch
+// If any tool fails validation, no tools are registered and an error is returned
 func (r *ToolRegistry) RegisterAll(tools []*ToolMetadata) error {
-	for _, tool := range tools {
-		if err := r.Register(tool); err != nil {
-			return err
+	// Validate all tools first before registering any
+	for i, tool := range tools {
+		if tool == nil {
+			return fmt.Errorf("tool at index %d is nil", i)
 		}
+		if tool.Name == "" {
+			return fmt.Errorf("tool at index %d has empty name", i)
+		}
+		if tool.Description == "" {
+			return fmt.Errorf("tool at index %d (%s) has empty description", i, tool.Name)
+		}
+		if tool.Category == "" {
+			return fmt.Errorf("tool at index %d (%s) has empty category", i, tool.Name)
+		}
+	}
+
+	// Check for duplicates within the batch and with existing tools
+	r.mu.RLock()
+	seen := make(map[string]bool, len(tools))
+	for i, tool := range tools {
+		if seen[tool.Name] {
+			r.mu.RUnlock()
+			return fmt.Errorf("duplicate tool %q at index %d in batch", tool.Name, i)
+		}
+		seen[tool.Name] = true
+
+		if _, exists := r.tools[tool.Name]; exists {
+			r.mu.RUnlock()
+			return fmt.Errorf("tool %q already registered", tool.Name)
+		}
+	}
+	r.mu.RUnlock()
+
+	// Now register all tools (all validations passed)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, tool := range tools {
+		r.tools[tool.Name] = tool
 	}
 	return nil
 }
@@ -316,20 +352,12 @@ func (r *ToolRegistry) searchLiteral(query string) []SearchResult {
 }
 
 // searchRegex performs regex pattern matching
+// For regex patterns, we only use score 2 (name) and score 1 (keyword/description)
+// Score 3 (exact match) is reserved for literal string searches
 func (r *ToolRegistry) searchRegex(query string, re *regexp.Regexp) []SearchResult {
 	results := make([]SearchResult, 0)
 
 	for _, tool := range r.tools {
-		// Exact match (score 3)
-		if tool.Name == query {
-			results = append(results, SearchResult{
-				Tool:        tool,
-				Score:       3,
-				MatchReason: "exact name match",
-			})
-			continue
-		}
-
 		// Regex match on name (score 2)
 		if re.MatchString(tool.Name) {
 			results = append(results, SearchResult{

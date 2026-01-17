@@ -103,29 +103,85 @@ func TestToolRegistry_RegisterInvalid(t *testing.T) {
 
 // TestToolRegistry_RegisterAll tests batch registration
 func TestToolRegistry_RegisterAll(t *testing.T) {
-	registry := NewToolRegistry()
+	t.Run("successful batch registration", func(t *testing.T) {
+		registry := NewToolRegistry()
 
-	tools := []*ToolMetadata{
-		{
-			Name:        "memory_search",
-			Description: "Search memories",
-			Category:    CategoryMemory,
-		},
-		{
-			Name:        "memory_record",
-			Description: "Record memory",
-			Category:    CategoryMemory,
-		},
-		{
-			Name:        "checkpoint_save",
-			Description: "Save checkpoint",
-			Category:    CategoryCheckpoint,
-		},
-	}
+		tools := []*ToolMetadata{
+			{
+				Name:        "memory_search",
+				Description: "Search memories",
+				Category:    CategoryMemory,
+			},
+			{
+				Name:        "memory_record",
+				Description: "Record memory",
+				Category:    CategoryMemory,
+			},
+			{
+				Name:        "checkpoint_save",
+				Description: "Save checkpoint",
+				Category:    CategoryCheckpoint,
+			},
+		}
 
-	err := registry.RegisterAll(tools)
-	require.NoError(t, err)
-	assert.Equal(t, 3, registry.Count())
+		err := registry.RegisterAll(tools)
+		require.NoError(t, err)
+		assert.Equal(t, 3, registry.Count())
+	})
+
+	t.Run("duplicate within batch", func(t *testing.T) {
+		registry := NewToolRegistry()
+
+		tools := []*ToolMetadata{
+			{Name: "tool1", Description: "Tool 1", Category: CategoryMemory},
+			{Name: "tool1", Description: "Tool 1 duplicate", Category: CategoryMemory},
+		}
+
+		err := registry.RegisterAll(tools)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicate")
+		// No tools should be registered on failure
+		assert.Equal(t, 0, registry.Count())
+	})
+
+	t.Run("duplicate with existing", func(t *testing.T) {
+		registry := NewToolRegistry()
+
+		// Register one tool first
+		err := registry.Register(&ToolMetadata{
+			Name:        "existing_tool",
+			Description: "Existing",
+			Category:    CategoryMemory,
+		})
+		require.NoError(t, err)
+
+		// Try to register batch with duplicate
+		tools := []*ToolMetadata{
+			{Name: "new_tool", Description: "New", Category: CategoryMemory},
+			{Name: "existing_tool", Description: "Duplicate", Category: CategoryMemory},
+		}
+
+		err = registry.RegisterAll(tools)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered")
+		// Only the first tool should exist
+		assert.Equal(t, 1, registry.Count())
+	})
+
+	t.Run("invalid tool in batch", func(t *testing.T) {
+		registry := NewToolRegistry()
+
+		tools := []*ToolMetadata{
+			{Name: "valid_tool", Description: "Valid", Category: CategoryMemory},
+			{Name: "", Description: "Invalid", Category: CategoryMemory}, // Empty name
+		}
+
+		err := registry.RegisterAll(tools)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty name")
+		// No tools should be registered
+		assert.Equal(t, 0, registry.Count())
+	})
 }
 
 // TestToolRegistry_Get tests retrieving tools
