@@ -97,10 +97,12 @@ func (r *ToolRegistry) Register(tool *ToolMetadata) error {
 	return nil
 }
 
-// RegisterAll registers multiple tools in a batch
-// If any tool fails validation, no tools are registered and an error is returned
+// RegisterAll registers multiple tools in a batch.
+// If any tool fails validation, no tools are registered and an error is returned.
+// This method is thread-safe and holds a write lock for the entire operation
+// to prevent race conditions between validation and registration.
 func (r *ToolRegistry) RegisterAll(tools []*ToolMetadata) error {
-	// Validate all tools first before registering any
+	// Validate all tools first (without holding lock)
 	for i, tool := range tools {
 		if tool == nil {
 			return fmt.Errorf("tool at index %d is nil", i)
@@ -116,27 +118,28 @@ func (r *ToolRegistry) RegisterAll(tools []*ToolMetadata) error {
 		}
 	}
 
-	// Check for duplicates within the batch and with existing tools
-	r.mu.RLock()
+	// Check for duplicates within the batch (without lock)
 	seen := make(map[string]bool, len(tools))
 	for i, tool := range tools {
 		if seen[tool.Name] {
-			r.mu.RUnlock()
 			return fmt.Errorf("duplicate tool %q at index %d in batch", tool.Name, i)
 		}
 		seen[tool.Name] = true
-
-		if _, exists := r.tools[tool.Name]; exists {
-			r.mu.RUnlock()
-			return fmt.Errorf("tool %q already registered", tool.Name)
-		}
 	}
-	r.mu.RUnlock()
 
-	// Now register all tools (all validations passed)
+	// Acquire write lock for the entire check-and-register operation
+	// This prevents TOCTOU race conditions
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Check for duplicates with existing tools while holding lock
+	for _, tool := range tools {
+		if _, exists := r.tools[tool.Name]; exists {
+			return fmt.Errorf("tool %q already registered", tool.Name)
+		}
+	}
+
+	// Now register all tools (all validations passed, still holding lock)
 	for _, tool := range tools {
 		r.tools[tool.Name] = tool
 	}
@@ -235,8 +238,9 @@ func (r *ToolRegistry) Count() int {
 	return len(r.tools)
 }
 
-// Search finds tools matching the query using regex-compatible patterns
-// Supports Python re.search() compatible patterns
+// Search finds tools matching the query using regex-compatible patterns.
+// Supports Python re.search() compatible patterns.
+// Returns an error if the query is detected as regex but fails to compile.
 func (r *ToolRegistry) Search(query string) ([]SearchResult, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -262,8 +266,8 @@ func (r *ToolRegistry) Search(query string) ([]SearchResult, error) {
 		// Try to compile as regex
 		re, err := regexp.Compile(query)
 		if err != nil {
-			// Invalid regex, fall back to literal
-			return r.searchLiteral(query), nil
+			// Return error instead of silent fallback
+			return nil, fmt.Errorf("invalid regex pattern %q: %w", query, err)
 		}
 		return r.searchRegex(query, re), nil
 	}

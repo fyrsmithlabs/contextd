@@ -492,6 +492,39 @@ func TestToolRegistry_SearchCaseInsensitive(t *testing.T) {
 	assert.True(t, len(results) >= 1)
 }
 
+// TestToolRegistry_SearchInvalidRegex tests that invalid regex patterns return an error
+func TestToolRegistry_SearchInvalidRegex(t *testing.T) {
+	registry := NewToolRegistry()
+
+	tool := &ToolMetadata{
+		Name:        "memory_search",
+		Description: "Search for memories",
+		Category:    CategoryMemory,
+	}
+
+	err := registry.Register(tool)
+	require.NoError(t, err)
+
+	// Invalid regex patterns should return errors
+	tests := []struct {
+		name    string
+		pattern string
+	}{
+		{"unclosed bracket", "memory_[search"},
+		{"unclosed paren", "memory_(search"},
+		{"invalid repetition", "memory_*+"},
+		{"unclosed group", "(?imemory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := registry.Search(tt.pattern)
+			require.Error(t, err, "Expected error for invalid regex pattern: %s", tt.pattern)
+			assert.Contains(t, err.Error(), "invalid regex pattern")
+		})
+	}
+}
+
 // TestToolRegistry_ConcurrentAccess tests thread safety
 func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 	registry := NewToolRegistry()
