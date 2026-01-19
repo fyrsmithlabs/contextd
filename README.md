@@ -80,10 +80,10 @@ If you already have Claude Code installed:
 
 ```bash
 # 1. Install the plugin (adds skills, commands, agents)
-claude plugins add fyrsmithlabs/contextd
+claude plugins add fyrsmithlabs/marketplace
 
 # 2. Run auto-setup in Claude Code
-/contextd:install
+/contextd-init
 ```
 
 This automatically:
@@ -158,7 +158,7 @@ ctxd mcp status     # Verify configuration
 ctxd mcp uninstall  # Remove configuration
 ```
 
-Or use the plugin install command in Claude Code: `/contextd:install`
+Or use the plugin init command in Claude Code: `/contextd-init`
 
 ### Manual Configuration
 
@@ -251,40 +251,39 @@ After installation, here's how to use contextd:
    └─→ Resume from checkpoint if offered
 
 2. During Work
-   └─→ /contextd:search <topic>     Find relevant memories
-   └─→ /contextd:diagnose <error>   Get help with errors
+   └─→ /contextd-search <topic>     Find relevant memories
+   └─→ /contextd-diagnose <error>   Get help with errors
    └─→ Semantic search with repository_search()
 
 3. Task Complete
-   └─→ /contextd:remember           Record what you learned
+   └─→ /contextd-remember           Record what you learned
 
 4. Context High (70%+)
-   └─→ /contextd:checkpoint         Save session state
+   └─→ /contextd-checkpoint         Save session state
    └─→ /clear                       Reset context
-   └─→ /contextd:resume             Continue where you left off
+   └─→ Resume with /contextd-checkpoint
 
 5. New Project
-   └─→ /contextd:init               Setup new project
-   └─→ /contextd:onboard            Analyze existing codebase
+   └─→ /contextd-init               Setup new project
 ```
 
 ---
 
 ## Plugin Commands
 
+> **Note:** Plugin commands are now in `fyrsmithlabs/marketplace`. Install with `claude plugins add fyrsmithlabs/marketplace`
+
 | Command | Description |
 |---------|-------------|
-| `/contextd:install` | Install contextd MCP server |
-| `/contextd:init` | Initialize contextd for a new project |
-| `/contextd:onboard` | Onboard to existing project with context priming |
-| `/contextd:checkpoint` | Save session checkpoint |
-| `/contextd:resume` | Resume from checkpoint |
-| `/contextd:search` | Search memories and remediations |
-| `/contextd:remember` | Record a learning or insight |
-| `/contextd:diagnose` | AI-powered error diagnosis |
-| `/contextd:reflect` | Analyze behavior patterns and improve docs |
-| `/contextd:status` | Show contextd status |
-| `/contextd:help` | Show available commands and skills |
+| `/contextd-init` | Initialize contextd for a new project |
+| `/contextd-checkpoint` | Save session checkpoint |
+| `/contextd-search` | Search memories and remediations |
+| `/contextd-remember` | Record a learning or insight |
+| `/contextd-diagnose` | AI-powered error diagnosis |
+| `/contextd-reflect` | Analyze behavior patterns and improve docs |
+| `/contextd-status` | Show contextd status |
+| `/contextd-consensus-review` | Multi-agent code review |
+| `/contextd-help` | Show available commands and skills |
 
 ## Plugin Skills
 

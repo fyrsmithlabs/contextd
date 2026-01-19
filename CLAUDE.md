@@ -44,7 +44,7 @@ Before ANY codebase exploration or task work:
 
 ## ⚠️ CRITICAL: Update Claude Plugin on Changes (Priority #3)
 
-**After ANY feature/fix/release, update the contextd-marketplace claude-plugin.**
+**After ANY feature/fix/release, update the fyrsmithlabs/marketplace plugin.**
 
 When these occur:
 - New feature added
@@ -53,7 +53,9 @@ When these occur:
 - New skills/commands/agents
 - MCP tool changes
 
-**Action:** Update `contextd-marketplace` repo's claude-plugin to expose new capabilities to users. DO NOT skip this step.
+**Action:** Update `fyrsmithlabs/marketplace` repo to expose new capabilities to users. DO NOT skip this step.
+
+**Plugin Location:** https://github.com/fyrsmithlabs/marketplace (contextd commands are prefixed with `contextd-`)
 
 **Required Order:**
 1. ✅ `mcp__contextd__memory_search` - Search past learnings/strategies first

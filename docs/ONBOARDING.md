@@ -33,15 +33,15 @@ claude --version
 
 ```bash
 # Add the plugin (skills, commands, agents)
-claude plugins add fyrsmithlabs/contextd
+claude plugins add fyrsmithlabs/marketplace
 ```
 
-### Step 3: Auto-Setup MCP Server
+### Step 3: Initialize Contextd
 
 Run this command in Claude Code:
 
 ```
-/contextd:install
+/contextd-init
 ```
 
 This automatically:
@@ -77,7 +77,7 @@ Let's walk through the core workflows.
 When you start working on a new codebase:
 
 ```
-/contextd:init
+/contextd-init
 ```
 
 This:
@@ -88,7 +88,7 @@ This:
 **Or** if joining an existing project:
 
 ```
-/contextd:onboard
+/contextd-onboard
 ```
 
 This:
@@ -102,20 +102,20 @@ Contextd works automatically in the background:
 
 **Search Past Learnings:**
 ```
-/contextd:search authentication bug
+/contextd-search authentication bug
 ```
 Finds: "Last time auth failed, it was JWT expiry - check token refresh"
 
 **Get Error Help:**
 ```
-/contextd:diagnose "null pointer dereference in auth.go:42"
+/contextd-diagnose "null pointer dereference in auth.go:42"
 ```
 Gets: AI diagnosis + past fixes for similar errors
 
 **Record Learnings:**
 After solving something, save it:
 ```
-/contextd:remember
+/contextd-remember
 ```
 Claude will ask what you learned and save it for next time.
 
@@ -125,7 +125,7 @@ Claude Code has a context window limit. When you hit ~70% capacity:
 
 **Save Your Progress:**
 ```
-/contextd:checkpoint
+/contextd-checkpoint
 ```
 Creates a snapshot of your current session state.
 
@@ -137,7 +137,7 @@ Resets the context window.
 
 **Resume Work:**
 ```
-/contextd:resume
+/contextd-resume
 ```
 Restores your session from the checkpoint.
 
@@ -155,14 +155,14 @@ Here's a typical day using contextd:
 │     → Lists available checkpoints                │
 │                                                  │
 │  2. Resume from yesterday (if offered)           │
-│     /contextd:resume                             │
+│     /contextd-resume                             │
 │                                                  │
 └──────────────────────────────────────────────────┘
 
 ┌─ During Work ────────────────────────────────────┐
 │                                                  │
 │  3. Stuck on error?                              │
-│     /contextd:diagnose <error>                   │
+│     /contextd-diagnose <error>                   │
 │     → Finds past fixes                           │
 │                                                  │
 │  4. Need code reference?                         │
@@ -170,7 +170,7 @@ Here's a typical day using contextd:
 │     → Better than grep, understands meaning      │
 │                                                  │
 │  5. Solved something?                            │
-│     /contextd:remember                           │
+│     /contextd-remember                           │
 │     → Saves for next time                        │
 │                                                  │
 └──────────────────────────────────────────────────┘
@@ -178,13 +178,13 @@ Here's a typical day using contextd:
 ┌─ Context Getting Full (70%+) ────────────────────┐
 │                                                  │
 │  6. Save checkpoint                              │
-│     /contextd:checkpoint                         │
+│     /contextd-checkpoint                         │
 │                                                  │
 │  7. Clear context                                │
 │     /clear                                       │
 │                                                  │
 │  8. Resume work                                  │
-│     /contextd:resume                             │
+│     /contextd-resume                             │
 │     → Picks up where you left off               │
 │                                                  │
 └──────────────────────────────────────────────────┘
@@ -192,11 +192,11 @@ Here's a typical day using contextd:
 ┌─ End of Day ─────────────────────────────────────┐
 │                                                  │
 │  9. Review what was learned                      │
-│     /contextd:reflect                            │
+│     /contextd-reflect                            │
 │     → Analyzes patterns, improves docs           │
 │                                                  │
 │ 10. Save final checkpoint (optional)             │
-│     /contextd:checkpoint                         │
+│     /contextd-checkpoint                         │
 │                                                  │
 └──────────────────────────────────────────────────┘
 ```
@@ -296,7 +296,7 @@ These agents leverage:
 
 Periodically run:
 ```
-/contextd:reflect
+/contextd-reflect
 ```
 
 This analyzes Claude's behavior patterns and:
@@ -312,7 +312,7 @@ This analyzes Claude's behavior patterns and:
 
 Use the install command:
 ```
-/contextd:install
+/contextd-install
 ```
 
 Or via ctxd CLI:
@@ -347,8 +347,8 @@ If you prefer manual setup, add to `~/.claude/settings.json`:
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
-        "-v", "${HOME}/.config/contextd:/root/.config/contextd",
-        "ghcr.io/fyrsmithlabs/contextd:latest",
+        "-v", "${HOME}/.config/contextd-/root/.config/contextd",
+        "ghcr.io/fyrsmithlabs/contextd-latest",
         "--mcp"
       ]
     }
@@ -431,7 +431,7 @@ Check:
 
 Or run:
 ```
-/contextd:help
+/contextd-help
 ```
 
 ---
@@ -442,8 +442,8 @@ Now that you're set up:
 
 1. **Try it out** - Start a coding session and see memory search in action
 2. **Create a checkpoint** - Practice the checkpoint workflow
-3. **Record learnings** - Use `/contextd:remember` after solving something
-4. **Explore skills** - Run `/contextd:help` to see all available skills
+3. **Record learnings** - Use `/contextd-remember` after solving something
+4. **Explore skills** - Run `/contextd-help` to see all available skills
 5. **Read the docs** - Check [CONTEXTD.md](./CONTEXTD.md) for advanced features
 
 Welcome to contextd! Your AI assistant just got a memory upgrade.
