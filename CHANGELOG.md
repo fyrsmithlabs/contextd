@@ -35,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Integration Tests** - Fixed race condition in semantic embedder vocabulary map access
 - **Lint Compliance** - Fixed errcheck issue in ctxd checkpoint command
 
+### Security
+- **MCP Tool Handler Hardening** (Issue #107, PR #108) - Comprehensive input validation for all MCP tools
+  - CWE-22 (Path Traversal): All file path parameters validated via `sanitize.ValidatePath()` and `sanitize.ValidateProjectPath()`
+  - CWE-287 (Authentication Bypass): Tenant/team/project IDs validated via `sanitize.ValidateTenantID()`, `ValidateTeamID()`, `ValidateProjectID()`
+  - CWE-20 (Input Validation): Glob patterns validated for shell injection, content modes validated against allowlist
+  - New centralized validation package: `internal/sanitize/validate.go` with consistent error types
+  - Fail-closed pattern: `withTenantContext()` now returns `(context.Context, error)` instead of silently proceeding
+  - Tools hardened: `repository_*`, `checkpoint_*`, `memory_*`, `conversation_*`, `reflect_*`, `branch_create`
+
 ## [0.3.4] - 2026-01-14
 
 ### Added

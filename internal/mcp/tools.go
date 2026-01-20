@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
@@ -13,6 +12,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
 	"github.com/fyrsmithlabs/contextd/internal/repository"
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
@@ -20,12 +20,86 @@ import (
 
 // withTenantContext adds tenant context to the Go context for vectorstore operations.
 // This is required for payload-based tenant isolation to work correctly.
-func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) context.Context {
+// Returns an error if any ID fails validation (fail-closed security).
+func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) (context.Context, error) {
+	// Validate tenant ID (required)
+	if err := sanitize.ValidateTenantID(tenantID); err != nil {
+		return ctx, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+
+	// Validate team ID (optional, but must be valid if provided)
+	if err := sanitize.ValidateTeamID(teamID); err != nil {
+		return ctx, fmt.Errorf("invalid team_id: %w", err)
+	}
+
+	// Validate project ID (optional, but must be valid if provided)
+	if err := sanitize.ValidateProjectID(projectID); err != nil {
+		return ctx, fmt.Errorf("invalid project_id: %w", err)
+	}
+
 	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
 		TenantID:  tenantID,
 		TeamID:    teamID,
 		ProjectID: projectID,
-	})
+	}), nil
+}
+
+// deriveProjectID safely extracts a project ID from a path.
+// This is a secure replacement for filepath.Base() on untrusted input.
+// Returns empty string and error if path is invalid, or sanitized ID on success.
+func deriveProjectID(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+
+	// Use SafeBasename to get the base name securely
+	baseName, err := sanitize.SafeBasename(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid project path: %w", err)
+	}
+
+	// Sanitize the base name for use as a project ID
+	projectID := sanitize.Identifier(baseName)
+
+	// Validate the result
+	if err := sanitize.ValidateProjectID(projectID); err != nil {
+		return "", fmt.Errorf("derived project_id invalid: %w", err)
+	}
+
+	return projectID, nil
+}
+
+// validateAndDeriveProjectPath validates a project path and derives tenant context info.
+// Returns the validated path, tenant ID, and project ID, or an error.
+func (s *Server) validateAndDeriveProjectPath(path, explicitTenantID string) (validPath, tenantID, projectID string, err error) {
+	// Validate project path if provided
+	if path != "" {
+		validPath, err = sanitize.ValidateProjectPath(path)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid project_path: %w", err)
+		}
+	}
+
+	// Derive tenant_id from validated path if not explicitly provided
+	tenantID = explicitTenantID
+	if tenantID == "" && validPath != "" {
+		tenantID = tenant.GetTenantIDForPath(validPath)
+	}
+
+	// Validate tenant_id was derived successfully
+	if tenantID == "" {
+		return "", "", "", fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+	}
+
+	// Derive project_id from validated path
+	if validPath != "" {
+		projectID, err = deriveProjectID(validPath)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+
+	return validPath, tenantID, projectID, nil
 }
 
 // registerTools registers all MCP tools with the server.
@@ -115,21 +189,10 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
-		// Auto-derive tenant_id from project_path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-		}
-
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			return nil, checkpointSaveOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
-		}
-
-		// Derive project_id from project_path (directory name)
-		projectID := ""
-		if args.ProjectPath != "" {
-			projectID = filepath.Base(args.ProjectPath)
+		// Validate and derive tenant context from project path
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, checkpointSaveOutput{}, err
 		}
 
 		saveReq := &checkpoint.SaveRequest{
@@ -137,7 +200,7 @@ func (s *Server) registerCheckpointTools() {
 			TenantID:    tenantID,
 			TeamID:      "", // Empty team is allowed
 			ProjectID:   projectID,
-			ProjectPath: args.ProjectPath,
+			ProjectPath: validPath,
 			Name:        args.Name,
 			Description: args.Description,
 			Summary:     args.Summary,
@@ -150,7 +213,10 @@ func (s *Server) registerCheckpointTools() {
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
+		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
+		if err != nil {
+			return nil, checkpointSaveOutput{}, err
+		}
 
 		cp, err := s.checkpointSvc.Save(ctx, saveReq)
 		if err != nil {
@@ -181,21 +247,10 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
-		// Auto-derive tenant_id from project_path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-		}
-
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			return nil, checkpointListOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
-		}
-
-		// Derive project_id from project_path (directory name)
-		projectID := ""
-		if args.ProjectPath != "" {
-			projectID = filepath.Base(args.ProjectPath)
+		// Validate and derive tenant context from project path
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, checkpointListOutput{}, err
 		}
 
 		listReq := &checkpoint.ListRequest{
@@ -203,13 +258,16 @@ func (s *Server) registerCheckpointTools() {
 			TenantID:    tenantID,
 			TeamID:      "", // Empty team is allowed
 			ProjectID:   projectID,
-			ProjectPath: args.ProjectPath,
+			ProjectPath: validPath,
 			Limit:       args.Limit,
 			AutoOnly:    args.AutoOnly,
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
+		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
+		if err != nil {
+			return nil, checkpointListOutput{}, err
+		}
 
 		checkpoints, err := s.checkpointSvc.List(ctx, listReq)
 		if err != nil {
@@ -248,6 +306,11 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_resume",
 		Description: "Resume from a checkpoint at specified level (summary, context, or full)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointResumeInput) (*mcp.CallToolResult, checkpointResumeOutput, error) {
+		// Validate tenant_id
+		if err := sanitize.ValidateTenantID(args.TenantID); err != nil {
+			return nil, checkpointResumeOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
+		}
+
 		resumeReq := &checkpoint.ResumeRequest{
 			CheckpointID: args.CheckpointID,
 			TenantID:     args.TenantID,
@@ -255,7 +318,10 @@ func (s *Server) registerCheckpointTools() {
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, args.TenantID, "", "")
+		ctx, err := withTenantContext(ctx, args.TenantID, "", "")
+		if err != nil {
+			return nil, checkpointResumeOutput{}, err
+		}
 
 		response, err := s.checkpointSvc.Resume(ctx, resumeReq)
 		if err != nil {
@@ -345,15 +411,15 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
-		// Auto-derive tenant_id from project_path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		// Validate and derive tenant context from project path
+		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, remediationSearchOutput{}, err
 		}
 
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			return nil, remediationSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		// Validate team_id if provided
+		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
+			return nil, remediationSearchOutput{}, fmt.Errorf("invalid team_id: %w", err)
 		}
 
 		searchReq := &remediation.SearchRequest{
@@ -364,12 +430,15 @@ func (s *Server) registerRemediationTools() {
 			MinConfidence:    args.MinConfidence,
 			Limit:            args.Limit,
 			TeamID:           args.TeamID,
-			ProjectPath:      args.ProjectPath,
+			ProjectPath:      validPath,
 			IncludeHierarchy: args.IncludeHierarchy,
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, tenantID, args.TeamID, "")
+		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
+		if err != nil {
+			return nil, remediationSearchOutput{}, err
+		}
 
 		results, err := s.remediationSvc.Search(ctx, searchReq)
 		if err != nil {
@@ -408,15 +477,15 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
-		// Auto-derive tenant_id from project_path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		// Validate and derive tenant context from project path
+		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, remediationRecordOutput{}, err
 		}
 
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			return nil, remediationRecordOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		// Validate team_id if provided
+		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
+			return nil, remediationRecordOutput{}, fmt.Errorf("invalid team_id: %w", err)
 		}
 
 		recordReq := &remediation.RecordRequest{
@@ -433,12 +502,15 @@ func (s *Server) registerRemediationTools() {
 			TenantID:      tenantID,
 			Scope:         args.Scope,
 			TeamID:        args.TeamID,
-			ProjectPath:   args.ProjectPath,
+			ProjectPath:   validPath,
 			SessionID:     args.SessionID,
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, tenantID, args.TeamID, "")
+		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
+		if err != nil {
+			return nil, remediationRecordOutput{}, err
+		}
 
 		rem, err := s.remediationSvc.Record(ctx, recordReq)
 		if err != nil {
@@ -586,30 +658,24 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "semantic_search",
 		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
-		// Default tenant ID from project path if not specified
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-		}
-
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			return nil, semanticSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		// Validate and derive tenant context from project path
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, semanticSearchOutput{}, err
 		}
 
 		opts := repository.SearchOptions{
-			ProjectPath: args.ProjectPath,
+			ProjectPath: validPath,
 			TenantID:    tenantID,
 			Branch:      args.Branch,
 			Limit:       args.Limit,
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		projectID := ""
-		if args.ProjectPath != "" {
-			projectID = filepath.Base(args.ProjectPath)
+		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
+		if err != nil {
+			return nil, semanticSearchOutput{}, err
 		}
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
 
 		// 1. Try Semantic Search
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
@@ -641,11 +707,11 @@ func (s *Server) registerRepositoryTools() {
 			// 2. Fallback to Grep
 			source = "grep"
 
-			// Parse project's ignore files for grep
+			// Parse project's ignore files for grep using validated path
 			var excludePatterns []string
-			if parsed, parseErr := s.ignoreParser.ParseProject(args.ProjectPath); parseErr != nil {
+			if parsed, parseErr := s.ignoreParser.ParseProject(validPath); parseErr != nil {
 				s.logger.Warn("failed to parse ignore files for grep, using fallback",
-					zap.String("path", args.ProjectPath),
+					zap.String("path", validPath),
 					zap.Error(parseErr))
 				excludePatterns = s.ignoreParser.FallbackPatterns
 			} else {
@@ -653,7 +719,7 @@ func (s *Server) registerRepositoryTools() {
 			}
 
 			grepOpts := repository.GrepOptions{
-				ProjectPath:     args.ProjectPath,
+				ProjectPath:     validPath,
 				ExcludePatterns: excludePatterns,
 				CaseSensitive:   false, // Default to case-insensitive for better fallback experience
 			}
@@ -708,29 +774,25 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositorySearchOutput{}, fmt.Errorf("project_path is required for tenant context")
 		}
 
-		// Derive tenant_id if not provided
-		tenantID := args.TenantID
-		if tenantID == "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-		}
-		if tenantID == "" {
-			return nil, repositorySearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		// Validate project path and derive tenant context (CWE-22 path traversal protection)
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		if err != nil {
+			return nil, repositorySearchOutput{}, err
 		}
 
 		opts := repository.SearchOptions{
 			CollectionName: args.CollectionName,
-			ProjectPath:    args.ProjectPath,
+			ProjectPath:    validPath,
 			TenantID:       tenantID,
 			Branch:         args.Branch,
 			Limit:          args.Limit,
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		projectID := ""
-		if args.ProjectPath != "" {
-			projectID = filepath.Base(args.ProjectPath)
+		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
+		if err != nil {
+			return nil, repositorySearchOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
 		}
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
 
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
 		if err != nil {
@@ -812,25 +874,44 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
-		// Default include patterns to ["*"] for full indexing (explicit patterns for differential)
+		// Path is required
+		if args.Path == "" {
+			return nil, repositoryIndexOutput{}, fmt.Errorf("path is required")
+		}
+
+		// Validate project path and derive tenant context (CWE-22 path traversal protection)
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.Path, args.TenantID)
+		if err != nil {
+			return nil, repositoryIndexOutput{}, err
+		}
+
+		// Validate include patterns (CWE-20 input validation)
 		includePatterns := args.IncludePatterns
 		if len(includePatterns) == 0 {
 			includePatterns = []string{"*"}
+		} else {
+			if err := sanitize.ValidateGlobPatterns(includePatterns); err != nil {
+				return nil, repositoryIndexOutput{}, fmt.Errorf("invalid include_patterns: %w", err)
+			}
 		}
 
-		// Get exclude patterns: use explicit args, or parse project's ignore files
+		// Validate exclude patterns (CWE-20 input validation)
 		excludePatterns := args.ExcludePatterns
 		if len(excludePatterns) == 0 {
 			// Parse project's ignore files (.gitignore, .dockerignore, etc.)
 			// Falls back to config defaults if no ignore files found
-			parsed, err := s.ignoreParser.ParseProject(args.Path)
-			if err != nil {
+			parsed, parseErr := s.ignoreParser.ParseProject(validPath)
+			if parseErr != nil {
 				s.logger.Warn("failed to parse ignore files, using fallback",
-					zap.String("path", args.Path),
-					zap.Error(err))
+					zap.String("path", validPath),
+					zap.Error(parseErr))
 				excludePatterns = s.ignoreParser.FallbackPatterns
 			} else {
 				excludePatterns = parsed
+			}
+		} else {
+			if err := sanitize.ValidateGlobPatterns(excludePatterns); err != nil {
+				return nil, repositoryIndexOutput{}, fmt.Errorf("invalid exclude_patterns: %w", err)
 			}
 		}
 
@@ -840,7 +921,7 @@ func (s *Server) registerRepositoryTools() {
 		}
 
 		opts := repository.IndexOptions{
-			TenantID:        args.TenantID,
+			TenantID:        tenantID,
 			Branch:          args.Branch,
 			IncludePatterns: includePatterns,
 			ExcludePatterns: excludePatterns,
@@ -848,18 +929,12 @@ func (s *Server) registerRepositoryTools() {
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		// Derive tenant from path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.Path != "" {
-			tenantID = tenant.GetTenantIDForPath(args.Path)
+		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
+		if err != nil {
+			return nil, repositoryIndexOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
 		}
-		projectID := ""
-		if args.Path != "" {
-			projectID = filepath.Base(args.Path)
-		}
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
 
-		result, err := s.repositorySvc.IndexRepository(ctx, args.Path, opts)
+		result, err := s.repositorySvc.IndexRepository(ctx, validPath, opts)
 		if err != nil {
 			return nil, repositoryIndexOutput{}, fmt.Errorf("repository index failed: %w", err)
 		}
@@ -1008,6 +1083,14 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_search",
 		Description: "Search for relevant memories/strategies from past sessions",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
+		// Validate project_id (CWE-287 authentication bypass protection)
+		if args.ProjectID == "" {
+			return nil, memorySearchOutput{}, fmt.Errorf("project_id is required")
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			return nil, memorySearchOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+
 		limit := args.Limit
 		if limit <= 0 {
 			limit = 5
@@ -1015,7 +1098,10 @@ func (s *Server) registerMemoryTools() {
 
 		// Add tenant context to Go context for vectorstore operations
 		// For memory tools, ProjectID serves as both tenant and project scope
-		ctx = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			return nil, memorySearchOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+		}
 
 		memories, err := s.reasoningbankSvc.Search(ctx, args.ProjectID, args.Query, limit)
 		if err != nil {
@@ -1051,6 +1137,14 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_record",
 		Description: "Record a new memory/learning from the current session",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
+		// Validate project_id (CWE-287 authentication bypass protection)
+		if args.ProjectID == "" {
+			return nil, memoryRecordOutput{}, fmt.Errorf("project_id is required")
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			return nil, memoryRecordOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+
 		outcome := reasoningbank.OutcomeSuccess
 		if args.Outcome == "failure" {
 			outcome = reasoningbank.OutcomeFailure
@@ -1062,7 +1156,10 @@ func (s *Server) registerMemoryTools() {
 		}
 
 		// Add tenant context to Go context for vectorstore operations
-		ctx = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+		ctx, err = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			return nil, memoryRecordOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+		}
 
 		if err := s.reasoningbankSvc.Record(ctx, memory); err != nil {
 			return nil, memoryRecordOutput{}, fmt.Errorf("memory record failed: %w", err)
@@ -1139,9 +1236,12 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_consolidate",
 		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
-		// Validate input
+		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
 			return nil, memoryConsolidateOutput{}, fmt.Errorf("project_id is required")
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			return nil, memoryConsolidateOutput{}, fmt.Errorf("invalid project_id: %w", err)
 		}
 
 		// Check if distiller is available
@@ -1255,6 +1355,13 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_create",
 		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
+		// Validate project_id if provided (CWE-287 authentication bypass protection)
+		if args.ProjectID != "" {
+			if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+				return nil, branchCreateOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			}
+		}
+
 		branchReq := folding.BranchRequest{
 			SessionID:      args.SessionID,
 			ProjectID:      args.ProjectID,

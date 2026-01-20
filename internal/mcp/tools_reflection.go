@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
 
 	"github.com/fyrsmithlabs/contextd/internal/reflection"
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 )
 
 // ===== REFLECTION TOOLS =====
@@ -71,6 +71,21 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_report",
 		Description: "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectReportInput) (*mcp.CallToolResult, reflectReportOutput, error) {
+		// Validate project_id (CWE-287 authentication bypass protection)
+		if args.ProjectID == "" {
+			return nil, reflectReportOutput{}, fmt.Errorf("project_id is required")
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			return nil, reflectReportOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+
+		// Validate project_path if provided (CWE-22 path traversal protection)
+		if args.ProjectPath != "" {
+			if _, err := sanitize.ValidateProjectPath(args.ProjectPath); err != nil {
+				return nil, reflectReportOutput{}, fmt.Errorf("invalid project_path: %w", err)
+			}
+		}
+
 		// Set defaults
 		periodDays := args.PeriodDays
 		if periodDays <= 0 {
@@ -174,6 +189,14 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_analyze",
 		Description: "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectAnalyzeInput) (*mcp.CallToolResult, reflectAnalyzeOutput, error) {
+		// Validate project_id (CWE-287 authentication bypass protection)
+		if args.ProjectID == "" {
+			return nil, reflectAnalyzeOutput{}, fmt.Errorf("project_id is required")
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			return nil, reflectAnalyzeOutput{}, fmt.Errorf("invalid project_id: %w", err)
+		}
+
 		// Set defaults
 		minConfidence := args.MinConfidence
 		if minConfidence <= 0 {
@@ -220,34 +243,23 @@ func (s *Server) registerReflectionTools() {
 
 // StoreReflectionReport stores a reflection report to disk for later retrieval.
 func StoreReflectionReport(report *reflection.ReflectionReport, projectPath string) (string, error) {
-	// Validate project path to prevent path traversal
-	if projectPath == "" {
-		return "", fmt.Errorf("project path is required")
-	}
-
-	// Clean the path and ensure it's absolute or relative without traversal
-	cleanPath := filepath.Clean(projectPath)
-	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("invalid project path: path traversal not allowed")
+	// Validate project path using centralized security checks (CWE-22 path traversal protection)
+	validPath, err := sanitize.ValidateProjectPath(projectPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid project path: %w", err)
 	}
 
 	timestamp := report.GeneratedAt.Format("20060102-150405")
 	filename := fmt.Sprintf("reflection-%s.json", timestamp)
 
-	reflectionsDir := filepath.Join(cleanPath, ".claude", "reflections")
+	reflectionsDir := filepath.Join(validPath, ".claude", "reflections")
 	reportPath := filepath.Join(reflectionsDir, filename)
 
-	// Final validation: ensure resolved path is under the project directory
-	absProjectPath, err := filepath.Abs(cleanPath)
+	// Additional check: ensure the report path stays under the validated project directory
+	// This handles potential issues with filename manipulation
+	validReportPath, err := sanitize.ValidatePath(reportPath, validPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve project path: %w", err)
-	}
-	absReportPath, err := filepath.Abs(reportPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve report path: %w", err)
-	}
-	if !strings.HasPrefix(absReportPath, absProjectPath) {
-		return "", fmt.Errorf("invalid path: report path must be under project directory")
+		return "", fmt.Errorf("invalid report path: %w", err)
 	}
 
 	data, err := json.MarshalIndent(report, "", "  ")
@@ -256,14 +268,15 @@ func StoreReflectionReport(report *reflection.ReflectionReport, projectPath stri
 	}
 
 	// Create the reflections directory if it doesn't exist
-	if err := os.MkdirAll(reflectionsDir, 0750); err != nil {
+	validReflectionsDir := filepath.Dir(validReportPath)
+	if err := os.MkdirAll(validReflectionsDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create reflections directory: %w", err)
 	}
 
 	// Write the report file with restrictive permissions
-	if err := os.WriteFile(reportPath, data, 0600); err != nil {
+	if err := os.WriteFile(validReportPath, data, 0600); err != nil {
 		return "", fmt.Errorf("failed to write report: %w", err)
 	}
 
-	return reportPath, nil
+	return validReportPath, nil
 }
