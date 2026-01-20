@@ -7,6 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/fyrsmithlabs/contextd/internal/conversation"
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
 )
 
@@ -57,16 +58,29 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_index",
 		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		// Validate project_path (CWE-22 path traversal protection)
+		if args.ProjectPath == "" {
+			return nil, conversationIndexOutput{}, fmt.Errorf("project_path is required")
 		}
+		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
+		if err != nil {
+			return nil, conversationIndexOutput{}, fmt.Errorf("invalid project_path: %w", err)
+		}
+
+		tenantID := args.TenantID
+		if tenantID == "" {
+			tenantID = tenant.GetTenantIDForPath(validPath)
+		}
+		// Validate tenant_id format (CWE-287 authentication bypass protection)
 		if tenantID == "" {
 			return nil, conversationIndexOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
 		}
+		if err := sanitize.ValidateTenantID(tenantID); err != nil {
+			return nil, conversationIndexOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
+		}
 
 		opts := conversation.IndexOptions{
-			ProjectPath: args.ProjectPath,
+			ProjectPath: validPath,
 			TenantID:    tenantID,
 			SessionIDs:  args.SessionIDs,
 			EnableLLM:   args.EnableLLM,
@@ -106,12 +120,34 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_search",
 		Description: "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationSearchInput) (*mcp.CallToolResult, conversationSearchOutput, error) {
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
+		// Validate project_path (CWE-22 path traversal protection)
+		if args.ProjectPath == "" {
+			return nil, conversationSearchOutput{}, fmt.Errorf("project_path is required")
 		}
+		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
+		if err != nil {
+			return nil, conversationSearchOutput{}, fmt.Errorf("invalid project_path: %w", err)
+		}
+
+		// Validate file_path filter if provided (CWE-22 path traversal protection)
+		validFilePath := args.FilePath
+		if validFilePath != "" {
+			validFilePath, err = sanitize.ValidatePath(args.FilePath, "")
+			if err != nil {
+				return nil, conversationSearchOutput{}, fmt.Errorf("invalid file_path filter: %w", err)
+			}
+		}
+
+		tenantID := args.TenantID
+		if tenantID == "" {
+			tenantID = tenant.GetTenantIDForPath(validPath)
+		}
+		// Validate tenant_id format (CWE-287 authentication bypass protection)
 		if tenantID == "" {
 			return nil, conversationSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		}
+		if err := sanitize.ValidateTenantID(tenantID); err != nil {
+			return nil, conversationSearchOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
 		}
 
 		// Convert string types to DocumentType
@@ -122,11 +158,11 @@ func (s *Server) registerConversationTools() {
 
 		opts := conversation.SearchOptions{
 			Query:       args.Query,
-			ProjectPath: args.ProjectPath,
+			ProjectPath: validPath,
 			TenantID:    tenantID,
 			Types:       docTypes,
 			Tags:        args.Tags,
-			FilePath:    args.FilePath,
+			FilePath:    validFilePath,
 			Domain:      args.Domain,
 			Limit:       args.Limit,
 		}

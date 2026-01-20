@@ -64,14 +64,15 @@ func TestWithTenantContext(t *testing.T) {
 	ctx := context.Background()
 
 	// Add tenant context
-	ctx = withTenantContext(ctx, "test-tenant", "test-team", "test-project")
+	ctx, err := withTenantContext(ctx, "test_tenant", "test_team", "test_project")
+	require.NoError(t, err, "withTenantContext should succeed")
 
 	// Verify tenant info can be extracted
 	tenant, err := vectorstore.TenantFromContext(ctx)
 	require.NoError(t, err, "TenantFromContext should succeed")
-	assert.Equal(t, "test-tenant", tenant.TenantID)
-	assert.Equal(t, "test-team", tenant.TeamID)
-	assert.Equal(t, "test-project", tenant.ProjectID)
+	assert.Equal(t, "test_tenant", tenant.TenantID)
+	assert.Equal(t, "test_team", tenant.TeamID)
+	assert.Equal(t, "test_project", tenant.ProjectID)
 }
 
 // TestWithTenantContextEmptyTeam verifies that empty team is allowed.
@@ -79,14 +80,15 @@ func TestWithTenantContextEmptyTeam(t *testing.T) {
 	ctx := context.Background()
 
 	// Add tenant context with empty team (common case)
-	ctx = withTenantContext(ctx, "test-tenant", "", "test-project")
+	ctx, err := withTenantContext(ctx, "test_tenant", "", "test_project")
+	require.NoError(t, err, "withTenantContext should succeed")
 
 	// Verify tenant info can be extracted
 	tenant, err := vectorstore.TenantFromContext(ctx)
 	require.NoError(t, err, "TenantFromContext should succeed")
-	assert.Equal(t, "test-tenant", tenant.TenantID)
+	assert.Equal(t, "test_tenant", tenant.TenantID)
 	assert.Equal(t, "", tenant.TeamID)
-	assert.Equal(t, "test-project", tenant.ProjectID)
+	assert.Equal(t, "test_project", tenant.ProjectID)
 }
 
 // TestCheckpointListAddsTenantContext verifies that the checkpoint_list handler
@@ -106,7 +108,8 @@ func TestCheckpointListAddsTenantContext(t *testing.T) {
 	projectID := "contextd"
 
 	// Simulate what the handler should do after deriving tenant info
-	ctx = withTenantContext(ctx, tenantID, "", projectID)
+	ctx, err := withTenantContext(ctx, tenantID, "", projectID)
+	require.NoError(t, err, "withTenantContext should succeed")
 
 	// Verify context has tenant info (what the service expects)
 	tenant, err := vectorstore.TenantFromContext(ctx)
@@ -127,7 +130,7 @@ func TestCheckpointHandlerPassesTenantContext(t *testing.T) {
 	t.Run("checkpoint_list passes tenant context", func(t *testing.T) {
 		// Simulate the handler logic
 		args := checkpointListInput{
-			TenantID:    "test-tenant",
+			TenantID:    "test_tenant",
 			ProjectPath: "/home/user/projects/contextd",
 		}
 
@@ -147,10 +150,11 @@ func TestCheckpointHandlerPassesTenantContext(t *testing.T) {
 
 		// The fix: add tenant context
 		ctx := context.Background()
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
+		ctx, err := withTenantContext(ctx, tenantID, "", projectID)
+		require.NoError(t, err, "withTenantContext should succeed")
 
 		// Call the capturing service
-		_, err := capturingSvc.List(ctx, &checkpoint.ListRequest{
+		_, err = capturingSvc.List(ctx, &checkpoint.ListRequest{
 			TenantID:  tenantID,
 			ProjectID: projectID,
 		})
@@ -165,13 +169,14 @@ func TestCheckpointHandlerPassesTenantContext(t *testing.T) {
 	})
 
 	t.Run("checkpoint_save passes tenant context", func(t *testing.T) {
-		tenantID := "test-tenant"
+		tenantID := "test_tenant"
 		projectID := "contextd"
 
 		ctx := context.Background()
-		ctx = withTenantContext(ctx, tenantID, "", projectID)
+		ctx, err := withTenantContext(ctx, tenantID, "", projectID)
+		require.NoError(t, err, "withTenantContext should succeed")
 
-		_, err := capturingSvc.Save(ctx, &checkpoint.SaveRequest{
+		_, err = capturingSvc.Save(ctx, &checkpoint.SaveRequest{
 			TenantID:  tenantID,
 			ProjectID: projectID,
 		})
@@ -184,12 +189,13 @@ func TestCheckpointHandlerPassesTenantContext(t *testing.T) {
 	})
 
 	t.Run("checkpoint_resume passes tenant context", func(t *testing.T) {
-		tenantID := "test-tenant"
+		tenantID := "test_tenant"
 
 		ctx := context.Background()
-		ctx = withTenantContext(ctx, tenantID, "", "")
+		ctx, err := withTenantContext(ctx, tenantID, "", "")
+		require.NoError(t, err, "withTenantContext should succeed")
 
-		_, err := capturingSvc.Resume(ctx, &checkpoint.ResumeRequest{
+		_, err = capturingSvc.Resume(ctx, &checkpoint.ResumeRequest{
 			CheckpointID: "test-checkpoint",
 			TenantID:     tenantID,
 		})
