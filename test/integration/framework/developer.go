@@ -17,6 +17,7 @@ package framework
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -379,7 +380,8 @@ type Developer struct {
 	reasoningBank     *reasoningbank.Service
 	checkpointService checkpoint.Service
 	vectorStore       vectorstore.Store
-	ownsStore         bool // true if we created the store and should close it
+	ownsStore         bool   // true if we created the store and should close it
+	tempDir           string // temporary directory for chromem storage (cleaned up on stop)
 
 	// Scrubber for secret removal (simulates MCP layer behavior)
 	scrubber secrets.Scrubber
@@ -465,12 +467,19 @@ func (d *Developer) StartContextd(ctx context.Context) error {
 		store = d.sharedStore.Store()
 		d.ownsStore = false
 	} else {
-		// Create own isolated store
+		// Create own isolated store with temporary directory
+		tempDir, err := os.MkdirTemp("", "contextd-test-*")
+		if err != nil {
+			return fmt.Errorf("creating temp dir: %w", err)
+		}
+		d.tempDir = tempDir
+
 		embedder := newTestEmbedder(384)
 		chromemStore, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-			Path: "", // Empty = in-memory
+			Path: tempDir,
 		}, embedder, d.logger)
 		if err != nil {
+			os.RemoveAll(tempDir)
 			return fmt.Errorf("creating vector store: %w", err)
 		}
 		// Disable tenant isolation for test stores - isolation is handled by test harness
@@ -529,6 +538,12 @@ func (d *Developer) StopContextd(ctx context.Context) error {
 	// Only close the store if we own it (not shared)
 	if d.vectorStore != nil && d.ownsStore {
 		d.vectorStore.Close()
+	}
+
+	// Clean up temporary directory if we created one
+	if d.tempDir != "" {
+		os.RemoveAll(d.tempDir)
+		d.tempDir = ""
 	}
 
 	d.contextdRunning = false

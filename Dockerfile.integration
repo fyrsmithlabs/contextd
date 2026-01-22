@@ -1,0 +1,25 @@
+# Dockerfile.integration - Container for running integration tests
+FROM golang:1.23-alpine
+
+# Install dependencies
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash \
+    ca-certificates
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy go mod files first (better caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build test binaries with race detector
+RUN go test -c -race ./test/integration -o /tmp/integration.test
+
+# Default command runs all integration tests
+CMD ["go", "test", "./test/integration", "-v", "-race", "-timeout", "20m"]

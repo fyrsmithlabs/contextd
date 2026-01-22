@@ -118,8 +118,8 @@ func NewChromemStore(config ChromemConfig, embedder Embedder, logger *zap.Logger
 		return nil, fmt.Errorf("creating directory %s: %w", expandedPath, err)
 	}
 
-	// Create persistent DB
-	db, err := chromem.NewPersistentDB(expandedPath, config.Compress)
+	// Create persistent DB with graceful degradation for corrupt collections
+	db, err := NewResilientChromemDB(expandedPath, config.Compress, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating chromem DB: %w", err)
 	}

@@ -182,7 +182,7 @@ func TestSemanticSimilarity_SimilarQueriesReturnRelatedResults(t *testing.T) {
 	defer embedder.Close()
 
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()
@@ -300,7 +300,7 @@ func TestSemanticSimilarity_DissimilarQueriesReturnLowScores(t *testing.T) {
 	defer embedder.Close()
 
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()
@@ -372,7 +372,7 @@ func TestSemanticSimilarity_VaryingSemanticDistances(t *testing.T) {
 	defer embedder.Close()
 
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()
@@ -470,7 +470,7 @@ func TestSemanticSimilarity_NegativeTestCases(t *testing.T) {
 	defer embedder.Close()
 
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()

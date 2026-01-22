@@ -24,7 +24,7 @@ func TestConfidenceCalibration_InitialValues(t *testing.T) {
 
 	embedder := newSemanticEmbedder(384)
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()
@@ -424,7 +424,7 @@ func TestConfidenceCalibration_MinConfidenceThreshold(t *testing.T) {
 
 	embedder := newSemanticEmbedder(384)
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()

@@ -1,0 +1,25 @@
+# Dockerfile.validation - Container for running production hardening validation tests
+FROM golang:1.23-alpine
+
+# Install dependencies
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash \
+    ca-certificates
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy go mod files first (better caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build test binary with race detector
+RUN go test -c -race ./internal/vectorstore -o /tmp/validation.test
+
+# Default command runs validation tests
+CMD ["go", "test", "./internal/vectorstore", "-run", "TestProductionHardening", "-v", "-race", "-timeout", "5m"]

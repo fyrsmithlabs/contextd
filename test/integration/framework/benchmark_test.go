@@ -52,7 +52,7 @@ func BenchmarkMemoryRecord(b *testing.B) {
 
 	embedder := newSemanticEmbedder(384)
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: b.TempDir(),
 	}, embedder, logger)
 	require.NoError(b, err)
 	defer store.Close()
@@ -84,7 +84,7 @@ func BenchmarkMemorySearch(b *testing.B) {
 
 	embedder := newSemanticEmbedder(384)
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: b.TempDir(),
 	}, embedder, logger)
 	require.NoError(b, err)
 	defer store.Close()

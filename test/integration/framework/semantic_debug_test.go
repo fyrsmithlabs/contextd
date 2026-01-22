@@ -18,7 +18,7 @@ func TestDebug_SemanticSearch(t *testing.T) {
 	// Create chromem store with our embedder
 	embedder := newTestEmbedder(384) // Use the existing deterministic embedder
 	store, err := vectorstore.NewChromemStore(vectorstore.ChromemConfig{
-		Path: "", // In-memory
+		Path: t.TempDir(),
 	}, embedder, logger)
 	require.NoError(t, err)
 	defer store.Close()

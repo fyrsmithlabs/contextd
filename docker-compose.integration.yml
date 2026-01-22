@@ -1,0 +1,216 @@
+version: '3.8'
+
+services:
+  # Qdrant vector database
+  qdrant:
+    image: qdrant/qdrant:v1.8.3
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - integration
+
+  # Integration test runner - ReasoningBank
+  test-reasoningbank:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '🧠 Running ReasoningBank integration tests...' &&
+        go test ./test/integration -run TestReasoningBank -v -race -timeout 10m
+      "
+    networks:
+      - integration
+    profiles:
+      - reasoningbank
+
+  # Integration test runner - Checkpoint
+  test-checkpoint:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '💾 Running Checkpoint integration tests...' &&
+        go test ./test/integration -run TestCheckpoint -v -race -timeout 10m
+      "
+    networks:
+      - integration
+    profiles:
+      - checkpoint
+
+  # Integration test runner - Remediation
+  test-remediation:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '🔧 Running Remediation integration tests...' &&
+        go test ./test/integration -run TestRemediation -v -race -timeout 10m
+      "
+    networks:
+      - integration
+    profiles:
+      - remediation
+
+  # Integration test runner - Repository
+  test-repository:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '🔍 Running Repository integration tests...' &&
+        go test ./test/integration -run TestRepository -v -race -timeout 10m
+      "
+    networks:
+      - integration
+    profiles:
+      - repository
+
+  # Integration test runner - Context-Folding
+  test-folding:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '📁 Running Context-Folding integration tests...' &&
+        go test ./test/integration -run TestFolding -v -race -timeout 10m
+      "
+    networks:
+      - integration
+    profiles:
+      - folding
+
+  # Integration test runner - End-to-End Workflows
+  test-e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '🚀 Running End-to-End integration tests...' &&
+        go test ./test/integration -run TestE2E -v -race -timeout 15m
+      "
+    networks:
+      - integration
+    profiles:
+      - e2e
+
+  # All integration tests (default profile)
+  test-all:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - VECTOR_STORE=qdrant
+      - GO_TEST_FLAGS=-v -race
+    volumes:
+      - .:/workspace
+      - go-cache:/go/pkg/mod
+    working_dir: /workspace
+    command: >
+      sh -c "
+        echo '✨ Running ALL integration tests...' &&
+        go test ./test/integration -v -race -timeout 20m
+      "
+    networks:
+      - integration
+
+volumes:
+  qdrant_data:
+  go-cache:
+
+networks:
+  integration:
+    driver: bridge

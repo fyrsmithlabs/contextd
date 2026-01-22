@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -441,10 +442,27 @@ func run() error {
 			httpServerPort = *httpPort
 		}
 
+		// Create metadata health checker for vectorstore monitoring
+		var healthChecker *vectorstore.MetadataHealthChecker
+		if cfg.VectorStore.Provider == "chromem" && cfg.VectorStore.Chromem.Path != "" {
+			// Expand the path (handles ~ for home directory)
+			expandedPath := os.ExpandEnv(cfg.VectorStore.Chromem.Path)
+			if strings.HasPrefix(expandedPath, "~/") {
+				home, err := os.UserHomeDir()
+				if err == nil {
+					expandedPath = filepath.Join(home, expandedPath[2:])
+				}
+			}
+			healthChecker = vectorstore.NewMetadataHealthChecker(expandedPath, logger.Underlying())
+			logger.Info(ctx, "metadata health checker initialized",
+				zap.String("path", expandedPath))
+		}
+
 		httpCfg := &httpserver.Config{
-			Host:    httpServerHost,
-			Port:    httpServerPort,
-			Version: version,
+			Host:          httpServerHost,
+			Port:          httpServerPort,
+			Version:       version,
+			HealthChecker: healthChecker,
 		}
 
 		var err error

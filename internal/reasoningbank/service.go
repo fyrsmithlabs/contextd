@@ -747,6 +747,18 @@ func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 		return nil, fmt.Errorf("Get requires legacy store; use GetByProjectID with StoreProvider")
 	}
 
+	// Inject tenant context for payload-based isolation
+	// Fail-closed: require tenant ID to be set (no fallback)
+	tenantID := s.defaultTenant
+	if tenantID == "" {
+		s.recordError(ctx, "get", "tenant_not_configured")
+		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	}
+	// Note: We can't inject ProjectID here since we don't know which project yet
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID: tenantID,
+	})
+
 	// List all collections and search each one
 	collections, err := s.store.ListCollections(ctx)
 	if err != nil {

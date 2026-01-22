@@ -239,15 +239,19 @@ func (s *service) getStore(ctx context.Context, tenantID string, scope Scope, te
 // collectionName returns the collection name for a given tenant and scope.
 // Used in legacy single-store mode.
 func (s *service) collectionName(tenantID string, scope Scope, teamID, projectPath string) string {
+	// Sanitize tenant and team IDs to ensure valid collection names
+	sanitizedTenant := sanitizePath(tenantID)
+	sanitizedTeam := sanitizePath(teamID)
+
 	switch scope {
 	case ScopeOrg:
-		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, tenantID)
+		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
 	case ScopeTeam:
-		return fmt.Sprintf("%s_team_%s_%s", s.config.CollectionPrefix, tenantID, teamID)
+		return fmt.Sprintf("%s_team_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizedTeam)
 	case ScopeProject:
-		return fmt.Sprintf("%s_project_%s_%s", s.config.CollectionPrefix, tenantID, sanitizePath(projectPath))
+		return fmt.Sprintf("%s_project_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizePath(projectPath))
 	default:
-		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, tenantID)
+		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
 	}
 }
 
@@ -367,6 +371,29 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 					zap.Float64("confidence", rem.Confidence),
 					zap.Float64("min_confidence", req.MinConfidence))
 				continue
+			}
+
+			// Post-filter: skip remediations that don't match any requested tags
+			if len(req.Tags) > 0 {
+				matchesTag := false
+				for _, reqTag := range req.Tags {
+					for _, remTag := range rem.Tags {
+						if reqTag == remTag {
+							matchesTag = true
+							break
+						}
+					}
+					if matchesTag {
+						break
+					}
+				}
+				if !matchesTag {
+					s.logger.Debug("skipping remediation without matching tags",
+						zap.String("id", rem.ID),
+						zap.Strings("required_tags", req.Tags),
+						zap.Strings("remediation_tags", rem.Tags))
+					continue
+				}
 			}
 
 			allResults = append(allResults, &ScoredRemediation{

@@ -12,6 +12,7 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	"github.com/fyrsmithlabs/contextd/internal/services"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -35,17 +36,19 @@ const (
 
 // Server provides HTTP endpoints for contextd.
 type Server struct {
-	echo     *echo.Echo
-	registry services.Registry
-	logger   *zap.Logger
-	config   *Config
+	echo          *echo.Echo
+	registry      services.Registry
+	logger        *zap.Logger
+	config        *Config
+	healthChecker *vectorstore.MetadataHealthChecker
 }
 
 // Config holds HTTP server configuration.
 type Config struct {
-	Host    string
-	Port    int
-	Version string
+	Host          string
+	Port          int
+	Version       string
+	HealthChecker *vectorstore.MetadataHealthChecker // Optional metadata health checker
 }
 
 // NewServer creates a new HTTP server.
@@ -89,10 +92,11 @@ func NewServer(registry services.Registry, logger *zap.Logger, cfg *Config) (*Se
 	})
 
 	s := &Server{
-		echo:     e,
-		registry: registry,
-		logger:   logger,
-		config:   cfg,
+		echo:          e,
+		registry:      registry,
+		logger:        logger,
+		config:        cfg,
+		healthChecker: cfg.HealthChecker,
 	}
 
 	// Register routes
@@ -114,6 +118,7 @@ func (s *Server) registerRoutes() {
 	v1.POST("/scrub", s.handleScrub)
 	v1.POST("/threshold", s.handleThreshold)
 	v1.GET("/status", s.handleStatus)
+	v1.GET("/health/metadata", s.handleMetadataHealth)
 
 	// Note: Checkpoint management is available via MCP tools (checkpoint_save, checkpoint_list, checkpoint_resume)
 	// HTTP endpoints were removed due to security concerns (CVE-2025-CONTEXTD-001)
@@ -148,7 +153,8 @@ type ThresholdResponse struct {
 
 // HealthResponse is the response body for GET /health.
 type HealthResponse struct {
-	Status string `json:"status"`
+	Status   string                `json:"status"`
+	Metadata *MetadataHealthStatus `json:"metadata,omitempty"` // Optional metadata health
 }
 
 // StatusResponse, StatusCounts, ContextStatus, CompressionStatus, and MemoryStatus
@@ -157,9 +163,61 @@ type HealthResponse struct {
 // Note: Checkpoint request/response types removed (CVE-2025-CONTEXTD-001 fix).
 // Use MCP tools for checkpoint operations: checkpoint_save, checkpoint_list, checkpoint_resume.
 
-// handleHealth returns a simple health check response.
+// handleHealth returns a health check response including metadata integrity status.
 func (s *Server) handleHealth(c echo.Context) error {
-	return c.JSON(http.StatusOK, HealthResponse{Status: "ok"})
+	ctx := c.Request().Context()
+	resp := HealthResponse{Status: "ok"}
+
+	// Check metadata health if checker is available
+	if s.healthChecker != nil {
+		health, err := s.healthChecker.Check(ctx)
+		if err != nil {
+			s.logger.Warn("metadata health check failed", zap.Error(err))
+			// Don't fail the health endpoint, just log the error
+		} else {
+			resp.Metadata = &MetadataHealthStatus{
+				Status:        health.Status(),
+				HealthyCount:  health.HealthyCount,
+				CorruptCount:  health.CorruptCount,
+				EmptyCount:    len(health.Empty),
+				Total:         health.Total,
+				CorruptHashes: health.Corrupt,
+			}
+
+			// Set overall status to degraded if metadata is corrupt
+			if !health.IsHealthy() {
+				resp.Status = "degraded"
+			}
+		}
+	}
+
+	// Determine HTTP status code based on health
+	statusCode := http.StatusOK
+	if resp.Status == "degraded" {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	return c.JSON(statusCode, resp)
+}
+
+// handleMetadataHealth returns detailed metadata integrity information.
+// NOTE: This endpoint exposes collection hashes which are internal identifiers.
+// In production, protect this endpoint with authentication/authorization or use
+// a reverse proxy to restrict access. The /health endpoint provides summary info only.
+func (s *Server) handleMetadataHealth(c echo.Context) error {
+	if s.healthChecker == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "metadata health checker not configured")
+	}
+
+	ctx := c.Request().Context()
+	health, err := s.healthChecker.Check(ctx)
+	if err != nil {
+		s.logger.Error("metadata health check failed", zap.Error(err))
+		return echo.NewHTTPError(http.StatusInternalServerError, "metadata health check failed")
+	}
+
+	// Return full health details
+	return c.JSON(http.StatusOK, health)
 }
 
 // handleStatus returns service status and resource counts.

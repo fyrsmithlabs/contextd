@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -697,6 +698,11 @@ func (s *service) resultToCheckpoint(result vectorstore.SearchResult) *Checkpoin
 		cp.TokenCount = int32(v)
 	} else if v, ok := result.Metadata["token_count"].(float64); ok {
 		cp.TokenCount = int32(v)
+	} else if v, ok := result.Metadata["token_count"].(string); ok {
+		// chromem stores metadata as strings, parse back to int
+		if parsed, err := strconv.ParseInt(v, 10, 32); err == nil {
+			cp.TokenCount = int32(parsed)
+		}
 	}
 	if v, ok := result.Metadata["threshold"].(float64); ok {
 		cp.Threshold = v

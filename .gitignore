@@ -52,3 +52,4 @@ docs/.claude/
 
 # Auto Claude data directory
 .auto-claude/
+internal/vectorstore/wal/.hmac_key

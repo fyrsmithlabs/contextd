@@ -35,3 +35,13 @@ type CompressionStatus struct {
 type MemoryStatus struct {
 	LastConfidence float64 `json:"last_confidence"`
 }
+
+// MetadataHealthStatus contains metadata integrity health information.
+type MetadataHealthStatus struct {
+	Status        string   `json:"status"`         // "healthy" or "degraded"
+	HealthyCount  int      `json:"healthy_count"`  // Number of healthy collections
+	CorruptCount  int      `json:"corrupt_count"`  // Number of corrupt collections
+	EmptyCount    int      `json:"empty_count"`    // Number of empty collections
+	Total         int      `json:"total"`          // Total collections
+	CorruptHashes []string `json:"corrupt_hashes"` // List of corrupt collection hashes
+}
