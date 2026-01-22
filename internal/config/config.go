@@ -5,10 +5,12 @@
 package config
 
 import (
-	"path/filepath"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -561,9 +563,27 @@ func (c *ProductionConfig) Validate() error {
 	return nil
 }
 
-// validateHostname checks if a hostname is safe (no command injection attempts)
+// validateHostname checks if a hostname is safe (no command injection attempts).
+// Uses positive validation with net.ParseIP for IP addresses and regexp for hostnames.
 func validateHostname(host string) error {
-	// Reject hostnames with shell metacharacters
+	// Empty hostname is allowed (config may use defaults)
+	if host == "" {
+		return nil
+	}
+
+	// Try parsing as IP first
+	if net.ParseIP(host) != nil {
+		return nil // Valid IP address
+	}
+
+	// Validate hostname format (RFC 1123)
+	// Allow alphanumeric, dots, hyphens. Must not start/end with dash.
+	hostnameRegex := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+	if !hostnameRegex.MatchString(host) {
+		return fmt.Errorf("invalid hostname format: %s", host)
+	}
+
+	// Additional blacklist check for shell metacharacters (defense in depth)
 	invalidChars := []string{";", "\n", "\r", "$", "`", "|", "&", "<", ">", "(", ")"}
 	for _, char := range invalidChars {
 		if strings.Contains(host, char) {

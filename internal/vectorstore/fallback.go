@@ -3,6 +3,8 @@ package vectorstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -47,6 +49,16 @@ func (c *FallbackConfig) ApplyDefaults() {
 		c.WALRetentionDays = 7
 	}
 	// SyncOnConnect defaults to true (zero value is false, so we set it explicitly in factory)
+}
+
+// generateEntryID generates a cryptographically secure random entry ID.
+func generateEntryID(prefix string) string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp if crypto/rand fails (should never happen)
+		return fmt.Sprintf("%s_%d", prefix, timeNow().UnixNano())
+	}
+	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b))
 }
 
 // Validate validates the fallback configuration.
@@ -166,8 +178,8 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 
 	healthy := fs.health.IsHealthy()
 
-	// Generate entry ID for WAL
-	entryID := fmt.Sprintf("add_%d", timeNow().UnixNano())
+	// Generate entry ID for WAL (crypto-secure random)
+	entryID := generateEntryID("add")
 
 	if healthy {
 		// Remote is healthy: Write to remote first, then local
@@ -356,7 +368,7 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 	defer fs.mu.RUnlock()
 
 	healthy := fs.health.IsHealthy()
-	entryID := fmt.Sprintf("delete_%d", timeNow().UnixNano())
+	entryID := generateEntryID("delete")
 
 	if healthy {
 		// Try remote first
