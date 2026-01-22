@@ -27,6 +27,7 @@ type Config struct {
 	Repository              RepositoryConfig
 	Statusline              StatuslineConfig
 	ConsolidationScheduler  ConsolidationSchedulerConfig
+	Fallback                FallbackConfig
 }
 
 // StatuslineConfig holds statusline display configuration.
@@ -69,6 +70,7 @@ type RepositoryConfig struct {
 type VectorStoreConfig struct {
 	Provider string        `koanf:"provider"` // "chromem" or "qdrant" (default: "chromem")
 	Chromem  ChromemConfig `koanf:"chromem"`
+	Fallback FallbackConfig `koanf:"fallback"`
 }
 
 // Validate validates VectorStoreConfig.
@@ -103,6 +105,29 @@ type ChromemConfig struct {
 	// Must match the embedder's output dimension.
 	// Default: 384 (for FastEmbed bge-small-en-v1.5)
 	VectorSize int `koanf:"vector_size"`
+}
+
+// FallbackConfig holds configuration for fallback storage.
+type FallbackConfig struct {
+	// Enabled enables fallback storage (default: false).
+	Enabled bool `koanf:"enabled"`
+
+	// LocalPath is the path for local fallback storage.
+	// Default: .claude/contextd/store
+	LocalPath string `koanf:"local_path"`
+
+	// SyncOnConnect triggers immediate sync when remote becomes available (default: true).
+	SyncOnConnect bool `koanf:"sync_on_connect"`
+
+	// HealthCheckInterval is the interval for periodic health checks (default: 30s).
+	HealthCheckInterval string `koanf:"health_check_interval"`
+
+	// WALPath is the directory for write-ahead log.
+	// Default: .claude/contextd/wal
+	WALPath string `koanf:"wal_path"`
+
+	// WALRetentionDays is how long to keep synced entries in WAL (default: 7).
+	WALRetentionDays int `koanf:"wal_retention_days"`
 }
 
 // Validate validates ChromemConfig.
@@ -343,6 +368,16 @@ func Load() *Config {
 			ContextWarning:  getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_WARNING", 70),
 			ContextCritical: getEnvInt("CONTEXTD_STATUSLINE_CONTEXT_CRITICAL", 85),
 		},
+	}
+
+	// Fallback storage configuration
+	cfg.Fallback = FallbackConfig{
+		Enabled:             getEnvBool("CONTEXTD_FALLBACK_ENABLED", false),
+		LocalPath:           getEnvString("CONTEXTD_FALLBACK_LOCAL_PATH", ".claude/contextd/store"),
+		SyncOnConnect:       getEnvBool("CONTEXTD_FALLBACK_SYNC_ON_CONNECT", true),
+		HealthCheckInterval: getEnvString("CONTEXTD_FALLBACK_HEALTH_INTERVAL", "30s"),
+		WALPath:             getEnvString("CONTEXTD_FALLBACK_WAL_PATH", ".claude/contextd/wal"),
+		WALRetentionDays:    getEnvInt("CONTEXTD_FALLBACK_WAL_RETENTION_DAYS", 7),
 	}
 
 	return cfg

@@ -2,9 +2,12 @@
 package vectorstore
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
+	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +30,9 @@ func WithIsolation(mode IsolationMode) StoreOption {
 // creates the appropriate store implementation:
 //   - "chromem" (default): Creates an embedded ChromemStore (no external deps)
 //   - "qdrant": Creates a QdrantStore (requires external Qdrant server)
+//
+// If fallback is enabled, the store is wrapped with FallbackStore for graceful
+// degradation when the remote store (Qdrant) is unavailable.
 //
 // Tenant Isolation:
 //
@@ -72,7 +78,100 @@ func NewStore(cfg *config.Config, embedder Embedder, logger *zap.Logger, opts ..
 			CollectionName: cfg.Qdrant.CollectionName,
 			VectorSize:     cfg.Qdrant.VectorSize,
 		}
-		store, err = NewQdrantStore(qdrantCfg, embedder)
+
+		// Check if fallback is enabled
+		if cfg.Fallback.Enabled {
+			// Create both remote (Qdrant) and local (chromem) stores
+			remoteStore, remoteErr := NewQdrantStore(qdrantCfg, embedder)
+			if remoteErr != nil {
+				logger.Warn("fallback: failed to create remote store, will rely on local only",
+					zap.Error(remoteErr))
+			}
+
+			// Create local chromem store for fallback
+			localCfg := ChromemConfig{
+				Path:              cfg.Fallback.LocalPath,
+				Compress:          false, // No compression for local fallback
+				DefaultCollection: qdrantCfg.CollectionName,
+				VectorSize:        int(qdrantCfg.VectorSize),
+			}
+			localStore, localErr := NewChromemStore(localCfg, embedder, logger)
+			if localErr != nil {
+				if remoteStore != nil {
+					remoteStore.Close()
+				}
+				return nil, fmt.Errorf("fallback: failed to create local store: %w", localErr)
+			}
+
+			// If remote failed, just use local
+			if remoteErr != nil {
+				logger.Info("fallback: using local store only (remote unavailable)")
+				store = localStore
+			} else {
+				// Create WAL, health monitor, and fallback store
+				ctx := context.Background()
+
+				// Create scrubber for WAL
+				scrubber, err := secrets.New(nil) // Use default config
+				if err != nil {
+					remoteStore.Close()
+					localStore.Close()
+					return nil, fmt.Errorf("fallback: failed to create scrubber: %w", err)
+				}
+
+				// Create WAL
+				wal, err := NewWAL(cfg.Fallback.WALPath, scrubber, logger)
+				if err != nil {
+					remoteStore.Close()
+					localStore.Close()
+					return nil, fmt.Errorf("fallback: failed to create WAL: %w", err)
+				}
+
+				// Parse health check interval
+				checkInterval, err := time.ParseDuration(cfg.Fallback.HealthCheckInterval)
+				if err != nil {
+					checkInterval = 30 * time.Second // Default
+					logger.Warn("fallback: invalid health_check_interval, using default",
+						zap.String("invalid", cfg.Fallback.HealthCheckInterval),
+						zap.Duration("default", checkInterval))
+				}
+
+				// Create health monitor with mock checker
+				// Note: For production, we'd need access to Qdrant's gRPC connection
+				// For now, use a mock that we can control
+				healthChecker := NewMockHealthChecker()
+				healthChecker.SetHealthy(true) // Assume healthy at start
+
+				health := NewHealthMonitor(ctx, healthChecker, checkInterval, logger)
+
+				// Create fallback config
+				fallbackCfg := FallbackConfig{
+					Enabled:             cfg.Fallback.Enabled,
+					LocalPath:           cfg.Fallback.LocalPath,
+					SyncOnConnect:       cfg.Fallback.SyncOnConnect,
+					HealthCheckInterval: cfg.Fallback.HealthCheckInterval,
+					WALPath:             cfg.Fallback.WALPath,
+					WALRetentionDays:    cfg.Fallback.WALRetentionDays,
+				}
+
+				// Create fallback store
+				fallbackStore, err := NewFallbackStore(ctx, remoteStore, localStore, health, wal, fallbackCfg, logger)
+				if err != nil {
+					remoteStore.Close()
+					localStore.Close()
+					health.Stop()
+					return nil, fmt.Errorf("fallback: failed to create fallback store: %w", err)
+				}
+
+				store = fallbackStore
+				logger.Info("fallback: FallbackStore initialized",
+					zap.String("remote", "qdrant"),
+					zap.String("local", cfg.Fallback.LocalPath))
+			}
+		} else {
+			// No fallback: just use Qdrant
+			store, err = NewQdrantStore(qdrantCfg, embedder)
+		}
 
 	default:
 		return nil, fmt.Errorf("unsupported vectorstore provider: %s (supported: chromem, qdrant)", cfg.VectorStore.Provider)

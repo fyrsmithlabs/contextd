@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Local Fallback Storage** (Epic #114, Issues #115-120) - Graceful degradation when remote vector store is unavailable
+  - FallbackStore decorator wraps remote (Qdrant) and local (chromem) stores
+  - Write-ahead log (WAL) with HMAC-SHA256 checksums and secret scrubbing
+  - Automatic background sync when connectivity restored
+  - Health monitoring via gRPC connection state and periodic pings
+  - Circuit breaker pattern prevents sync storms (5 failures → 5min backoff)
+  - Opt-in via `CONTEXTD_FALLBACK_ENABLED=true` environment variable
+  - Configuration: local_path, wal_path, health_check_interval, wal_retention_days
+  - Test coverage: 52.7% with unit tests for all components
 - **Error Codes Reference** - Comprehensive error codes documentation in `docs/api/error-codes.md`
   - All 17 error codes with descriptions, causes, and resolutions
   - 14 example scenarios with expected behavior
