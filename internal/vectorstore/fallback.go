@@ -421,7 +421,9 @@ func (fs *FallbackStore) DeleteDocumentsFromCollection(ctx context.Context, coll
 			fs.logger.Warn("fallback: remote delete failed, using local", zap.Error(err))
 			healthy = false
 		} else {
-			fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids)
+			if localErr := fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids); localErr != nil {
+				fs.logger.Warn("fallback: local delete failed after remote success", zap.Error(localErr))
+			}
 			return nil
 		}
 	}

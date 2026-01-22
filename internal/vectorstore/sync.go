@@ -4,6 +4,7 @@ package vectorstore
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,6 +69,12 @@ func (cb *CircuitBreaker) RecordFailure() {
 	// Atomic increment + CAS loop to prevent TOCTOU race
 	for {
 		currentFailures := cb.failures.Load()
+
+		// Prevent overflow
+		if currentFailures == math.MaxInt32 {
+			return
+		}
+
 		newFailures := currentFailures + 1
 
 		// Try to increment atomically

@@ -454,10 +454,11 @@ func (w *WAL) Compact(retentionDays int) error {
 		}
 	}
 
+	originalLen := len(w.entries)
 	w.entries = kept
 	w.logger.Info("WAL: compaction complete",
 		zap.Int("entries_kept", len(kept)),
-		zap.Int("entries_removed", len(w.entries)-len(kept)))
+		zap.Int("entries_removed", originalLen-len(kept)))
 
 	return nil
 }
