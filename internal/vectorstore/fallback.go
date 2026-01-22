@@ -148,6 +148,16 @@ func NewFallbackStore(
 	return fs, nil
 }
 
+// validateTenantContext validates the tenant context and returns tenant info.
+// Centralizes tenant validation logic to reduce code duplication.
+func (fs *FallbackStore) validateTenantContext(ctx context.Context) (*TenantInfo, error) {
+	tenant, err := TenantFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fallback: %w", err)
+	}
+	return tenant, nil
+}
+
 // AddDocuments adds documents with fallback support.
 //
 // Write path (atomic with rollback):
@@ -168,9 +178,9 @@ func NewFallbackStore(
 //    c. Return error
 func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]string, error) {
 	// Validate tenant context (fail-closed)
-	tenant, err := TenantFromContext(ctx)
+	tenant, err := fs.validateTenantContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fallback: %w", err)
+		return nil, err
 	}
 
 	fs.mu.RLock()
@@ -279,7 +289,20 @@ func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]Sea
 			// Fall through to local
 			healthy = false
 		} else {
-			// TODO: Merge with pending local results if needed
+			// Check for pending local documents that haven't synced yet
+			pendingCount := fs.mergePendingResults(ctx, query, k, &remoteResults)
+
+			// Add metadata if we merged pending results
+			if pendingCount > 0 {
+				for i := range remoteResults {
+					if remoteResults[i].Metadata == nil {
+						remoteResults[i].Metadata = make(map[string]interface{})
+					}
+					remoteResults[i].Metadata["source"] = "merged"
+					remoteResults[i].Metadata["pending_count"] = pendingCount
+				}
+			}
+
 			return remoteResults, nil
 		}
 	}
@@ -303,6 +326,79 @@ func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]Sea
 	return localResults, nil
 }
 
+// mergePendingResults checks for pending unsynced documents and merges them into results.
+// Returns the count of pending documents found.
+func (fs *FallbackStore) mergePendingResults(ctx context.Context, query string, k int, results *[]SearchResult) int {
+	// Get pending WAL entries
+	pending := fs.wal.PendingEntries()
+	if len(pending) == 0 {
+		return 0
+	}
+
+	// Extract document IDs from pending "add" operations
+	pendingIDs := make(map[string]bool)
+	for _, entry := range pending {
+		if entry.Operation == "add" {
+			for _, doc := range entry.Docs {
+				pendingIDs[doc.ID] = true
+			}
+		}
+	}
+
+	if len(pendingIDs) == 0 {
+		return 0
+	}
+
+	// Search local store for pending documents
+	localResults, err := fs.local.Search(ctx, query, k)
+	if err != nil {
+		fs.logger.Warn("fallback: failed to search local for pending results",
+			zap.Error(err))
+		return 0
+	}
+
+	// Create a map of existing result IDs for fast lookup
+	existingIDs := make(map[string]int) // ID -> index
+	for i, result := range *results {
+		existingIDs[result.ID] = i
+	}
+
+	// Merge pending local results (local wins on conflicts)
+	mergedCount := 0
+	for _, localResult := range localResults {
+		// Only include if it's a pending document
+		if !pendingIDs[localResult.ID] {
+			continue
+		}
+
+		mergedCount++
+
+		// Add metadata to indicate pending status
+		if localResult.Metadata == nil {
+			localResult.Metadata = make(map[string]interface{})
+		}
+		localResult.Metadata["pending_sync"] = true
+
+		// If document exists in remote results, replace it (local wins)
+		if idx, exists := existingIDs[localResult.ID]; exists {
+			(*results)[idx] = localResult
+			fs.logger.Debug("fallback: replaced remote result with pending local version",
+				zap.String("doc_id", localResult.ID))
+		} else if len(*results) < k {
+			// Add if we haven't reached k results yet
+			*results = append(*results, localResult)
+			existingIDs[localResult.ID] = len(*results) - 1
+		}
+	}
+
+	if mergedCount > 0 {
+		fs.logger.Debug("fallback: merged pending local results",
+			zap.Int("pending_count", mergedCount))
+	}
+
+	return mergedCount
+}
+
 // SearchWithFilters performs similarity search with metadata filters.
 func (fs *FallbackStore) SearchWithFilters(ctx context.Context, query string, k int, filters map[string]interface{}) ([]SearchResult, error) {
 	fs.mu.RLock()
@@ -316,6 +412,17 @@ func (fs *FallbackStore) SearchWithFilters(ctx context.Context, query string, k 
 			fs.logger.Warn("fallback: remote search failed, using local", zap.Error(err))
 			healthy = false
 		} else {
+			// Merge pending local results
+			pendingCount := fs.mergePendingResults(ctx, query, k, &results)
+			if pendingCount > 0 {
+				for i := range results {
+					if results[i].Metadata == nil {
+						results[i].Metadata = make(map[string]interface{})
+					}
+					results[i].Metadata["source"] = "merged"
+					results[i].Metadata["pending_count"] = pendingCount
+				}
+			}
 			return results, nil
 		}
 	}
@@ -350,6 +457,17 @@ func (fs *FallbackStore) SearchInCollection(ctx context.Context, collectionName 
 			fs.logger.Warn("fallback: remote search failed, using local", zap.Error(err))
 			healthy = false
 		} else {
+			// Merge pending local results
+			pendingCount := fs.mergePendingResults(ctx, query, k, &results)
+			if pendingCount > 0 {
+				for i := range results {
+					if results[i].Metadata == nil {
+						results[i].Metadata = make(map[string]interface{})
+					}
+					results[i].Metadata["source"] = "merged"
+					results[i].Metadata["pending_count"] = pendingCount
+				}
+			}
 			return results, nil
 		}
 	}
@@ -359,9 +477,9 @@ func (fs *FallbackStore) SearchInCollection(ctx context.Context, collectionName 
 
 // DeleteDocuments deletes documents by their IDs.
 func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) error {
-	tenant, err := TenantFromContext(ctx)
+	tenant, err := fs.validateTenantContext(ctx)
 	if err != nil {
-		return fmt.Errorf("fallback: %w", err)
+		return err
 	}
 
 	fs.mu.RLock()

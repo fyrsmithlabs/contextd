@@ -3,6 +3,7 @@ package vectorstore
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -191,10 +192,16 @@ func (hm *HealthMonitor) LastCheck() time.Time {
 }
 
 // RegisterCallback adds a callback with mutex protection.
-func (hm *HealthMonitor) RegisterCallback(cb func(bool)) {
+// Returns an error if the callback is nil.
+func (hm *HealthMonitor) RegisterCallback(cb func(bool)) error {
+	if cb == nil {
+		return fmt.Errorf("health: callback cannot be nil")
+	}
+
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
 	hm.callbacks = append(hm.callbacks, cb)
+	return nil
 }
 
 // notifyCallbacks fires all callbacks under read lock (allows concurrent reads).
@@ -214,7 +221,25 @@ func (hm *HealthMonitor) notifyCallbacks(healthy bool) {
 						zap.Any("panic", r))
 				}
 			}()
-			callback(healthy)
+
+			// Create timeout context for callback (5 seconds)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Run callback with timeout protection
+			done := make(chan struct{})
+			go func() {
+				callback(healthy)
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// Callback completed successfully
+			case <-ctx.Done():
+				hm.logger.Warn("health callback timeout",
+					zap.Duration("timeout", 5*time.Second))
+			}
 		}(cb)
 	}
 }

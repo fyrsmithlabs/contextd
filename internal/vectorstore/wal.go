@@ -18,8 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// ValidOperations whitelist for deserialization safety.
-var ValidOperations = map[string]bool{
+// validOperations whitelist for deserialization safety.
+var validOperations = map[string]bool{
 	"add":    true,
 	"delete": true,
 }
@@ -178,7 +178,7 @@ func (w *WAL) WriteEntry(ctx context.Context, entry WALEntry) error {
 	defer w.mu.Unlock()
 
 	// 1. Validate operation at entry point (defense in depth)
-	if !ValidOperations[entry.Operation] {
+	if !validOperations[entry.Operation] {
 		return fmt.Errorf("invalid WAL operation: %s", entry.Operation)
 	}
 
@@ -343,7 +343,7 @@ func (w *WAL) load() error {
 		}
 
 		// Validate operation (defense in depth)
-		if !ValidOperations[entry.Operation] {
+		if !validOperations[entry.Operation] {
 			w.logger.Warn("WAL: skipping entry with invalid operation",
 				zap.String("file", file),
 				zap.String("operation", entry.Operation))

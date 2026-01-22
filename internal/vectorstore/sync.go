@@ -142,12 +142,15 @@ func NewSyncManager(ctx context.Context, wal *WAL, local, remote Store, health *
 // Start begins background sync goroutine.
 func (s *SyncManager) Start() {
 	// Register callback for health changes
-	s.health.RegisterCallback(func(healthy bool) {
+	if err := s.health.RegisterCallback(func(healthy bool) {
 		if healthy {
 			s.logger.Info("sync: remote became healthy, triggering sync")
 			s.TriggerSync()
 		}
-	})
+	}); err != nil {
+		s.logger.Error("sync: failed to register health callback", zap.Error(err))
+		// Continue anyway - not fatal
+	}
 
 	s.wg.Add(1)
 	go func() {

@@ -271,7 +271,7 @@ func TestWAL_SecretScrubbing(t *testing.T) {
 }
 
 func TestValidOperations(t *testing.T) {
-	assert.True(t, ValidOperations["add"])
-	assert.True(t, ValidOperations["delete"])
-	assert.False(t, ValidOperations["invalid"])
+	assert.True(t, validOperations["add"])
+	assert.True(t, validOperations["delete"])
+	assert.False(t, validOperations["invalid"])
 }
