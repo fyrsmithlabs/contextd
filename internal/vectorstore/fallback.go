@@ -148,14 +148,24 @@ func NewFallbackStore(
 	return fs, nil
 }
 
-// validateTenantContext validates the tenant context and returns tenant info.
+// validateTenantContext validates the tenant context and returns an immutable copy.
 // Centralizes tenant validation logic to reduce code duplication.
+// Returns a defensive copy to prevent race conditions from context modifications.
 func (fs *FallbackStore) validateTenantContext(ctx context.Context) (*TenantInfo, error) {
 	tenant, err := TenantFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fallback: %w", err)
 	}
-	return tenant, nil
+
+	// Return defensive copy to ensure immutability
+	// This prevents race conditions if context is modified after validation
+	tenantCopy := &TenantInfo{
+		TenantID:  tenant.TenantID,
+		TeamID:    tenant.TeamID,
+		ProjectID: tenant.ProjectID,
+	}
+
+	return tenantCopy, nil
 }
 
 // AddDocuments adds documents with fallback support.
@@ -186,22 +196,20 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
-
 	// Generate entry ID for WAL (crypto-secure random)
 	entryID := generateEntryID("add")
 
-	if healthy {
-		// Remote is healthy: Write to remote first, then local
+	// Try remote write if healthy
+	if fs.health.IsHealthy() {
 		ids, err := fs.remote.AddDocuments(ctx, docs)
 		if err != nil {
+			// Remote write failed - log and fall through to local path
 			fs.logger.Warn("fallback: remote write failed, falling back to local",
 				zap.Error(err),
 				zap.String("tenant_id", tenant.TenantID))
-			// Fall through to local write
-			healthy = false
+			// Continue to local write below
 		} else {
-			// Remote write succeeded, write to local for consistency
+			// Remote write succeeded - also write to local for consistency
 			if _, localErr := fs.local.AddDocuments(ctx, docs); localErr != nil {
 				fs.logger.Warn("fallback: local write failed after remote success",
 					zap.Error(localErr),
@@ -227,7 +235,7 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 		}
 	}
 
-	// Remote is unhealthy: Write to local and WAL
+	// Remote is unhealthy or write failed: Write to local and WAL
 	fs.logger.Info("fallback: using local store",
 		zap.String("tenant_id", tenant.TenantID),
 		zap.Int("doc_count", len(docs)))
@@ -278,18 +286,16 @@ func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]Sea
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
-
-	if healthy {
-		// Try remote first
+	// Try remote search if healthy
+	if fs.health.IsHealthy() {
 		remoteResults, err := fs.remote.Search(ctx, query, k)
 		if err != nil {
+			// Remote search failed - log and fall through to local
 			fs.logger.Warn("fallback: remote search failed, using local",
 				zap.Error(err))
-			// Fall through to local
-			healthy = false
+			// Continue to local search below
 		} else {
-			// Check for pending local documents that haven't synced yet
+			// Remote search succeeded - merge with pending local documents
 			pendingCount := fs.mergePendingResults(ctx, query, k, &remoteResults)
 
 			// Add metadata if we merged pending results
@@ -307,7 +313,7 @@ func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]Sea
 		}
 	}
 
-	// Use local store
+	// Remote is unhealthy or search failed: Use local store
 	fs.logger.Debug("fallback: searching local store")
 	localResults, err := fs.local.Search(ctx, query, k)
 	if err != nil {
@@ -328,8 +334,9 @@ func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]Sea
 
 // mergePendingResults checks for pending unsynced documents and merges them into results.
 // Returns the count of pending documents found.
+// Optimized: Skips local search if no pending entries exist.
 func (fs *FallbackStore) mergePendingResults(ctx context.Context, query string, k int, results *[]SearchResult) int {
-	// Get pending WAL entries
+	// Get pending WAL entries (early exit if none)
 	pending := fs.wal.PendingEntries()
 	if len(pending) == 0 {
 		return 0
@@ -345,11 +352,12 @@ func (fs *FallbackStore) mergePendingResults(ctx context.Context, query string, 
 		}
 	}
 
+	// Early exit if no pending add operations
 	if len(pendingIDs) == 0 {
 		return 0
 	}
 
-	// Search local store for pending documents
+	// Only search local store if we have pending documents to merge
 	localResults, err := fs.local.Search(ctx, query, k)
 	if err != nil {
 		fs.logger.Warn("fallback: failed to search local for pending results",
@@ -404,15 +412,15 @@ func (fs *FallbackStore) SearchWithFilters(ctx context.Context, query string, k 
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
-
-	if healthy {
+	// Try remote search if healthy
+	if fs.health.IsHealthy() {
 		results, err := fs.remote.SearchWithFilters(ctx, query, k, filters)
 		if err != nil {
+			// Remote search failed - log and fall through to local
 			fs.logger.Warn("fallback: remote search failed, using local", zap.Error(err))
-			healthy = false
+			// Continue to local search below
 		} else {
-			// Merge pending local results
+			// Remote search succeeded - merge with pending local results
 			pendingCount := fs.mergePendingResults(ctx, query, k, &results)
 			if pendingCount > 0 {
 				for i := range results {
@@ -427,7 +435,7 @@ func (fs *FallbackStore) SearchWithFilters(ctx context.Context, query string, k 
 		}
 	}
 
-	// Use local store
+	// Remote is unhealthy or search failed: Use local store
 	localResults, err := fs.local.SearchWithFilters(ctx, query, k, filters)
 	if err != nil {
 		return nil, fmt.Errorf("fallback: local search failed: %w", err)
@@ -449,15 +457,15 @@ func (fs *FallbackStore) SearchInCollection(ctx context.Context, collectionName 
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
-
-	if healthy {
+	// Try remote search if healthy
+	if fs.health.IsHealthy() {
 		results, err := fs.remote.SearchInCollection(ctx, collectionName, query, k, filters)
 		if err != nil {
+			// Remote search failed - log and fall through to local
 			fs.logger.Warn("fallback: remote search failed, using local", zap.Error(err))
-			healthy = false
+			// Continue to local search below
 		} else {
-			// Merge pending local results
+			// Remote search succeeded - merge with pending local results
 			pendingCount := fs.mergePendingResults(ctx, query, k, &results)
 			if pendingCount > 0 {
 				for i := range results {
@@ -472,6 +480,7 @@ func (fs *FallbackStore) SearchInCollection(ctx context.Context, collectionName 
 		}
 	}
 
+	// Remote is unhealthy or search failed: Use local store
 	return fs.local.SearchInCollection(ctx, collectionName, query, k, filters)
 }
 
@@ -485,18 +494,18 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
 	entryID := generateEntryID("delete")
 
-	if healthy {
-		// Try remote first
+	// Try remote delete if healthy
+	if fs.health.IsHealthy() {
 		if err := fs.remote.DeleteDocuments(ctx, ids); err != nil {
+			// Remote delete failed - log and fall through to local path
 			fs.logger.Warn("fallback: remote delete failed, using local",
 				zap.Error(err),
 				zap.String("tenant_id", tenant.TenantID))
-			healthy = false
+			// Continue to local delete below
 		} else {
-			// Delete from local too
+			// Remote delete succeeded - also delete from local
 			if localErr := fs.local.DeleteDocuments(ctx, ids); localErr != nil {
 				fs.logger.Warn("fallback: local delete failed after remote success",
 					zap.Error(localErr))
@@ -519,7 +528,7 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 		}
 	}
 
-	// Remote unhealthy: Delete from local and record in WAL
+	// Remote is unhealthy or delete failed: Delete from local and record in WAL
 	walEntry := WALEntry{
 		ID:          entryID,
 		Operation:   "delete",
@@ -544,13 +553,14 @@ func (fs *FallbackStore) DeleteDocumentsFromCollection(ctx context.Context, coll
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	healthy := fs.health.IsHealthy()
-
-	if healthy {
+	// Try remote delete if healthy
+	if fs.health.IsHealthy() {
 		if err := fs.remote.DeleteDocumentsFromCollection(ctx, collectionName, ids); err != nil {
+			// Remote delete failed - log and fall through to local
 			fs.logger.Warn("fallback: remote delete failed, using local", zap.Error(err))
-			healthy = false
+			// Continue to local delete below
 		} else {
+			// Remote delete succeeded - also delete from local
 			if localErr := fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids); localErr != nil {
 				fs.logger.Warn("fallback: local delete failed after remote success", zap.Error(localErr))
 			}
@@ -558,6 +568,7 @@ func (fs *FallbackStore) DeleteDocumentsFromCollection(ctx context.Context, coll
 		}
 	}
 
+	// Remote is unhealthy or delete failed: Use local store
 	return fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids)
 }
 

@@ -70,8 +70,17 @@ func (cb *CircuitBreaker) RecordFailure() {
 	for {
 		currentFailures := cb.failures.Load()
 
-		// Prevent overflow
+		// Prevent overflow: Reset to threshold if at max
+		// This ensures the circuit breaker continues functioning
 		if currentFailures == math.MaxInt32 {
+			// Reset to threshold to allow continued operation
+			if cb.failures.CompareAndSwap(currentFailures, cb.threshold) {
+				// Update last failure time
+				cb.lastFailure.Store(time.Now().UnixNano())
+				// Ensure state is open
+				cb.state.CompareAndSwap(circuitClosed, circuitOpen)
+				cb.state.CompareAndSwap(circuitHalfOpen, circuitOpen)
+			}
 			return
 		}
 

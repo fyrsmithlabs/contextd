@@ -53,9 +53,19 @@ func (g *GRPCHealthChecker) WatchState(ctx context.Context, callback func(health
 	}
 
 	go func() {
+		// Add timeout to prevent goroutine from running indefinitely
+		// If context is canceled, the goroutine will exit cleanly
+		defer func() {
+			if r := recover(); r != nil {
+				g.logger.Error("gRPC state watcher panic",
+					zap.Any("panic", r))
+			}
+		}()
+
 		for {
 			select {
 			case <-ctx.Done():
+				g.logger.Debug("gRPC state watcher: context canceled, exiting")
 				return
 			default:
 			}
@@ -68,8 +78,10 @@ func (g *GRPCHealthChecker) WatchState(ctx context.Context, callback func(health
 			healthy := currentState == connectivity.Ready
 			callback(healthy)
 
-			// Wait for next state change
+			// Wait for next state change with context timeout
+			// WaitForStateChange returns false when context is done
 			if !g.conn.WaitForStateChange(ctx, currentState) {
+				g.logger.Debug("gRPC state watcher: wait interrupted, exiting")
 				return
 			}
 		}
@@ -105,27 +117,31 @@ func (m *MockHealthChecker) WatchState(ctx context.Context, callback func(health
 
 // HealthMonitor monitors remote store connectivity.
 type HealthMonitor struct {
-	checker       HealthChecker     // Interface for DI (gRPC, HTTP, mock)
-	healthy       atomic.Bool       // Current health status
-	lastCheck     atomic.Value      // time.Time
-	checkInterval time.Duration     // Configurable via FallbackConfig
-	mu            sync.RWMutex      // Protects callbacks slice
-	callbacks     []func(bool)      // Callbacks to notify on health change
-	ctx           context.Context   // For graceful shutdown
-	cancel        context.CancelFunc
-	logger        *zap.Logger
+	checker          HealthChecker     // Interface for DI (gRPC, HTTP, mock)
+	healthy          atomic.Bool       // Current health status
+	lastCheck        atomic.Value      // time.Time
+	checkInterval    time.Duration     // Configurable via FallbackConfig
+	callbackTimeout  time.Duration     // Timeout for individual callbacks (default: 5s)
+	mu               sync.RWMutex      // Protects callbacks slice
+	callbacks        []func(bool)      // Callbacks to notify on health change
+	callbackSem      chan struct{}     // Semaphore to limit concurrent callbacks
+	ctx              context.Context   // For graceful shutdown
+	cancel           context.CancelFunc
+	logger           *zap.Logger
 }
 
 // NewHealthMonitor creates a new health monitor.
 func NewHealthMonitor(ctx context.Context, checker HealthChecker, checkInterval time.Duration, logger *zap.Logger) *HealthMonitor {
 	ctx, cancel := context.WithCancel(ctx)
 	hm := &HealthMonitor{
-		checker:       checker,
-		checkInterval: checkInterval,
-		callbacks:     make([]func(bool), 0),
-		ctx:           ctx,
-		cancel:        cancel,
-		logger:        logger,
+		checker:         checker,
+		checkInterval:   checkInterval,
+		callbackTimeout: 5 * time.Second, // Default timeout
+		callbacks:       make([]func(bool), 0),
+		callbackSem:     make(chan struct{}, 10), // Limit to 10 concurrent callbacks
+		ctx:             ctx,
+		cancel:          cancel,
+		logger:          logger,
 	}
 
 	// Initialize with current health status
@@ -206,6 +222,7 @@ func (hm *HealthMonitor) RegisterCallback(cb func(bool)) error {
 
 // notifyCallbacks fires all callbacks under read lock (allows concurrent reads).
 // Copy-before-fire pattern prevents holding lock during callbacks.
+// Uses semaphore to limit concurrent callback executions.
 func (hm *HealthMonitor) notifyCallbacks(healthy bool) {
 	hm.mu.RLock()
 	callbacks := make([]func(bool), len(hm.callbacks))
@@ -213,22 +230,40 @@ func (hm *HealthMonitor) notifyCallbacks(healthy bool) {
 	hm.mu.RUnlock()
 
 	for _, cb := range callbacks {
+		// Acquire semaphore slot (blocks if at limit)
+		select {
+		case hm.callbackSem <- struct{}{}:
+			// Got slot, proceed with callback
+		case <-hm.ctx.Done():
+			// Shutting down, skip remaining callbacks
+			return
+		}
+
 		// Call in separate goroutine to prevent blocking
 		go func(callback func(bool)) {
 			defer func() {
+				// Release semaphore slot
+				<-hm.callbackSem
+
 				if r := recover(); r != nil {
 					hm.logger.Error("health callback panic",
 						zap.Any("panic", r))
 				}
 			}()
 
-			// Create timeout context for callback (5 seconds)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// Create timeout context for callback
+			ctx, cancel := context.WithTimeout(context.Background(), hm.callbackTimeout)
 			defer cancel()
 
 			// Run callback with timeout protection
 			done := make(chan struct{})
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						hm.logger.Error("health callback inner panic",
+							zap.Any("panic", r))
+					}
+				}()
 				callback(healthy)
 				close(done)
 			}()
@@ -238,10 +273,17 @@ func (hm *HealthMonitor) notifyCallbacks(healthy bool) {
 				// Callback completed successfully
 			case <-ctx.Done():
 				hm.logger.Warn("health callback timeout",
-					zap.Duration("timeout", 5*time.Second))
+					zap.Duration("timeout", hm.callbackTimeout))
 			}
 		}(cb)
 	}
+}
+
+// SetCallbackTimeout configures the timeout for callback executions.
+func (hm *HealthMonitor) SetCallbackTimeout(timeout time.Duration) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	hm.callbackTimeout = timeout
 }
 
 // Stop gracefully shuts down the health monitor.

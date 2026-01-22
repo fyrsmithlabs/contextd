@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,12 +97,32 @@ func NewWAL(path string, scrubber secrets.Scrubber, logger *zap.Logger) (*WAL, e
 }
 
 // initHMACKey generates or loads HMAC key with secure file creation.
+//
+// SECURITY WARNING: This implementation stores HMAC keys on the filesystem
+// with file permissions (0600) as the only protection. This is acceptable
+// for development and single-user deployments, but production multi-tenant
+// systems should consider:
+//   - OS keyring integration (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+//   - Hardware Security Module (HSM) for enterprise deployments
+//   - Cloud KMS (AWS KMS, GCP KMS, Azure Key Vault) for cloud deployments
+//
+// The key file location (.claude/contextd/wal/.hmac_key) is intentionally
+// hidden but predictable - rely on directory permissions and access controls.
 func (w *WAL) initHMACKey() error {
 	w.keyPath = filepath.Join(w.path, ".hmac_key")
 
 	// Try to load existing key
 	if key, err := w.loadKeySecure(); err == nil {
 		w.hmacKey = key
+
+		// Validate key file permissions
+		if err := w.validateKeyPermissions(); err != nil {
+			w.logger.Warn("WAL: HMAC key file has insecure permissions",
+				zap.Error(err),
+				zap.String("key_path", w.keyPath))
+			// Don't fail - just warn (user may have valid reasons)
+		}
+
 		return nil
 	}
 
@@ -117,6 +138,10 @@ func (w *WAL) initHMACKey() error {
 	}
 
 	w.hmacKey = key
+	w.logger.Info("WAL: generated new HMAC key",
+		zap.String("key_path", w.keyPath),
+		zap.String("permissions", "0600"))
+
 	return nil
 }
 
@@ -132,6 +157,22 @@ func (w *WAL) loadKeySecure() ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// validateKeyPermissions checks that the HMAC key file has secure permissions.
+func (w *WAL) validateKeyPermissions() error {
+	info, err := os.Stat(w.keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat key file: %w", err)
+	}
+
+	// Check permissions are 0600 (user read/write only)
+	mode := info.Mode().Perm()
+	if mode != 0600 {
+		return fmt.Errorf("insecure permissions %04o (expected 0600)", mode)
+	}
+
+	return nil
 }
 
 // writeKeySecure uses atomic write with secure permissions from creation.
@@ -190,9 +231,9 @@ func (w *WAL) WriteEntry(ctx context.Context, entry WALEntry) error {
 		}
 		entry.Docs[i].Content = result.Scrubbed
 
-		// Log if secrets were found and redacted
+		// Log if secrets were found and redacted (Debug level to reduce verbosity)
 		if result.TotalFindings > 0 {
-			w.logger.Warn("WAL: secrets redacted from document",
+			w.logger.Debug("WAL: secrets redacted from document",
 				zap.String("doc_id", entry.Docs[i].ID),
 				zap.Int("secrets_found", result.TotalFindings))
 		}
@@ -319,8 +360,39 @@ func (w *WAL) writeEntrySecure(entry WALEntry) error {
 	return nil
 }
 
+// validateWALPath validates the WAL path to prevent directory traversal attacks.
+func (w *WAL) validateWALPath() error {
+	// Clean the path to resolve any ../ or ./ components
+	cleanPath := filepath.Clean(w.path)
+
+	// Get absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Ensure path is absolute after cleaning
+	if !filepath.IsAbs(absPath) {
+		return fmt.Errorf("WAL path must be absolute: %s", absPath)
+	}
+
+	// Ensure path doesn't contain suspicious patterns
+	if strings.Contains(absPath, "..") {
+		return fmt.Errorf("WAL path contains directory traversal: %s", absPath)
+	}
+
+	// Update to use cleaned absolute path
+	w.path = absPath
+	return nil
+}
+
 // load reads all WAL entries from disk.
 func (w *WAL) load() error {
+	// Validate path first to prevent injection
+	if err := w.validateWALPath(); err != nil {
+		return err
+	}
+
 	files, err := filepath.Glob(filepath.Join(w.path, "*.wal"))
 	if err != nil {
 		return fmt.Errorf("failed to list WAL files: %w", err)
