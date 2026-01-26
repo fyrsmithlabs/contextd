@@ -456,6 +456,23 @@ func run() error {
 			healthChecker = vectorstore.NewMetadataHealthChecker(expandedPath, logger.Underlying())
 			logger.Info(ctx, "metadata health checker initialized",
 				zap.String("path", expandedPath))
+
+			// Run startup validation (pre-flight health checks)
+			validationCfg := &vectorstore.StartupValidationConfig{
+				FailOnCorruption: false, // Continue with graceful degradation by default
+				FailOnDegraded:   false, // Don't block on empty collections
+			}
+			result, err := vectorstore.ValidateStartup(ctx, healthChecker, validationCfg, logger.Underlying())
+			if err != nil {
+				logger.Error(ctx, "startup validation failed",
+					zap.Error(err))
+				// Note: We don't return here because FailOnCorruption=false
+				// The error is only returned when FailOnCorruption=true
+			} else if result != nil && !result.Passed {
+				logger.Warn(ctx, "startup validation completed with warnings",
+					zap.Int("warnings", result.WarningCount),
+					zap.Int("errors", result.ErrorCount))
+			}
 		}
 
 		httpCfg := &httpserver.Config{

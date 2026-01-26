@@ -53,6 +53,7 @@ func (c *MetadataHealthChecker) Check(ctx context.Context) (*MetadataHealth, err
 	// Read all collection directories
 	entries, err := os.ReadDir(c.path)
 	if err != nil {
+		RecordHealthCheckResult(false)
 		return nil, fmt.Errorf("reading vectorstore directory: %w", err)
 	}
 
@@ -120,6 +121,10 @@ func (c *MetadataHealthChecker) Check(ctx context.Context) (*MetadataHealth, err
 	}
 
 	health.CheckDuration = time.Since(start)
+
+	// Update Prometheus metrics
+	UpdateHealthMetrics(health)
+	RecordHealthCheckResult(true)
 
 	// Log summary
 	c.logger.Info("metadata health check completed",
