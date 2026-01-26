@@ -552,6 +552,99 @@ The following metrics MUST be exported:
 | `contextd_policy_search_latency_seconds` | Histogram | tenant_id | Search latency |
 | `contextd_policy_check_latency_seconds` | Histogram | tenant_id | Check latency |
 
+## Real-World Use Case: Preventive Security Patterns
+
+This use case demonstrates why policies are needed - memories alone are insufficient for enforcing engineering standards.
+
+### The Problem
+
+During development of contextd's metadata CLI commands (2026-01-26), the following pattern emerged:
+
+```
+1. Developer writes code accepting user input (CLI args, file paths)
+2. Code does NOT include input validation (path traversal, hash format)
+3. Consensus review catches issues (CWE-22 path traversal, missing regex validation)
+4. Developer fixes issues
+5. Memory recorded: "We fixed path traversal"
+6. NEXT TIME: Same issues appear because memory is descriptive, not prescriptive
+```
+
+**Evidence**: Path traversal prevention has appeared in 3+ separate consensus reviews despite memories existing about prior fixes.
+
+### Why Memories Failed
+
+Memories in `engineering-practices` project contained:
+```
+Title: "Consensus review caught critical security issues before merge"
+Content: "Path traversal risk in quarantine operations - Missing hash validation"
+         "hash validation added (^[a-f0-9]{8}$)"
+```
+
+**Problem**: This memory records WHAT was fixed, not WHAT TO DO before writing code.
+
+Even with a preventive memory added:
+```
+Title: "PREVENTIVE: Input validation checklist for CLI/API code"
+Content: [checklist with code patterns]
+Tags: ["security", "input-validation", "preventive"]
+```
+
+**The gap**: Memories are opt-in retrieval. Developer must remember to search before coding.
+
+### How Policies Solve This
+
+With the Policy system, the security lead defines:
+
+```json
+{
+  "id": "SEC-007",
+  "title": "Input Validation Required",
+  "category": "security",
+  "severity": "error",
+  "scope": "org",
+  "content": "All code accepting user input MUST validate:\n\n## Path Inputs\n- Check for '..' in raw input\n- Use filepath.Clean()\n- Validate within expected boundaries\n- For hashes: regex ^[a-fA-F0-9]{8}$\n\n## Code Pattern\n```go\nif strings.Contains(userPath, \"..\") {\n    return fmt.Errorf(\"path traversal not allowed\")\n}\n```"
+}
+```
+
+**Automatic Enforcement**:
+1. Agent starts task: "Add metadata CLI commands"
+2. `policy_search("CLI user input file paths")` → SEC-007 injected
+3. Agent sees policy BEFORE writing code
+4. Code includes validation from the start
+5. Consensus review catches edge cases, not known patterns
+
+### Policy vs Memory Comparison
+
+| Aspect | Memory | Policy |
+|--------|--------|--------|
+| Retrieval | Opt-in (developer must search) | Automatic (injected on relevant tasks) |
+| Enforcement | None (informational) | Severity-based (error blocks, warning flags) |
+| Authority | Learned suggestion | Prescriptive rule from lead |
+| Scope | Project-specific | Hierarchical (org → team → project) |
+| Audit | Usage count only | Compliance rate, violation tracking |
+
+### Implementation Priority
+
+This use case demonstrates Policy system should be **P1 priority** because:
+1. Security issues recurring despite memory records
+2. Consensus review time wasted on preventable issues
+3. "Fix later" mentality enabled without enforcement
+4. No compliance metrics without policy_check integration
+
+### Proposed Policy Set from Use Case
+
+| Policy ID | Title | Severity | Category |
+|-----------|-------|----------|----------|
+| SEC-007 | Input Validation Required | error | security |
+| SEC-008 | Path Traversal Prevention | error | security |
+| SEC-009 | Hash/ID Format Validation | warning | security |
+| CODE-010 | No Silent Error Handling | warning | coding |
+| CODE-011 | Restrictive File Permissions | warning | coding |
+
+These policies would be created at org level in `org_policies` collection and automatically surfaced when agents work on CLI/API code.
+
+---
+
 ## Future Considerations
 
 ### Phase 2: Policy Templates
