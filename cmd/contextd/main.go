@@ -429,6 +429,7 @@ func run() error {
 	var httpErrChan chan error
 	var httpServerHost string
 	var httpServerPort int
+	var bgScanner *vectorstore.BackgroundScanner
 
 	if !*noHTTP {
 		// Determine HTTP server configuration (flags override config)
@@ -491,6 +492,26 @@ func run() error {
 			zap.String("host", httpServerHost),
 			zap.Int("port", httpServerPort),
 		)
+
+		// Start background health scanner if health checker is available
+		if healthChecker != nil {
+			scannerCfg := &vectorstore.BackgroundScannerConfig{
+				Interval: 5 * time.Minute, // Default: scan every 5 minutes
+				OnDegraded: func(health *vectorstore.MetadataHealth) {
+					logger.Warn(ctx, "background scanner detected degraded state",
+						zap.Int("corrupt_count", health.CorruptCount),
+						zap.Strings("corrupt_hashes", health.Corrupt))
+				},
+				OnRecovered: func(health *vectorstore.MetadataHealth) {
+					logger.Info(ctx, "background scanner detected recovery",
+						zap.Int("healthy_count", health.HealthyCount))
+				},
+			}
+			bgScanner = vectorstore.NewBackgroundScanner(healthChecker, scannerCfg, logger.Underlying())
+			bgScanner.Start(ctx)
+			logger.Info(ctx, "background health scanner started",
+				zap.Duration("interval", scannerCfg.Interval))
+		}
 
 		// Start HTTP server in background goroutine
 		httpErrChan = make(chan error, 1)
@@ -641,6 +662,12 @@ func run() error {
 		} else {
 			logger.Info(ctx, "consolidation scheduler stopped")
 		}
+	}
+
+	// Stop background health scanner (if running)
+	if bgScanner != nil {
+		bgScanner.Stop()
+		logger.Info(ctx, "background health scanner stopped")
 	}
 
 	// Gracefully shutdown HTTP server (if running)

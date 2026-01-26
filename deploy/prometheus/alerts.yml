@@ -1,0 +1,183 @@
+# Prometheus Alerting Rules for contextd Vectorstore Health
+#
+# Deploy to Prometheus alerting rules directory:
+#   cp alerts.yml /etc/prometheus/rules/contextd.yml
+#   promtool check rules /etc/prometheus/rules/contextd.yml
+#   curl -X POST http://prometheus:9090/-/reload
+#
+# For Alertmanager routing, see alertmanager.yml.example
+
+groups:
+  - name: contextd_vectorstore
+    rules:
+      # CRITICAL: Vectorstore is in degraded state (corrupt collections detected)
+      - alert: VectorstoreDegraded
+        expr: contextd_vectorstore_health_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Vectorstore is in degraded state"
+          description: |
+            contextd vectorstore has detected corrupt collections and is operating in degraded mode.
+
+            Corrupt collections: {{ $value }}
+            Instance: {{ $labels.instance }}
+
+            Impact: Some memories/checkpoints may be unavailable.
+
+            Runbook: https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md"
+
+      # CRITICAL: Corrupt collections detected
+      - alert: CorruptCollectionsDetected
+        expr: contextd_vectorstore_collections_total{status="corrupt"} > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Corrupt vectorstore collections detected"
+          description: |
+            {{ $value }} corrupt collection(s) detected in contextd vectorstore.
+
+            Instance: {{ $labels.instance }}
+
+            These collections have documents but missing metadata files.
+            They have been quarantined but require manual recovery.
+
+            Runbook: https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md"
+
+      # WARNING: Health check is failing
+      - alert: HealthCheckFailing
+        expr: rate(contextd_vectorstore_health_checks_total{result="error"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Vectorstore health checks are failing"
+          description: |
+            contextd vectorstore health checks are returning errors.
+
+            Instance: {{ $labels.instance }}
+            Error rate: {{ $value | printf "%.2f" }}/s
+
+            This may indicate filesystem issues or configuration problems.
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_HEALTH_MONITORING.md"
+
+      # WARNING: Health check latency is high
+      - alert: HealthCheckSlow
+        expr: histogram_quantile(0.99, rate(contextd_vectorstore_health_check_duration_seconds_bucket[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Vectorstore health checks are slow"
+          description: |
+            contextd vectorstore health check p99 latency is above 1 second.
+
+            Instance: {{ $labels.instance }}
+            p99 latency: {{ $value | printf "%.2f" }}s
+
+            This may indicate disk I/O issues or too many collections.
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_HEALTH_MONITORING.md"
+
+      # INFO: Quarantine operation occurred
+      - alert: QuarantineOperationOccurred
+        expr: increase(contextd_vectorstore_quarantine_operations_total{result="success"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: info
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Vectorstore quarantine operation occurred"
+          description: |
+            A corrupt collection was automatically quarantined in the last hour.
+
+            Instance: {{ $labels.instance }}
+            Operations: {{ $value }}
+
+            Review quarantined collections and follow recovery procedure.
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md"
+
+      # WARNING: No healthy collections
+      - alert: NoHealthyCollections
+        expr: contextd_vectorstore_collections_total{status="healthy"} == 0 and contextd_vectorstore_collections_total{status="corrupt"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          service: contextd
+        annotations:
+          summary: "No healthy vectorstore collections"
+          description: |
+            All vectorstore collections are corrupt or empty.
+
+            Instance: {{ $labels.instance }}
+            Corrupt: {{ with printf "contextd_vectorstore_collections_total{status='corrupt',instance='%s'}" .Labels.instance | query }}{{ . | first | value }}{{ end }}
+
+            contextd memory and checkpoint services are effectively unavailable.
+            Immediate recovery action required.
+          runbook_url: "https://github.com/fyrsmithlabs/contextd/blob/main/docs/operations/METADATA_RECOVERY.md"
+
+      # WARNING: Many empty collections (potential cleanup needed)
+      - alert: ManyEmptyCollections
+        expr: contextd_vectorstore_collections_total{status="empty"} > 10
+        for: 24h
+        labels:
+          severity: info
+          team: platform
+          service: contextd
+        annotations:
+          summary: "Many empty vectorstore collections"
+          description: |
+            There are {{ $value }} empty collections in the vectorstore.
+
+            Instance: {{ $labels.instance }}
+
+            This is not critical but may indicate orphaned collections
+            that could be cleaned up to reduce disk usage.
+
+  - name: contextd_availability
+    rules:
+      # CRITICAL: contextd is down
+      - alert: ContextdDown
+        expr: up{job="contextd"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          service: contextd
+        annotations:
+          summary: "contextd is down"
+          description: |
+            contextd instance is not responding to scrapes.
+
+            Instance: {{ $labels.instance }}
+
+            Check if the process is running and the metrics endpoint is accessible.
+
+      # WARNING: contextd HTTP endpoint returning errors
+      - alert: ContextdHTTPErrors
+        expr: sum(rate(http_requests_total{job="contextd",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="contextd"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: contextd
+        annotations:
+          summary: "contextd HTTP error rate elevated"
+          description: |
+            contextd HTTP error rate is above 5%.
+
+            Instance: {{ $labels.instance }}
+            Error rate: {{ $value | printf "%.2f" }}%

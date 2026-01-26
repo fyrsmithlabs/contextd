@@ -1,0 +1,140 @@
+# Alertmanager Configuration Example for contextd
+#
+# This is an example configuration. Customize for your environment:
+# - Replace slack_api_url with your webhook
+# - Replace pagerduty_service_key with your key
+# - Adjust routing rules as needed
+#
+# Deploy:
+#   cp alertmanager.yml.example /etc/alertmanager/alertmanager.yml
+#   amtool check-config /etc/alertmanager/alertmanager.yml
+#   curl -X POST http://alertmanager:9093/-/reload
+
+global:
+  # Default SMTP settings for email notifications
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@example.com'
+  smtp_auth_username: 'alertmanager'
+  smtp_auth_password: 'password'
+
+  # Slack settings
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+  # PagerDuty settings
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Route tree
+route:
+  # Default receiver
+  receiver: 'platform-team'
+
+  # Group alerts by alertname and instance
+  group_by: ['alertname', 'instance', 'service']
+
+  # Wait before sending first notification
+  group_wait: 30s
+
+  # Wait before sending updated notification
+  group_interval: 5m
+
+  # Wait before re-sending if alert continues
+  repeat_interval: 4h
+
+  # Child routes
+  routes:
+    # Critical alerts -> PagerDuty immediately
+    - match:
+        severity: critical
+        service: contextd
+      receiver: 'contextd-pagerduty'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true  # Also send to default receiver
+
+    # Warning alerts -> Slack
+    - match:
+        severity: warning
+        service: contextd
+      receiver: 'contextd-slack'
+      group_wait: 1m
+      repeat_interval: 4h
+
+    # Info alerts -> Slack (less urgent channel)
+    - match:
+        severity: info
+        service: contextd
+      receiver: 'contextd-slack-info'
+      group_wait: 5m
+      repeat_interval: 24h
+
+# Inhibition rules
+inhibit_rules:
+  # If contextd is down, don't alert on vectorstore issues
+  - source_match:
+      alertname: 'ContextdDown'
+    target_match:
+      service: 'contextd'
+    equal: ['instance']
+
+  # If no healthy collections, don't also alert on degraded state
+  - source_match:
+      alertname: 'NoHealthyCollections'
+    target_match:
+      alertname: 'VectorstoreDegraded'
+    equal: ['instance']
+
+# Receivers
+receivers:
+  - name: 'platform-team'
+    email_configs:
+      - to: 'platform-team@example.com'
+        send_resolved: true
+
+  - name: 'contextd-pagerduty'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        severity: '{{ .CommonLabels.severity }}'
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+          resolved: '{{ template "pagerduty.default.instances" .Alerts.Resolved }}'
+          runbook_url: '{{ .CommonAnnotations.runbook_url }}'
+
+  - name: 'contextd-slack'
+    slack_configs:
+      - channel: '#platform-alerts'
+        username: 'Alertmanager'
+        icon_emoji: ':rotating_light:'
+        send_resolved: true
+        title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Instance:* {{ .CommonLabels.instance }}
+
+          {{ .CommonAnnotations.description }}
+
+          {{ if .CommonAnnotations.runbook_url }}*Runbook:* {{ .CommonAnnotations.runbook_url }}{{ end }}
+        actions:
+          - type: button
+            text: 'Runbook'
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: 'Silence'
+            url: '{{ template "__alertmanagerURL" . }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D'
+
+  - name: 'contextd-slack-info'
+    slack_configs:
+      - channel: '#platform-info'
+        username: 'Alertmanager'
+        icon_emoji: ':information_source:'
+        send_resolved: true
+        title: 'INFO: {{ .CommonLabels.alertname }}'
+        text: |
+          {{ .CommonAnnotations.summary }}
+
+          {{ .CommonAnnotations.description }}
+
+# Templates (optional custom templates)
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

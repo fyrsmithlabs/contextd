@@ -228,20 +228,79 @@ Metadata corruption → Real-time detection & monitoring
 
 ---
 
-## 🔮 Future Work (From Incident Report)
+## ✅ P1 Complete - All Short-Term Tasks
 
-### Short-Term (P1)
-- ✅ Add health check HTTP endpoints (COMPLETE)
-- ⏳ Automated startup validation (pre-flight checks)
-- ⏳ Periodic background health scanning
-- ⏳ Prometheus metrics integration
-- ⏳ Alerting configuration
+### Short-Term (P1) - ALL COMPLETE
+- ✅ Add health check HTTP endpoints
+- ✅ Automated startup validation (pre-flight checks)
+- ✅ Periodic background health scanning
+- ✅ Prometheus metrics integration
+- ✅ Alerting configuration
 
 ### Long-Term (P2-P3)
 - 🔮 Submit chromem-go PR for atomic writes
 - 🔮 Automated metadata backups
 - 🔮 Automatic recovery (metadata rebuild)
 - 🔮 Evaluate Qdrant migration
+
+---
+
+## ✅ Implemented (P1 Priority) - Additional Tasks
+
+### 2. Startup Validation (Pre-flight Checks)
+
+**File**: `internal/vectorstore/startup_validation.go`
+
+**Purpose**: Validate metadata integrity BEFORE services start
+
+**Implementation**:
+- `ValidateStartup()`: Runs health check at startup
+- Configurable: `FailOnCorruption`, `FailOnDegraded`
+- Default: warn but continue (graceful degradation)
+
+**Integration**: `cmd/contextd/main.go` lines 462-475
+
+### 3. Background Health Scanner
+
+**File**: `internal/vectorstore/background_scanner.go`
+
+**Purpose**: Periodic health checks to detect corruption proactively
+
+**Implementation**:
+- `BackgroundScanner`: Runs health checks on configurable interval
+- Default interval: 5 minutes
+- Callbacks: `OnDegraded`, `OnRecovered`, `OnError`
+- State transition detection: healthy → degraded, degraded → healthy
+
+**Integration**: `cmd/contextd/main.go` lines 496-515
+
+### 4. Prometheus Metrics
+
+**File**: `internal/vectorstore/metrics.go`
+
+**Metrics Exposed**:
+- `contextd_vectorstore_collections_total{status}` - Collections by health
+- `contextd_vectorstore_health_status` - 1=healthy, 0=degraded
+- `contextd_vectorstore_health_check_duration_seconds` - Latency histogram
+- `contextd_vectorstore_health_checks_total{result}` - Check counts
+- `contextd_vectorstore_corrupt_collections_detected_total` - Corruption counter
+- `contextd_vectorstore_quarantine_operations_total{result}` - Quarantine ops
+
+### 5. Alerting Configuration
+
+**Files**: `deploy/prometheus/alerts.yml`, `deploy/prometheus/alertmanager.yml.example`
+
+**Alerts Defined**:
+| Alert | Severity | Condition |
+|-------|----------|-----------|
+| VectorstoreDegraded | critical | health_status == 0 |
+| CorruptCollectionsDetected | critical | corrupt collections > 0 |
+| NoHealthyCollections | critical | all collections corrupt |
+| HealthCheckFailing | warning | check errors |
+| HealthCheckSlow | warning | p99 > 1s |
+| QuarantineOperationOccurred | info | quarantine in last hour |
+
+**Documentation**: `docs/operations/ALERTING.md`
 
 ---
 
