@@ -10,11 +10,24 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 )
+
+// persistedCollection matches chromem's internal metadata structure
+type persistedCollection struct {
+	Name     string
+	Metadata map[string]string
+}
+
+// validHashPattern validates collection hash format (8 hex chars)
+var validHashPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}$`)
+
+// validCollectionNamePattern validates collection name format
+var validCollectionNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var (
 	// vectorstorePath is the path to the vectorstore directory
@@ -36,7 +49,7 @@ func init() {
 	quarantineCmd.AddCommand(quarantineRestoreCmd)
 
 	// Global flags for metadata commands
-	metadataCmd.PersistentFlags().StringVar(&vectorstorePath, "path", "", "vectorstore path (default: ~/.config/contextd/vectorstore)")
+	metadataCmd.PersistentFlags().StringVar(&vectorstorePath, "path", "", "vectorstore path (default: $HOME/.config/contextd/vectorstore)")
 }
 
 // metadataCmd is the parent command for metadata operations
@@ -151,7 +164,21 @@ type MetadataHealthResponse struct {
 
 func getVectorstorePath() (string, error) {
 	if vectorstorePath != "" {
-		return vectorstorePath, nil
+		// Check for path traversal attempts in the raw input
+		if strings.Contains(vectorstorePath, "..") {
+			return "", fmt.Errorf("path traversal not allowed: %s", vectorstorePath)
+		}
+		// Clean and validate the path
+		cleaned := filepath.Clean(vectorstorePath)
+		// Make relative paths absolute
+		if !filepath.IsAbs(cleaned) {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("failed to get home directory: %w", err)
+			}
+			cleaned = filepath.Join(home, cleaned)
+		}
+		return cleaned, nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -199,7 +226,10 @@ func fetchHealthHTTP() (*MetadataHealthResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("server returned %d (failed to read response: %v)", resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, body)
 	}
 
@@ -237,7 +267,11 @@ func scanFilesystemHealth(path string) (*MetadataHealthResponse, error) {
 		hasMetadata := metaErr == nil
 
 		// Count documents
-		files, _ := os.ReadDir(collectionPath)
+		files, readErr := os.ReadDir(collectionPath)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to read collection %s: %v\n", hash, readErr)
+			continue
+		}
 		docCount := 0
 		for _, f := range files {
 			if !f.IsDir() && strings.HasSuffix(f.Name(), ".gob") && f.Name() != "00000000.gob" {
@@ -341,7 +375,11 @@ func runMetadataList(cmd *cobra.Command, args []string) error {
 		}
 
 		// Count documents
-		files, _ := os.ReadDir(collectionPath)
+		files, readErr := os.ReadDir(collectionPath)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to read collection %s: %v\n", hash, readErr)
+			continue
+		}
 		docCount := 0
 		for _, f := range files {
 			if !f.IsDir() && strings.HasSuffix(f.Name(), ".gob") && f.Name() != "00000000.gob" {
@@ -372,12 +410,6 @@ func tryReadCollectionName(metadataPath string) string {
 	}
 	defer f.Close()
 
-	// Decode the gob to get the name
-	type persistedCollection struct {
-		Name     string
-		Metadata map[string]string
-	}
-
 	var pc persistedCollection
 	if err := gob.NewDecoder(f).Decode(&pc); err != nil {
 		return ""
@@ -388,6 +420,14 @@ func tryReadCollectionName(metadataPath string) string {
 
 func runMetadataRecover(cmd *cobra.Command, args []string) error {
 	collectionName := args[0]
+
+	// Validate collection name
+	if !validCollectionNamePattern.MatchString(collectionName) {
+		return fmt.Errorf("invalid collection name: must contain only alphanumeric, underscore, and hyphen characters")
+	}
+	if len(collectionName) > 64 {
+		return fmt.Errorf("collection name too long: maximum 64 characters")
+	}
 
 	path, err := getVectorstorePath()
 	if err != nil {
@@ -410,7 +450,7 @@ func runMetadataRecover(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Run: ctxd metadata quarantine restore %s\n", hash)
 			return nil
 		}
-		return fmt.Errorf("collection directory not found: %s (hash: %s)", collectionName, hash)
+		return fmt.Errorf("collection directory not found: %s (hash: %s)\n\nCommon collection names:\n  - contextd_memories\n  - contextd_checkpoints\n  - contextd_remediations\n  - contextd_repository\n\nRun 'ctxd metadata list' to see available collections.", collectionName, hash)
 	}
 
 	// Check if metadata already exists
@@ -420,19 +460,13 @@ func runMetadataRecover(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Create metadata structure
-	type persistedCollection struct {
-		Name     string
-		Metadata map[string]string
-	}
-
 	pc := persistedCollection{
 		Name:     collectionName,
 		Metadata: map[string]string{},
 	}
 
-	// Create file
-	f, err := os.Create(metadataPath)
+	// Create file with restrictive permissions (0640)
+	f, err := os.OpenFile(metadataPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0640)
 	if err != nil {
 		return fmt.Errorf("failed to create metadata file: %w", err)
 	}
@@ -492,7 +526,11 @@ func runQuarantineList(cmd *cobra.Command, args []string) error {
 		collectionPath := filepath.Join(quarantinePath, hash)
 
 		// Count documents
-		files, _ := os.ReadDir(collectionPath)
+		files, readErr := os.ReadDir(collectionPath)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to read quarantined collection %s: %v\n", hash, readErr)
+			continue
+		}
 		docCount := 0
 		for _, f := range files {
 			if !f.IsDir() && strings.HasSuffix(f.Name(), ".gob") {
@@ -512,11 +550,11 @@ func runQuarantineList(cmd *cobra.Command, args []string) error {
 }
 
 func runQuarantineRestore(cmd *cobra.Command, args []string) error {
-	hash := args[0]
+	hash := strings.ToLower(args[0])
 
-	// Validate hash format
-	if len(hash) != 8 {
-		return fmt.Errorf("invalid hash format: expected 8-character hex string")
+	// Validate hash format (8 hex characters)
+	if !validHashPattern.MatchString(hash) {
+		return fmt.Errorf("invalid hash format: must be 8-character hexadecimal string (e.g., abc12345)")
 	}
 
 	path, err := getVectorstorePath()
@@ -540,7 +578,7 @@ func runQuarantineRestore(cmd *cobra.Command, args []string) error {
 	// Check metadata exists in quarantine (should have been recovered)
 	metadataPath := filepath.Join(quarantinePath, "00000000.gob")
 	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
-		return fmt.Errorf("metadata file not found in quarantined collection\nRecover metadata first: ctxd metadata recover <collection-name>")
+		return fmt.Errorf("metadata file not found in quarantined collection\n\nTo restore this collection:\n  1. Identify the collection name for hash %s\n  2. Recover metadata: ctxd metadata recover <collection-name>\n  3. Restore: ctxd metadata quarantine restore %s", hash, hash)
 	}
 
 	// Move from quarantine to vectorstore

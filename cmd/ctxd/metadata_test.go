@@ -215,3 +215,128 @@ func TestRunQuarantineRestore_FailsWithoutMetadata(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "metadata file not found")
 }
+
+func TestGetVectorstorePath_PathTraversalPrevention(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		wantError bool
+	}{
+		{"valid absolute path", "/tmp/vectorstore", false},
+		{"valid relative path", "vectorstore", false},
+		{"path traversal attempt", "../../../etc/passwd", true},
+		{"hidden traversal", "/tmp/foo/../../../etc", true},
+		{"double dot anywhere blocked", "foo..bar", true}, // Blocked to be safe
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vectorstorePath = tt.path
+			defer func() { vectorstorePath = "" }()
+
+			_, err := getVectorstorePath()
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "path traversal")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidHashPattern(t *testing.T) {
+	tests := []struct {
+		hash    string
+		isValid bool
+	}{
+		{"abc12345", true},
+		{"ABCDEF12", true},
+		{"abcdef12", true},
+		{"12345678", true},
+		{"abc1234", false},   // Too short
+		{"abc123456", false}, // Too long
+		{"xyz!@#$%", false},  // Invalid chars
+		{"abc1234g", false},  // 'g' not hex
+		{"", false},          // Empty
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.hash, func(t *testing.T) {
+			assert.Equal(t, tt.isValid, validHashPattern.MatchString(tt.hash))
+		})
+	}
+}
+
+func TestValidCollectionNamePattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		isValid bool
+	}{
+		{"contextd_memories", true},
+		{"my-collection", true},
+		{"Collection123", true},
+		{"test_collection_v2", true},
+		{"invalid name", false},  // Space not allowed
+		{"invalid/path", false},  // Slash not allowed
+		{"invalid..dots", false}, // Double dots suspicious but allowed by pattern
+		{"", false},              // Empty
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "" {
+				assert.False(t, validCollectionNamePattern.MatchString(tt.name))
+			} else {
+				assert.Equal(t, tt.isValid, validCollectionNamePattern.MatchString(tt.name))
+			}
+		})
+	}
+}
+
+func TestRunMetadataRecover_InvalidCollectionName(t *testing.T) {
+	tmpDir := t.TempDir()
+	vectorstorePath = tmpDir
+	defer func() { vectorstorePath = "" }()
+
+	// Test invalid collection names
+	tests := []struct {
+		name      string
+		wantError string
+	}{
+		{"invalid name with spaces", "invalid collection name"},
+		{"path/traversal", "invalid collection name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := runMetadataRecover(nil, []string{tt.name})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
+}
+
+func TestRunQuarantineRestore_InvalidHashFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	vectorstorePath = tmpDir
+	defer func() { vectorstorePath = "" }()
+
+	tests := []struct {
+		hash      string
+		wantError string
+	}{
+		{"abc", "invalid hash format"},
+		{"not-hex!", "invalid hash format"},
+		{"abc12345678", "invalid hash format"},
+		{"../../../", "invalid hash format"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.hash, func(t *testing.T) {
+			err := runQuarantineRestore(nil, []string{tt.hash})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
+}
