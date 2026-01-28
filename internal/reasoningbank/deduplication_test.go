@@ -2,6 +2,7 @@ package reasoningbank
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
@@ -108,4 +109,76 @@ func TestService_Search_Deduplication_MultipleMemories(t *testing.T) {
 	assert.True(t, ids[memory1.ID], "memory1 should be in results")
 	assert.True(t, ids[memory2.ID], "memory2 should be in results")
 	assert.True(t, ids[memory3.ID], "memory3 should be in results")
+}
+
+// TestService_SearchWithScores tests that SearchWithScores returns relevance scores.
+// This addresses GitHub Issue #125: flat 0.80 relevance scores due to returning
+// confidence instead of search similarity.
+func TestService_SearchWithScores(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-scores"
+
+	// Create a memory
+	memory, err := NewMemory(projectID, "Relevance Test", "Content for testing search relevance", OutcomeSuccess, []string{"test"})
+	require.NoError(t, err)
+	memory.Confidence = 0.85
+	memory.State = MemoryStateActive
+
+	// Record the memory
+	err = svc.Record(ctx, memory)
+	require.NoError(t, err)
+
+	// SearchWithScores should return both memory and relevance score
+	results, err := svc.SearchWithScores(ctx, projectID, "Relevance Test", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "should return 1 result")
+
+	// Check that relevance is the search similarity (0.9 from mock), not confidence (0.85)
+	assert.Equal(t, memory.ID, results[0].Memory.ID, "memory ID should match")
+	assert.Equal(t, 0.85, results[0].Memory.Confidence, "memory confidence should be 0.85")
+	assert.InDelta(t, 0.9, results[0].Relevance, 0.01, "relevance should be ~0.9 (mock search score)")
+}
+
+// TestService_SearchWithScores_RelevanceVsConfidence verifies that relevance and
+// confidence are independent values.
+func TestService_SearchWithScores_RelevanceVsConfidence(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-rel-conf"
+
+	// Create memories with different confidence levels
+	highConf, _ := NewMemory(projectID, "High Confidence", "Very reliable pattern", OutcomeSuccess, []string{})
+	highConf.Confidence = 0.95
+	highConf.State = MemoryStateActive
+
+	lowConf, _ := NewMemory(projectID, "Low Confidence", "Uncertain pattern", OutcomeSuccess, []string{})
+	lowConf.Confidence = 0.72 // Just above MinConfidence (0.7)
+	lowConf.State = MemoryStateActive
+
+	_ = svc.Record(ctx, highConf)
+	_ = svc.Record(ctx, lowConf)
+
+	results, err := svc.SearchWithScores(ctx, projectID, "pattern", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 2, "should return both memories")
+
+	// Both should have same relevance (0.9 from mock) but different confidences
+	for _, r := range results {
+		// Relevance is from search, not confidence
+		assert.InDelta(t, 0.9, r.Relevance, 0.01, "relevance should be search score")
+		// Confidence should match original values
+		if r.Memory.ID == highConf.ID {
+			assert.Equal(t, 0.95, r.Memory.Confidence)
+		} else if r.Memory.ID == lowConf.ID {
+			assert.Equal(t, 0.72, r.Memory.Confidence)
+		}
+		// They should be different
+		assert.False(t, math.Abs(r.Relevance-r.Memory.Confidence) < 0.01,
+			"relevance and confidence should be independent values")
+	}
 }

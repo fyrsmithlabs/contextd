@@ -1230,21 +1230,22 @@ func (s *Server) registerMemoryTools() {
 			return nil, memorySearchOutput{}, toolErr
 		}
 
-		memories, err := s.reasoningbankSvc.Search(ctx, args.ProjectID, args.Query, limit)
+		scoredMemories, err := s.reasoningbankSvc.SearchWithScores(ctx, args.ProjectID, args.Query, limit)
 		if err != nil {
 			toolErr = fmt.Errorf("memory search failed: %w", err)
 			return nil, memorySearchOutput{}, toolErr
 		}
 
-		results := make([]map[string]interface{}, 0, len(memories))
-		for _, m := range memories {
+		results := make([]map[string]interface{}, 0, len(scoredMemories))
+		for _, sm := range scoredMemories {
 			results = append(results, map[string]interface{}{
-				"id":         m.ID,
-				"title":      m.Title,
-				"content":    s.scrubber.Scrub(m.Content).Scrubbed,
-				"outcome":    m.Outcome,
-				"confidence": m.Confidence,
-				"tags":       m.Tags,
+				"id":         sm.Memory.ID,
+				"title":      sm.Memory.Title,
+				"content":    s.scrubber.Scrub(sm.Memory.Content).Scrubbed,
+				"outcome":    sm.Memory.Outcome,
+				"confidence": sm.Memory.Confidence,
+				"relevance":  sm.Relevance, // Search similarity score (0.0-1.0)
+				"tags":       sm.Memory.Tags,
 			})
 		}
 

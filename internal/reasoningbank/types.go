@@ -99,6 +99,15 @@ type Memory struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ScoredMemory pairs a Memory with its search relevance score.
+// The Relevance score (0.0-1.0) indicates how well the memory matches
+// the search query based on semantic similarity, distinct from the
+// memory's Confidence which represents reliability/trustworthiness.
+type ScoredMemory struct {
+	Memory    Memory  `json:"memory"`
+	Relevance float64 `json:"relevance"`
+}
+
 // NewMemory creates a new memory with a generated UUID and default values.
 func NewMemory(projectID, title, content string, outcome Outcome, tags []string) (*Memory, error) {
 	if projectID == "" {

@@ -545,6 +545,152 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	return memories, nil
 }
 
+// SearchWithScores returns memories with their search relevance scores.
+// Unlike Search(), this preserves the semantic similarity score from the
+// vector search, which is useful for displaying result quality to users.
+//
+// The Relevance score (0.0-1.0) indicates how well the memory matches
+// the query semantically, distinct from the memory's Confidence which
+// represents reliability based on feedback.
+func (s *Service) SearchWithScores(ctx context.Context, projectID, query string, limit int) ([]ScoredMemory, error) {
+	startTime := time.Now()
+
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if query == "" {
+		return nil, fmt.Errorf("query cannot be empty")
+	}
+	if limit <= 0 {
+		limit = DefaultSearchLimit
+	}
+
+	// Get store and collection name for this project
+	store, collectionName, err := s.getStore(ctx, projectID)
+	if err != nil {
+		s.recordError(ctx, "search", "get_store_failed")
+		return nil, err
+	}
+
+	// Check if collection exists
+	exists, err := store.CollectionExists(ctx, collectionName)
+	if err != nil {
+		s.recordError(ctx, "search", "collection_check_failed")
+		return nil, fmt.Errorf("checking collection: %w", err)
+	}
+	if !exists {
+		s.logger.Debug("collection does not exist, returning empty results",
+			zap.String("collection", collectionName),
+			zap.String("project_id", projectID))
+		return []ScoredMemory{}, nil
+	}
+
+	// Fetch more results than requested to account for filtering
+	searchLimit := limit * 3
+	if searchLimit < 30 {
+		searchLimit = 30
+	}
+	if searchLimit > 200 {
+		searchLimit = 200
+	}
+
+	results, err := store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
+	if err != nil {
+		s.recordError(ctx, "search", "search_failed")
+		return nil, fmt.Errorf("searching memories: %w", err)
+	}
+
+	// Convert results to ScoredMemory, applying dedup and filtering
+	type internalScored struct {
+		memory Memory
+		score  float32
+	}
+	internalResults := make([]internalScored, 0, len(results))
+	seenIDs := make(map[string]struct{}, len(results))
+
+	const consolidatedMemoryBoost = 1.2
+
+	for _, result := range results {
+		// Deduplication
+		if _, seen := seenIDs[result.ID]; seen {
+			continue
+		}
+		seenIDs[result.ID] = struct{}{}
+
+		memory, err := s.resultToMemory(result)
+		if err != nil {
+			continue
+		}
+
+		// Filter low confidence and archived
+		if memory.Confidence < MinConfidence {
+			continue
+		}
+		if memory.State == MemoryStateArchived {
+			continue
+		}
+
+		// Apply consolidated memory boost
+		score := result.Score
+		isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
+			(strings.Contains(memory.Description, "Synthesized from") ||
+				strings.Contains(memory.Description, "Consolidated from"))
+		if isConsolidated {
+			score *= consolidatedMemoryBoost
+		}
+
+		// Record usage signal
+		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
+		if err == nil {
+			_ = s.signalStore.StoreSignal(ctx, signal)
+		}
+
+		internalResults = append(internalResults, internalScored{
+			memory: *memory,
+			score:  score,
+		})
+	}
+
+	// Sort by score (descending)
+	for i := 0; i < len(internalResults); i++ {
+		for j := i + 1; j < len(internalResults); j++ {
+			if internalResults[j].score > internalResults[i].score {
+				internalResults[i], internalResults[j] = internalResults[j], internalResults[i]
+			}
+		}
+	}
+
+	// Convert to ScoredMemory and limit
+	scoredMemories := make([]ScoredMemory, 0, limit)
+	for i := 0; i < len(internalResults) && i < limit; i++ {
+		scoredMemories = append(scoredMemories, ScoredMemory{
+			Memory:    internalResults[i].memory,
+			Relevance: float64(internalResults[i].score),
+		})
+	}
+
+	// Record metrics
+	if s.searchCounter != nil {
+		s.searchCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", projectID),
+			attribute.Int("result_count", len(scoredMemories)),
+		))
+	}
+	if s.searchDuration != nil {
+		s.searchDuration.Record(ctx, time.Since(startTime).Seconds(), metric.WithAttributes(
+			attribute.String("project_id", projectID),
+		))
+	}
+
+	s.logger.Debug("search with scores completed",
+		zap.String("project_id", projectID),
+		zap.String("query", query),
+		zap.Int("limit", limit),
+		zap.Int("results", len(scoredMemories)))
+
+	return scoredMemories, nil
+}
+
 // Record creates a new memory explicitly (bypasses distillation).
 //
 // Sets initial confidence to ExplicitRecordConfidence (0.8) since
