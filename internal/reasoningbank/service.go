@@ -415,10 +415,20 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		score  float32
 	}
 	scoredMemories := make([]scoredMemory, 0, len(results))
+	seenIDs := make(map[string]struct{}, len(results)) // Deduplication: track seen memory IDs
 
 	const consolidatedMemoryBoost = 1.2 // 20% boost for consolidated memories
 
 	for _, result := range results {
+		// Deduplication: skip if we've already seen this memory ID
+		// This prevents duplicates from race conditions during memory updates (delete→add pattern)
+		if _, seen := seenIDs[result.ID]; seen {
+			s.logger.Debug("skipping duplicate memory",
+				zap.String("id", result.ID))
+			continue
+		}
+		seenIDs[result.ID] = struct{}{}
+
 		memory, err := s.resultToMemory(result)
 		if err != nil {
 			s.logger.Warn("skipping invalid memory",
