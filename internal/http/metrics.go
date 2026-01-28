@@ -91,53 +91,52 @@ func (m *HTTPMetrics) MetricsMiddleware() echo.MiddlewareFunc {
 			req := c.Request()
 			path := c.Path()
 			method := req.Method
+			ctx := req.Context()
 
 			// Increment active requests
 			if m.activeRequests != nil {
-				m.activeRequests.Add(req.Context(), 1)
+				m.activeRequests.Add(ctx, 1)
 			}
+
+			// Ensure active requests is decremented even on panic
+			defer func() {
+				// Record metrics after request completes (or panics)
+				duration := time.Since(start)
+				status := c.Response().Status
+				size := c.Response().Size
+
+				// Normalize path to avoid cardinality explosion
+				normalizedPath := normalizePath(path)
+
+				attrs := []attribute.KeyValue{
+					attribute.String("method", method),
+					attribute.String("endpoint", normalizedPath),
+					attribute.Int("status", status),
+				}
+
+				// Record request count
+				if m.requestsTotal != nil {
+					m.requestsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+				}
+
+				// Record duration
+				if m.requestDur != nil {
+					m.requestDur.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+				}
+
+				// Record response size
+				if m.responseSize != nil {
+					m.responseSize.Record(ctx, size, metric.WithAttributes(attrs...))
+				}
+
+				// Decrement active requests
+				if m.activeRequests != nil {
+					m.activeRequests.Add(ctx, -1)
+				}
+			}()
 
 			// Process request
-			err := next(c)
-
-			// Record metrics after request completes
-			duration := time.Since(start)
-			status := c.Response().Status
-			size := c.Response().Size
-
-			// Normalize path to avoid cardinality explosion
-			// Replace path parameters with placeholders
-			normalizedPath := normalizePath(path)
-
-			attrs := []attribute.KeyValue{
-				attribute.String("method", method),
-				attribute.String("endpoint", normalizedPath),
-				attribute.Int("status", status),
-			}
-
-			ctx := req.Context()
-
-			// Record request count
-			if m.requestsTotal != nil {
-				m.requestsTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
-			}
-
-			// Record duration
-			if m.requestDur != nil {
-				m.requestDur.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
-			}
-
-			// Record response size
-			if m.responseSize != nil {
-				m.responseSize.Record(ctx, size, metric.WithAttributes(attrs...))
-			}
-
-			// Decrement active requests
-			if m.activeRequests != nil {
-				m.activeRequests.Add(ctx, -1)
-			}
-
-			return err
+			return next(c)
 		}
 	}
 }
