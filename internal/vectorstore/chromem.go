@@ -86,6 +86,7 @@ type ChromemStore struct {
 	config    ChromemConfig
 	logger    *zap.Logger
 	isolation IsolationMode
+	metrics   *Metrics
 
 	// collections tracks which collections have been created
 	collections sync.Map
@@ -136,6 +137,7 @@ func NewChromemStore(config ChromemConfig, embedder Embedder, logger *zap.Logger
 		config:    config,
 		logger:    logger,
 		isolation: isolation,
+		metrics:   NewMetrics(logger),
 	}
 
 	logger.Info("ChromemStore initialized",
@@ -198,6 +200,7 @@ func (s *ChromemStore) getOrCreateCollection(ctx context.Context, name string) (
 // AddDocuments adds documents to the vector store.
 // If isolation mode is set, tenant metadata is automatically injected.
 func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]string, error) {
+	start := time.Now()
 	ctx, span := chromemTracer.Start(ctx, "ChromemStore.AddDocuments")
 	defer span.End()
 
@@ -276,11 +279,15 @@ func (s *ChromemStore) AddDocuments(ctx context.Context, docs []Document) ([]str
 	if err := collection.AddDocuments(ctx, chromemDocs, 1); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		s.metrics.RecordOperation(ctx, "add_documents", collectionName, time.Since(start), err)
 		return nil, fmt.Errorf("adding documents: %w", err)
 	}
 
 	span.SetAttributes(attribute.Int("documents_added", len(ids)))
 	span.SetStatus(codes.Ok, "success")
+
+	s.metrics.RecordOperation(ctx, "add_documents", collectionName, time.Since(start), nil)
+	s.metrics.RecordDocuments(ctx, "add", collectionName, len(docs))
 
 	s.logger.Debug("added documents to chromem",
 		zap.String("collection", collectionName),
@@ -303,6 +310,7 @@ func (s *ChromemStore) SearchWithFilters(ctx context.Context, query string, k in
 // SearchInCollection performs similarity search in a specific collection.
 // If isolation mode is set, tenant filters are automatically injected.
 func (s *ChromemStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]SearchResult, error) {
+	start := time.Now()
 	ctx, span := chromemTracer.Start(ctx, "ChromemStore.SearchInCollection")
 	defer span.End()
 
@@ -375,6 +383,9 @@ func (s *ChromemStore) SearchInCollection(ctx context.Context, collectionName st
 	span.SetAttributes(attribute.Int("results_count", len(searchResults)))
 	span.SetStatus(codes.Ok, "success")
 
+	s.metrics.RecordOperation(ctx, "search", collectionName, time.Since(start), nil)
+	s.metrics.RecordSearchResults(ctx, collectionName, len(searchResults))
+
 	s.logger.Debug("searched chromem collection",
 		zap.String("collection", collectionName),
 		zap.Int("k", k),
@@ -391,6 +402,7 @@ func (s *ChromemStore) DeleteDocuments(ctx context.Context, ids []string) error 
 
 // DeleteDocumentsFromCollection deletes documents by their IDs from a specific collection.
 func (s *ChromemStore) DeleteDocumentsFromCollection(ctx context.Context, collectionName string, ids []string) error {
+	start := time.Now()
 	ctx, span := chromemTracer.Start(ctx, "ChromemStore.DeleteDocumentsFromCollection")
 	defer span.End()
 
@@ -429,10 +441,15 @@ func (s *ChromemStore) DeleteDocumentsFromCollection(ctx context.Context, collec
 
 	if len(failures) > 0 {
 		span.SetStatus(codes.Error, "partial deletion failure")
-		return fmt.Errorf("failed to delete %d of %d documents: %v", len(failures), len(ids), failures)
+		err := fmt.Errorf("failed to delete %d of %d documents: %v", len(failures), len(ids), failures)
+		s.metrics.RecordOperation(ctx, "delete_documents", collectionName, time.Since(start), err)
+		return err
 	}
 
 	span.SetStatus(codes.Ok, "success")
+
+	s.metrics.RecordOperation(ctx, "delete_documents", collectionName, time.Since(start), nil)
+	s.metrics.RecordDocuments(ctx, "delete", collectionName, len(ids))
 
 	s.logger.Debug("deleted documents from chromem",
 		zap.String("collection", collectionName),

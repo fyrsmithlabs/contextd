@@ -41,6 +41,7 @@ type Server struct {
 	logger        *zap.Logger
 	config        *Config
 	healthChecker *vectorstore.MetadataHealthChecker
+	metrics       *HTTPMetrics
 }
 
 // Config holds HTTP server configuration.
@@ -70,9 +71,13 @@ func NewServer(registry services.Registry, logger *zap.Logger, cfg *Config) (*Se
 	e.HideBanner = true
 	e.HidePort = true
 
+	// Create metrics
+	httpMetrics := NewHTTPMetrics(logger)
+
 	// Middleware
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
+	e.Use(httpMetrics.MetricsMiddleware()) // OTEL metrics
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			start := time.Now()
@@ -97,6 +102,7 @@ func NewServer(registry services.Registry, logger *zap.Logger, cfg *Config) (*Se
 		logger:        logger,
 		config:        cfg,
 		healthChecker: cfg.HealthChecker,
+		metrics:       httpMetrics,
 	}
 
 	// Register routes

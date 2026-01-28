@@ -75,13 +75,16 @@ type service struct {
 	logger *zap.Logger
 
 	// Telemetry
-	tracer        trace.Tracer
-	meter         metric.Meter
-	saveCounter   metric.Int64Counter
-	resumeCounter metric.Int64Counter
-	errorCounter  metric.Int64Counter
-	totalGauge    metric.Int64ObservableGauge
-	sizeHistogram metric.Float64Histogram
+	tracer           trace.Tracer
+	meter            metric.Meter
+	saveCounter      metric.Int64Counter
+	saveDuration     metric.Float64Histogram
+	resumeCounter    metric.Int64Counter
+	resumeDuration   metric.Float64Histogram
+	listDuration     metric.Float64Histogram
+	errorCounter     metric.Int64Counter
+	totalGauge       metric.Int64ObservableGauge
+	sizeHistogram    metric.Float64Histogram
 
 	mu     sync.RWMutex
 	closed bool
@@ -173,6 +176,16 @@ func (s *service) initMetrics() {
 		s.logger.Warn("failed to create save counter", zap.Error(err))
 	}
 
+	s.saveDuration, err = s.meter.Float64Histogram(
+		"contextd.checkpoint.save_duration_seconds",
+		metric.WithDescription("Duration of checkpoint save operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create save duration histogram", zap.Error(err))
+	}
+
 	s.resumeCounter, err = s.meter.Int64Counter(
 		"contextd.checkpoint.resumes_total",
 		metric.WithDescription("Total number of checkpoint resumes"),
@@ -180,6 +193,26 @@ func (s *service) initMetrics() {
 	)
 	if err != nil {
 		s.logger.Warn("failed to create resume counter", zap.Error(err))
+	}
+
+	s.resumeDuration, err = s.meter.Float64Histogram(
+		"contextd.checkpoint.resume_duration_seconds",
+		metric.WithDescription("Duration of checkpoint resume operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create resume duration histogram", zap.Error(err))
+	}
+
+	s.listDuration, err = s.meter.Float64Histogram(
+		"contextd.checkpoint.list_duration_seconds",
+		metric.WithDescription("Duration of checkpoint list operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create list duration histogram", zap.Error(err))
 	}
 
 	s.errorCounter, err = s.meter.Int64Counter(
@@ -250,6 +283,7 @@ func (s *service) getProjectStore(ctx context.Context, tenantID, teamID, project
 
 // Save creates a new checkpoint.
 func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, error) {
+	start := time.Now()
 	ctx, span := s.tracer.Start(ctx, "checkpoint.save")
 	defer span.End()
 
@@ -341,6 +375,13 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 		))
 	}
 
+	// Record save duration
+	if s.saveDuration != nil {
+		s.saveDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
+		))
+	}
+
 	s.logger.Info("saved checkpoint",
 		zap.String("id", cp.ID),
 		zap.String("session_id", cp.SessionID),
@@ -353,6 +394,7 @@ func (s *service) Save(ctx context.Context, req *SaveRequest) (*Checkpoint, erro
 
 // List retrieves checkpoints for a session or project.
 func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, error) {
+	start := time.Now()
 	ctx, span := s.tracer.Start(ctx, "checkpoint.list")
 	defer span.End()
 
@@ -427,12 +469,20 @@ func (s *service) List(ctx context.Context, req *ListRequest) ([]*Checkpoint, er
 		}
 	}
 
+	// Record list duration
+	if s.listDuration != nil {
+		s.listDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
+		))
+	}
+
 	span.SetAttributes(attribute.Int("result_count", len(checkpoints)))
 	return checkpoints, nil
 }
 
 // Resume restores a checkpoint at the specified level.
 func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeResponse, error) {
+	start := time.Now()
 	ctx, span := s.tracer.Start(ctx, "checkpoint.resume")
 	defer span.End()
 
@@ -479,6 +529,14 @@ func (s *service) Resume(ctx context.Context, req *ResumeRequest) (*ResumeRespon
 	// Record metrics
 	if s.resumeCounter != nil {
 		s.resumeCounter.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project_id", req.ProjectID),
+			attribute.String("level", string(req.Level)),
+		))
+	}
+
+	// Record resume duration
+	if s.resumeDuration != nil {
+		s.resumeDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
 			attribute.String("project_id", req.ProjectID),
 			attribute.String("level", string(req.Level)),
 		))

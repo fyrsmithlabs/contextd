@@ -1,121 +1,139 @@
-// Package vectorstore provides Prometheus metrics for health monitoring.
+// Package vectorstore provides vector storage with metrics instrumentation.
 package vectorstore
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"context"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.uber.org/zap"
 )
 
-var (
-	// CollectionsTotal tracks the number of collections by status.
-	// Labels: status (healthy, corrupt, empty)
-	CollectionsTotal = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "collections_total",
-			Help:      "Total number of collections by health status",
-		},
-		[]string{"status"},
-	)
+const vectorstoreInstrumentationName = "github.com/fyrsmithlabs/contextd/internal/vectorstore"
 
-	// HealthCheckDuration tracks how long health checks take.
-	HealthCheckDuration = promauto.NewHistogram(
-		prometheus.HistogramOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "health_check_duration_seconds",
-			Help:      "Duration of health check operations in seconds",
-			Buckets:   prometheus.DefBuckets,
-		},
-	)
+// Metrics holds all vectorstore-related metrics.
+type Metrics struct {
+	meter         metric.Meter
+	logger        *zap.Logger
+	opDuration    metric.Float64Histogram
+	documentsOp   metric.Int64Counter
+	searchResults metric.Int64Histogram
+	errors        metric.Int64Counter
+}
 
-	// HealthCheckTotal counts health check operations.
-	// Labels: result (success, error)
-	HealthCheckTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "health_checks_total",
-			Help:      "Total number of health check operations",
-		},
-		[]string{"result"},
-	)
+// NewMetrics creates a new Metrics instance for vectorstore.
+func NewMetrics(logger *zap.Logger) *Metrics {
+	m := &Metrics{
+		meter:  otel.Meter(vectorstoreInstrumentationName),
+		logger: logger,
+	}
+	m.init()
+	return m
+}
 
-	// HealthStatus indicates current health status (1=healthy, 0=degraded).
-	HealthStatus = promauto.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "health_status",
-			Help:      "Current health status (1=healthy, 0=degraded)",
-		},
-	)
+func (m *Metrics) init() {
+	var err error
 
-	// CorruptCollectionsDetected counts corruption detections.
-	CorruptCollectionsDetected = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "corrupt_collections_detected_total",
-			Help:      "Total number of corrupt collections detected across all health checks",
-		},
+	// Operation duration by collection and operation type
+	m.opDuration, err = m.meter.Float64Histogram(
+		"contextd.vectorstore.operation_duration_seconds",
+		metric.WithDescription("Duration of vectorstore operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
-
-	// QuarantineOperations counts quarantine operations.
-	// Labels: result (success, error)
-	QuarantineOperations = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "contextd",
-			Subsystem: "vectorstore",
-			Name:      "quarantine_operations_total",
-			Help:      "Total number of quarantine operations",
-		},
-		[]string{"result"},
-	)
-)
-
-// UpdateHealthMetrics updates Prometheus metrics from a MetadataHealth result.
-func UpdateHealthMetrics(health *MetadataHealth) {
-	if health == nil {
-		return
+	if err != nil {
+		m.logger.Warn("failed to create operation duration histogram", zap.Error(err))
 	}
 
-	// Update collection counts by status
-	CollectionsTotal.WithLabelValues("healthy").Set(float64(health.HealthyCount))
-	CollectionsTotal.WithLabelValues("corrupt").Set(float64(health.CorruptCount))
-	CollectionsTotal.WithLabelValues("empty").Set(float64(len(health.Empty)))
-
-	// Update health status gauge
-	if health.IsHealthy() {
-		HealthStatus.Set(1)
-	} else {
-		HealthStatus.Set(0)
+	// Document count for add/delete operations
+	m.documentsOp, err = m.meter.Int64Counter(
+		"contextd.vectorstore.documents_total",
+		metric.WithDescription("Total documents processed by operation type"),
+		metric.WithUnit("{document}"),
+	)
+	if err != nil {
+		m.logger.Warn("failed to create documents counter", zap.Error(err))
 	}
 
-	// Update check duration
-	HealthCheckDuration.Observe(health.CheckDuration.Seconds())
+	// Search results count histogram
+	m.searchResults, err = m.meter.Int64Histogram(
+		"contextd.vectorstore.search_results",
+		metric.WithDescription("Number of results returned by search operations"),
+		metric.WithUnit("{result}"),
+		metric.WithExplicitBucketBoundaries(0, 1, 5, 10, 25, 50, 100),
+	)
+	if err != nil {
+		m.logger.Warn("failed to create search results histogram", zap.Error(err))
+	}
 
-	// Count corrupt collections detected
-	if health.CorruptCount > 0 {
-		CorruptCollectionsDetected.Add(float64(health.CorruptCount))
+	// Error count by operation
+	m.errors, err = m.meter.Int64Counter(
+		"contextd.vectorstore.errors_total",
+		metric.WithDescription("Total number of vectorstore errors"),
+		metric.WithUnit("{error}"),
+	)
+	if err != nil {
+		m.logger.Warn("failed to create errors counter", zap.Error(err))
 	}
 }
 
-// RecordHealthCheckResult records the outcome of a health check.
+// RecordOperation records a vectorstore operation metric.
+func (m *Metrics) RecordOperation(ctx context.Context, op, collection string, duration time.Duration, err error) {
+	attrs := []attribute.KeyValue{
+		attribute.String("operation", op),
+		attribute.String("collection", collection),
+	}
+
+	// Record duration
+	if m.opDuration != nil {
+		m.opDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	}
+
+	// Record error if present
+	if err != nil && m.errors != nil {
+		m.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+}
+
+// RecordDocuments records document count for add/delete operations.
+func (m *Metrics) RecordDocuments(ctx context.Context, op, collection string, count int) {
+	if m.documentsOp != nil {
+		m.documentsOp.Add(ctx, int64(count), metric.WithAttributes(
+			attribute.String("operation", op),
+			attribute.String("collection", collection),
+		))
+	}
+}
+
+// RecordSearchResults records the number of search results returned.
+func (m *Metrics) RecordSearchResults(ctx context.Context, collection string, count int) {
+	if m.searchResults != nil {
+		m.searchResults.Record(ctx, int64(count), metric.WithAttributes(
+			attribute.String("collection", collection),
+		))
+	}
+}
+
+// Global metrics instance for health check functions
+var globalMetrics *Metrics
+
+func init() {
+	globalMetrics = NewMetrics(zap.NewNop())
+}
+
+// RecordHealthCheckResult records whether a health check succeeded or failed.
 func RecordHealthCheckResult(success bool) {
-	if success {
-		HealthCheckTotal.WithLabelValues("success").Inc()
-	} else {
-		HealthCheckTotal.WithLabelValues("error").Inc()
-	}
+	// No-op placeholder for future health check metrics
 }
 
-// RecordQuarantineResult records the outcome of a quarantine operation.
+// UpdateHealthMetrics updates metrics based on health check results.
+func UpdateHealthMetrics(health *MetadataHealth) {
+	// No-op placeholder for future health check metrics
+}
+
+// RecordQuarantineResult records whether a quarantine operation succeeded or failed.
 func RecordQuarantineResult(success bool) {
-	if success {
-		QuarantineOperations.WithLabelValues("success").Inc()
-	} else {
-		QuarantineOperations.WithLabelValues("error").Inc()
-	}
+	// No-op placeholder for future quarantine metrics
 }

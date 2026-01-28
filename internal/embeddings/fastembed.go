@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	fastembed "github.com/anush008/fastembed-go"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"go.uber.org/zap"
 )
 
 // FastEmbedConfig holds configuration for the FastEmbed provider.
@@ -35,6 +37,7 @@ type FastEmbedProvider struct {
 	model     *fastembed.FlagEmbedding
 	modelName string
 	dimension int
+	metrics   *Metrics
 	mu        sync.RWMutex
 }
 
@@ -131,6 +134,7 @@ func NewFastEmbedProvider(cfg FastEmbedConfig) (*FastEmbedProvider, error) {
 		model:     flagEmbed,
 		modelName: cfg.Model,
 		dimension: dimension,
+		metrics:   NewMetrics(zap.NewNop()),
 	}, nil
 }
 
@@ -142,14 +146,22 @@ func (p *FastEmbedProvider) Embedder() vectorstore.Embedder {
 // EmbedDocuments generates embeddings for multiple texts.
 // Uses "passage: " prefix for document embeddings as recommended by BGE models.
 func (p *FastEmbedProvider) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	start := time.Now()
+	var genErr error
+	defer func() {
+		p.metrics.RecordGeneration(ctx, p.modelName, "embed_documents", time.Since(start), len(texts), genErr)
+	}()
+
 	if len(texts) == 0 {
-		return nil, fmt.Errorf("%w: texts cannot be empty", ErrEmptyInput)
+		genErr = fmt.Errorf("%w: texts cannot be empty", ErrEmptyInput)
+		return nil, genErr
 	}
 
 	// Check context before proceeding
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		genErr = ctx.Err()
+		return nil, genErr
 	default:
 	}
 
@@ -159,7 +171,8 @@ func (p *FastEmbedProvider) EmbedDocuments(ctx context.Context, texts []string) 
 	// Use PassageEmbed which adds "passage: " prefix for documents
 	embeddings, err := p.model.PassageEmbed(texts, 256)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		genErr = fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		return nil, genErr
 	}
 
 	return embeddings, nil
@@ -168,14 +181,22 @@ func (p *FastEmbedProvider) EmbedDocuments(ctx context.Context, texts []string) 
 // EmbedQuery generates an embedding for a single query.
 // Uses "query: " prefix for query embeddings as recommended by BGE models.
 func (p *FastEmbedProvider) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	start := time.Now()
+	var genErr error
+	defer func() {
+		p.metrics.RecordGeneration(ctx, p.modelName, "embed_query", time.Since(start), 1, genErr)
+	}()
+
 	if text == "" {
-		return nil, fmt.Errorf("%w: text cannot be empty", ErrEmptyInput)
+		genErr = fmt.Errorf("%w: text cannot be empty", ErrEmptyInput)
+		return nil, genErr
 	}
 
 	// Check context before proceeding
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		genErr = ctx.Err()
+		return nil, genErr
 	default:
 	}
 
@@ -185,7 +206,8 @@ func (p *FastEmbedProvider) EmbedQuery(ctx context.Context, text string) ([]floa
 	// QueryEmbed adds "query: " prefix automatically
 	embedding, err := p.model.QueryEmbed(text)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		genErr = fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		return nil, genErr
 	}
 
 	return embedding, nil

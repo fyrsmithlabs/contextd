@@ -82,12 +82,13 @@ type service struct {
 	logger *zap.Logger
 
 	// Telemetry
-	tracer          trace.Tracer
-	meter           metric.Meter
-	searchCounter   metric.Int64Counter
-	recordCounter   metric.Int64Counter
-	feedbackCounter metric.Int64Counter
-	errorCounter    metric.Int64Counter
+	tracer           trace.Tracer
+	meter            metric.Meter
+	searchCounter    metric.Int64Counter
+	searchDuration   metric.Float64Histogram
+	recordCounter    metric.Int64Counter
+	feedbackCounter  metric.Int64Counter
+	errorCounter     metric.Int64Counter
 
 	mu     sync.RWMutex
 	closed bool
@@ -161,6 +162,16 @@ func (s *service) initMetrics() {
 	)
 	if err != nil {
 		s.logger.Warn("failed to create search counter", zap.Error(err))
+	}
+
+	s.searchDuration, err = s.meter.Float64Histogram(
+		"contextd.remediation.search_duration_seconds",
+		metric.WithDescription("Duration of remediation searches"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+	)
+	if err != nil {
+		s.logger.Warn("failed to create search duration histogram", zap.Error(err))
 	}
 
 	s.recordCounter, err = s.meter.Int64Counter(
@@ -271,6 +282,7 @@ func sanitizePath(path string) string {
 
 // Search finds remediations by semantic similarity.
 func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredRemediation, error) {
+	start := time.Now()
 	ctx, span := s.tracer.Start(ctx, "remediation.search")
 	defer span.End()
 
@@ -413,11 +425,17 @@ func (s *service) Search(ctx context.Context, req *SearchRequest) ([]*ScoredReme
 	allResults = sortAndLimit(allResults, limit)
 
 	// Record metrics
+	duration := time.Since(start)
 	if s.searchCounter != nil {
 		s.searchCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scope", string(req.Scope)),
 			attribute.String("project_id", req.ProjectPath),
 			attribute.Int("result_count", len(allResults)),
+		))
+	}
+	if s.searchDuration != nil {
+		s.searchDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
+			attribute.String("scope", string(req.Scope)),
 		))
 	}
 

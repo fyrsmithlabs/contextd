@@ -10,8 +10,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"go.uber.org/zap"
 )
 
 var (
@@ -68,8 +70,9 @@ func (c Config) Validate() error {
 
 // Service provides embedding generation functionality.
 type Service struct {
-	config Config
-	client *http.Client
+	config  Config
+	client  *http.Client
+	metrics *Metrics
 }
 
 // NewService creates a new embedding service with the given configuration.
@@ -79,8 +82,9 @@ func NewService(config Config) (*Service, error) {
 	}
 
 	return &Service{
-		config: config,
-		client: &http.Client{},
+		config:  config,
+		client:  &http.Client{},
+		metrics: NewMetrics(zap.NewNop()),
 	}, nil
 }
 
@@ -97,8 +101,15 @@ func (s *Service) Embedder() vectorstore.Embedder {
 
 // EmbedDocuments generates embeddings for multiple texts.
 func (s *Service) EmbedDocuments(ctx context.Context, texts []string) ([][]float32, error) {
+	start := time.Now()
+	var genErr error
+	defer func() {
+		s.metrics.RecordGeneration(ctx, s.config.Model, "embed_documents", time.Since(start), len(texts), genErr)
+	}()
+
 	if len(texts) == 0 {
-		return nil, fmt.Errorf("%w: texts cannot be empty", ErrEmptyInput)
+		genErr = fmt.Errorf("%w: texts cannot be empty", ErrEmptyInput)
+		return nil, genErr
 	}
 
 	req := teiRequest{
@@ -108,29 +119,34 @@ func (s *Service) EmbedDocuments(ctx context.Context, texts []string) ([][]float
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+		genErr = fmt.Errorf("marshaling request: %w", err)
+		return nil, genErr
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.config.BaseURL+"/embed", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		genErr = fmt.Errorf("creating request: %w", err)
+		return nil, genErr
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		genErr = fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		return nil, genErr
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%w: status %d: %s", ErrEmbeddingFailed, resp.StatusCode, string(respBody))
+		genErr = fmt.Errorf("%w: status %d: %s", ErrEmbeddingFailed, resp.StatusCode, string(respBody))
+		return nil, genErr
 	}
 
 	var vectors [][]float32
 	if err := json.NewDecoder(resp.Body).Decode(&vectors); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		genErr = fmt.Errorf("decoding response: %w", err)
+		return nil, genErr
 	}
 
 	return vectors, nil
@@ -138,8 +154,15 @@ func (s *Service) EmbedDocuments(ctx context.Context, texts []string) ([][]float
 
 // EmbedQuery generates an embedding for a single query.
 func (s *Service) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	start := time.Now()
+	var genErr error
+	defer func() {
+		s.metrics.RecordGeneration(ctx, s.config.Model, "embed_query", time.Since(start), 1, genErr)
+	}()
+
 	if text == "" {
-		return nil, fmt.Errorf("%w: text cannot be empty", ErrEmptyInput)
+		genErr = fmt.Errorf("%w: text cannot be empty", ErrEmptyInput)
+		return nil, genErr
 	}
 
 	req := teiRequest{
@@ -149,33 +172,39 @@ func (s *Service) EmbedQuery(ctx context.Context, text string) ([]float32, error
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+		genErr = fmt.Errorf("marshaling request: %w", err)
+		return nil, genErr
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.config.BaseURL+"/embed", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		genErr = fmt.Errorf("creating request: %w", err)
+		return nil, genErr
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		genErr = fmt.Errorf("%w: %v", ErrEmbeddingFailed, err)
+		return nil, genErr
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%w: status %d: %s", ErrEmbeddingFailed, resp.StatusCode, string(respBody))
+		genErr = fmt.Errorf("%w: status %d: %s", ErrEmbeddingFailed, resp.StatusCode, string(respBody))
+		return nil, genErr
 	}
 
 	var vectors [][]float32
 	if err := json.NewDecoder(resp.Body).Decode(&vectors); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		genErr = fmt.Errorf("decoding response: %w", err)
+		return nil, genErr
 	}
 
 	if len(vectors) == 0 {
-		return nil, fmt.Errorf("%w: empty response", ErrEmbeddingFailed)
+		genErr = fmt.Errorf("%w: empty response", ErrEmbeddingFailed)
+		return nil, genErr
 	}
 
 	return vectors[0], nil
