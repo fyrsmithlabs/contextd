@@ -849,14 +849,24 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_search",
 		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "repository_search")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "repository_search")
+			s.metrics.RecordInvocation(ctx, "repository_search", time.Since(start), toolErr)
+		}()
+
 		// project_path is always required for tenant context (fail-closed security)
 		if args.ProjectPath == "" {
-			return nil, repositorySearchOutput{}, fmt.Errorf("project_path is required for tenant context")
+			toolErr = fmt.Errorf("project_path is required for tenant context")
+			return nil, repositorySearchOutput{}, toolErr
 		}
 
 		// Validate project path and derive tenant context (CWE-22 path traversal protection)
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, repositorySearchOutput{}, err
 		}
 
@@ -871,12 +881,14 @@ func (s *Server) registerRepositoryTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
-			return nil, repositorySearchOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
+			return nil, repositorySearchOutput{}, toolErr
 		}
 
 		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
 		if err != nil {
-			return nil, repositorySearchOutput{}, fmt.Errorf("repository search failed: %w", err)
+			toolErr = fmt.Errorf("repository search failed: %w", err)
+			return nil, repositorySearchOutput{}, toolErr
 		}
 
 		// Content mode constants
@@ -896,7 +908,8 @@ func (s *Server) registerRepositoryTools() {
 		case "minimal", "preview", "full":
 			// Valid content mode
 		default:
-			return nil, repositorySearchOutput{}, fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+			toolErr = fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+			return nil, repositorySearchOutput{}, toolErr
 		}
 
 		// Convert to output format based on content mode
@@ -954,14 +967,24 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "repository_index")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "repository_index")
+			s.metrics.RecordInvocation(ctx, "repository_index", time.Since(start), toolErr)
+		}()
+
 		// Path is required
 		if args.Path == "" {
-			return nil, repositoryIndexOutput{}, fmt.Errorf("path is required")
+			toolErr = fmt.Errorf("path is required")
+			return nil, repositoryIndexOutput{}, toolErr
 		}
 
 		// Validate project path and derive tenant context (CWE-22 path traversal protection)
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.Path, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, repositoryIndexOutput{}, err
 		}
 
@@ -971,7 +994,8 @@ func (s *Server) registerRepositoryTools() {
 			includePatterns = []string{"*"}
 		} else {
 			if err := sanitize.ValidateGlobPatterns(includePatterns); err != nil {
-				return nil, repositoryIndexOutput{}, fmt.Errorf("invalid include_patterns: %w", err)
+				toolErr = fmt.Errorf("invalid include_patterns: %w", err)
+				return nil, repositoryIndexOutput{}, toolErr
 			}
 		}
 
@@ -991,7 +1015,8 @@ func (s *Server) registerRepositoryTools() {
 			}
 		} else {
 			if err := sanitize.ValidateGlobPatterns(excludePatterns); err != nil {
-				return nil, repositoryIndexOutput{}, fmt.Errorf("invalid exclude_patterns: %w", err)
+				toolErr = fmt.Errorf("invalid exclude_patterns: %w", err)
+				return nil, repositoryIndexOutput{}, toolErr
 			}
 		}
 
@@ -1011,12 +1036,14 @@ func (s *Server) registerRepositoryTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
-			return nil, repositoryIndexOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
+			return nil, repositoryIndexOutput{}, toolErr
 		}
 
 		result, err := s.repositorySvc.IndexRepository(ctx, validPath, opts)
 		if err != nil {
-			return nil, repositoryIndexOutput{}, fmt.Errorf("repository index failed: %w", err)
+			toolErr = fmt.Errorf("repository index failed: %w", err)
+			return nil, repositoryIndexOutput{}, toolErr
 		}
 
 		// Ensure output arrays are never nil (MCP schema validation requires arrays, not null)
@@ -1069,9 +1096,18 @@ func (s *Server) registerTroubleshootTools() {
 		Name:        "troubleshoot_diagnose",
 		Description: "Diagnose an error using AI and known patterns",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args troubleshootDiagnoseInput) (*mcp.CallToolResult, troubleshootDiagnoseOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "troubleshoot_diagnose")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "troubleshoot_diagnose")
+			s.metrics.RecordInvocation(ctx, "troubleshoot_diagnose", time.Since(start), toolErr)
+		}()
+
 		diagnosis, err := s.troubleshootSvc.Diagnose(ctx, args.ErrorMessage, args.ErrorContext)
 		if err != nil {
-			return nil, troubleshootDiagnoseOutput{}, fmt.Errorf("troubleshoot diagnose failed: %w", err)
+			toolErr = fmt.Errorf("troubleshoot diagnose failed: %w", err)
+			return nil, troubleshootDiagnoseOutput{}, toolErr
 		}
 
 		output := troubleshootDiagnoseOutput{
@@ -1360,17 +1396,28 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_consolidate",
 		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_consolidate")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_consolidate")
+			s.metrics.RecordInvocation(ctx, "memory_consolidate", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			return nil, memoryConsolidateOutput{}, fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, memoryConsolidateOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			return nil, memoryConsolidateOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
 		// Check if distiller is available
 		if s.distiller == nil {
-			return nil, memoryConsolidateOutput{}, fmt.Errorf("memory consolidation not available: distiller not configured")
+			toolErr = fmt.Errorf("memory consolidation not available: distiller not configured")
+			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
 		// Apply default similarity threshold if not specified
@@ -1389,7 +1436,8 @@ func (s *Server) registerMemoryTools() {
 		// Execute consolidation
 		result, err := s.distiller.Consolidate(ctx, args.ProjectID, opts)
 		if err != nil {
-			return nil, memoryConsolidateOutput{}, fmt.Errorf("consolidation failed: %w", err)
+			toolErr = fmt.Errorf("consolidation failed: %w", err)
+			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
 		// Convert duration to seconds
@@ -1479,10 +1527,19 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_create",
 		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "branch_create")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "branch_create")
+			s.metrics.RecordInvocation(ctx, "branch_create", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id if provided (CWE-287 authentication bypass protection)
 		if args.ProjectID != "" {
 			if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-				return nil, branchCreateOutput{}, fmt.Errorf("invalid project_id: %w", err)
+				toolErr = fmt.Errorf("invalid project_id: %w", err)
+				return nil, branchCreateOutput{}, toolErr
 			}
 		}
 
@@ -1497,7 +1554,8 @@ func (s *Server) registerFoldingTools() {
 
 		resp, err := s.foldingSvc.Create(ctx, branchReq)
 		if err != nil {
-			return nil, branchCreateOutput{}, fmt.Errorf("branch create failed: %w", err)
+			toolErr = fmt.Errorf("branch create failed: %w", err)
+			return nil, branchCreateOutput{}, toolErr
 		}
 
 		output := branchCreateOutput{
@@ -1518,6 +1576,14 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_return",
 		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "branch_return")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "branch_return")
+			s.metrics.RecordInvocation(ctx, "branch_return", time.Since(start), toolErr)
+		}()
+
 		returnReq := folding.ReturnRequest{
 			BranchID: args.BranchID,
 			Message:  args.Message,
@@ -1525,7 +1591,8 @@ func (s *Server) registerFoldingTools() {
 
 		resp, err := s.foldingSvc.Return(ctx, returnReq)
 		if err != nil {
-			return nil, branchReturnOutput{}, fmt.Errorf("branch return failed: %w", err)
+			toolErr = fmt.Errorf("branch return failed: %w", err)
+			return nil, branchReturnOutput{}, toolErr
 		}
 
 		output := branchReturnOutput{
@@ -1546,6 +1613,14 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_status",
 		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "branch_status")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "branch_status")
+			s.metrics.RecordInvocation(ctx, "branch_status", time.Since(start), toolErr)
+		}()
+
 		var branch *folding.Branch
 		var err error
 
@@ -1554,11 +1629,13 @@ func (s *Server) registerFoldingTools() {
 		} else if args.SessionID != "" {
 			branch, err = s.foldingSvc.GetActive(ctx, args.SessionID)
 		} else {
-			return nil, branchStatusOutput{}, fmt.Errorf("either branch_id or session_id is required")
+			toolErr = fmt.Errorf("either branch_id or session_id is required")
+			return nil, branchStatusOutput{}, toolErr
 		}
 
 		if err != nil {
-			return nil, branchStatusOutput{}, fmt.Errorf("branch status failed: %w", err)
+			toolErr = fmt.Errorf("branch status failed: %w", err)
+			return nil, branchStatusOutput{}, toolErr
 		}
 
 		if branch == nil {

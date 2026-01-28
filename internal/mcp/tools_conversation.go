@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -58,13 +59,23 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_index",
 		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "conversation_index")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "conversation_index")
+			s.metrics.RecordInvocation(ctx, "conversation_index", time.Since(start), toolErr)
+		}()
+
 		// Validate project_path (CWE-22 path traversal protection)
 		if args.ProjectPath == "" {
-			return nil, conversationIndexOutput{}, fmt.Errorf("project_path is required")
+			toolErr = fmt.Errorf("project_path is required")
+			return nil, conversationIndexOutput{}, toolErr
 		}
 		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
 		if err != nil {
-			return nil, conversationIndexOutput{}, fmt.Errorf("invalid project_path: %w", err)
+			toolErr = fmt.Errorf("invalid project_path: %w", err)
+			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		tenantID := args.TenantID
@@ -73,10 +84,12 @@ func (s *Server) registerConversationTools() {
 		}
 		// Validate tenant_id format (CWE-287 authentication bypass protection)
 		if tenantID == "" {
-			return nil, conversationIndexOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			return nil, conversationIndexOutput{}, toolErr
 		}
 		if err := sanitize.ValidateTenantID(tenantID); err != nil {
-			return nil, conversationIndexOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
+			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
+			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		opts := conversation.IndexOptions{
@@ -89,12 +102,14 @@ func (s *Server) registerConversationTools() {
 
 		// Reject LLM requests explicitly until implemented
 		if args.EnableLLM {
-			return nil, conversationIndexOutput{}, fmt.Errorf("enable_llm=true is not yet supported: LLM-based decision extraction is not implemented; set enable_llm=false or omit the parameter to use heuristic extraction")
+			toolErr = fmt.Errorf("enable_llm=true is not yet supported: LLM-based decision extraction is not implemented; set enable_llm=false or omit the parameter to use heuristic extraction")
+			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		result, err := s.conversationSvc.Index(ctx, opts)
 		if err != nil {
-			return nil, conversationIndexOutput{}, fmt.Errorf("indexing failed: %w", err)
+			toolErr = fmt.Errorf("indexing failed: %w", err)
+			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		output := conversationIndexOutput{
@@ -120,13 +135,23 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_search",
 		Description: "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationSearchInput) (*mcp.CallToolResult, conversationSearchOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "conversation_search")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "conversation_search")
+			s.metrics.RecordInvocation(ctx, "conversation_search", time.Since(start), toolErr)
+		}()
+
 		// Validate project_path (CWE-22 path traversal protection)
 		if args.ProjectPath == "" {
-			return nil, conversationSearchOutput{}, fmt.Errorf("project_path is required")
+			toolErr = fmt.Errorf("project_path is required")
+			return nil, conversationSearchOutput{}, toolErr
 		}
 		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
 		if err != nil {
-			return nil, conversationSearchOutput{}, fmt.Errorf("invalid project_path: %w", err)
+			toolErr = fmt.Errorf("invalid project_path: %w", err)
+			return nil, conversationSearchOutput{}, toolErr
 		}
 
 		// Validate file_path filter if provided (CWE-22 path traversal protection)
@@ -134,7 +159,8 @@ func (s *Server) registerConversationTools() {
 		if validFilePath != "" {
 			validFilePath, err = sanitize.ValidatePath(args.FilePath, "")
 			if err != nil {
-				return nil, conversationSearchOutput{}, fmt.Errorf("invalid file_path filter: %w", err)
+				toolErr = fmt.Errorf("invalid file_path filter: %w", err)
+				return nil, conversationSearchOutput{}, toolErr
 			}
 		}
 
@@ -144,10 +170,12 @@ func (s *Server) registerConversationTools() {
 		}
 		// Validate tenant_id format (CWE-287 authentication bypass protection)
 		if tenantID == "" {
-			return nil, conversationSearchOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			return nil, conversationSearchOutput{}, toolErr
 		}
 		if err := sanitize.ValidateTenantID(tenantID); err != nil {
-			return nil, conversationSearchOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
+			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
+			return nil, conversationSearchOutput{}, toolErr
 		}
 
 		// Convert string types to DocumentType
@@ -169,7 +197,8 @@ func (s *Server) registerConversationTools() {
 
 		result, err := s.conversationSvc.Search(ctx, opts)
 		if err != nil {
-			return nil, conversationSearchOutput{}, fmt.Errorf("search failed: %w", err)
+			toolErr = fmt.Errorf("search failed: %w", err)
+			return nil, conversationSearchOutput{}, toolErr
 		}
 
 		// Convert results to maps

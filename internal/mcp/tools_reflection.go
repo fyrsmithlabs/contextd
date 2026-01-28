@@ -71,18 +71,29 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_report",
 		Description: "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectReportInput) (*mcp.CallToolResult, reflectReportOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "reflect_report")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "reflect_report")
+			s.metrics.RecordInvocation(ctx, "reflect_report", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			return nil, reflectReportOutput{}, fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, reflectReportOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			return nil, reflectReportOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, reflectReportOutput{}, toolErr
 		}
 
 		// Validate project_path if provided (CWE-22 path traversal protection)
 		if args.ProjectPath != "" {
 			if _, err := sanitize.ValidateProjectPath(args.ProjectPath); err != nil {
-				return nil, reflectReportOutput{}, fmt.Errorf("invalid project_path: %w", err)
+				toolErr = fmt.Errorf("invalid project_path: %w", err)
+				return nil, reflectReportOutput{}, toolErr
 			}
 		}
 
@@ -135,7 +146,8 @@ func (s *Server) registerReflectionTools() {
 
 		report, err := reporter.Generate(ctx, opts)
 		if err != nil {
-			return nil, reflectReportOutput{}, fmt.Errorf("report generation failed: %w", err)
+			toolErr = fmt.Errorf("report generation failed: %w", err)
+			return nil, reflectReportOutput{}, toolErr
 		}
 
 		output := reflectReportOutput{
@@ -189,12 +201,22 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_analyze",
 		Description: "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectAnalyzeInput) (*mcp.CallToolResult, reflectAnalyzeOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "reflect_analyze")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "reflect_analyze")
+			s.metrics.RecordInvocation(ctx, "reflect_analyze", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			return nil, reflectAnalyzeOutput{}, fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, reflectAnalyzeOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			return nil, reflectAnalyzeOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, reflectAnalyzeOutput{}, toolErr
 		}
 
 		// Set defaults
@@ -224,7 +246,8 @@ func (s *Server) registerReflectionTools() {
 
 		patterns, err := analyzer.Analyze(ctx, opts)
 		if err != nil {
-			return nil, reflectAnalyzeOutput{}, fmt.Errorf("pattern analysis failed: %w", err)
+			toolErr = fmt.Errorf("pattern analysis failed: %w", err)
+			return nil, reflectAnalyzeOutput{}, toolErr
 		}
 
 		output := reflectAnalyzeOutput{
