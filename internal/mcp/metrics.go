@@ -40,17 +40,17 @@ func (m *Metrics) init() {
 	// Total tool invocations by tool name
 	m.invocations, err = m.meter.Int64Counter(
 		"contextd.mcp.tool.invocations_total",
-		metric.WithDescription("Total number of MCP tool invocations"),
+		metric.WithDescription("Total number of MCP tool invocations, labeled by tool name (e.g., memory_search, checkpoint_save)"),
 		metric.WithUnit("{invocation}"),
 	)
 	if err != nil {
 		m.logger.Warn("failed to create invocations counter", zap.Error(err))
 	}
 
-	// Tool execution duration histogram
+	// Tool execution duration histogram with buckets optimized for typical MCP operations (1ms to 10s)
 	m.duration, err = m.meter.Float64Histogram(
 		"contextd.mcp.tool.duration_seconds",
-		metric.WithDescription("Duration of MCP tool invocations"),
+		metric.WithDescription("Duration of MCP tool invocations in seconds, labeled by tool name. Use histogram_quantile for percentiles."),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
@@ -58,10 +58,10 @@ func (m *Metrics) init() {
 		m.logger.Warn("failed to create duration histogram", zap.Error(err))
 	}
 
-	// Error count by tool and reason
+	// Error count by tool and reason category
 	m.errors, err = m.meter.Int64Counter(
 		"contextd.mcp.tool.errors_total",
-		metric.WithDescription("Total number of MCP tool errors"),
+		metric.WithDescription("Total MCP tool errors by tool name and reason (tenant_error, validation_error, not_found, timeout, auth_error, storage_error, internal_error)"),
 		metric.WithUnit("{error}"),
 	)
 	if err != nil {

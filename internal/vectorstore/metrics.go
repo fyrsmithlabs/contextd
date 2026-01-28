@@ -39,7 +39,7 @@ func (m *Metrics) init() {
 	// Operation duration by collection and operation type
 	m.opDuration, err = m.meter.Float64Histogram(
 		"contextd.vectorstore.operation_duration_seconds",
-		metric.WithDescription("Duration of vectorstore operations"),
+		metric.WithDescription("Duration of vectorstore operations in seconds, labeled by operation (search, add, delete) and collection name"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
@@ -50,7 +50,7 @@ func (m *Metrics) init() {
 	// Document count for add/delete operations
 	m.documentsOp, err = m.meter.Int64Counter(
 		"contextd.vectorstore.documents_total",
-		metric.WithDescription("Total documents processed by operation type"),
+		metric.WithDescription("Total documents processed, labeled by operation (add, delete) and collection. Use rate() to track ingestion throughput."),
 		metric.WithUnit("{document}"),
 	)
 	if err != nil {
@@ -60,7 +60,7 @@ func (m *Metrics) init() {
 	// Search results count histogram
 	m.searchResults, err = m.meter.Int64Histogram(
 		"contextd.vectorstore.search_results",
-		metric.WithDescription("Number of results returned by search operations"),
+		metric.WithDescription("Number of results returned per search, labeled by collection. Low counts may indicate indexing gaps; high counts may indicate overly broad queries."),
 		metric.WithUnit("{result}"),
 		metric.WithExplicitBucketBoundaries(0, 1, 5, 10, 25, 50, 100),
 	)
@@ -71,7 +71,7 @@ func (m *Metrics) init() {
 	// Error count by operation
 	m.errors, err = m.meter.Int64Counter(
 		"contextd.vectorstore.errors_total",
-		metric.WithDescription("Total number of vectorstore errors"),
+		metric.WithDescription("Total vectorstore errors by operation and collection. Includes connection failures, query timeouts, and tenant isolation violations."),
 		metric.WithUnit("{error}"),
 	)
 	if err != nil {
@@ -124,16 +124,22 @@ func init() {
 }
 
 // RecordHealthCheckResult records whether a health check succeeded or failed.
+// TODO(#94): Implement health check metrics when health monitoring is added.
+// This will track vectorstore connectivity and latency for alerting.
 func RecordHealthCheckResult(success bool) {
-	// No-op placeholder for future health check metrics
+	// Placeholder: will emit contextd.vectorstore.health_check_total{status=success|failure}
 }
 
 // UpdateHealthMetrics updates metrics based on health check results.
+// TODO(#94): Implement when MetadataHealth tracking is production-ready.
+// This will expose collection sizes, tenant counts, and storage utilization.
 func UpdateHealthMetrics(health *MetadataHealth) {
-	// No-op placeholder for future health check metrics
+	// Placeholder: will emit contextd.vectorstore.collection_size, tenant_count gauges
 }
 
 // RecordQuarantineResult records whether a quarantine operation succeeded or failed.
+// TODO(#94): Implement when document quarantine feature is added.
+// This will track documents flagged for review due to metadata inconsistencies.
 func RecordQuarantineResult(success bool) {
-	// No-op placeholder for future quarantine metrics
+	// Placeholder: will emit contextd.vectorstore.quarantine_total{status=success|failure}
 }

@@ -87,7 +87,7 @@ func (m *ValueMetrics) init() {
 
 	m.memoryRetrievalFailure, err = m.meter.Int64Counter(
 		"contextd.memory.retrieval_failure_total",
-		metric.WithDescription("Total memory retrievals that did not help"),
+		metric.WithDescription("Total memory retrievals marked unhelpful by user feedback (memory_feedback with helpful=false)"),
 		metric.WithUnit("{retrieval}"),
 	)
 	if err != nil {

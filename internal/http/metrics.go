@@ -43,7 +43,7 @@ func (m *HTTPMetrics) init() {
 	// Total requests by endpoint, method, and status
 	m.requestsTotal, err = m.meter.Int64Counter(
 		"contextd.http.requests_total",
-		metric.WithDescription("Total number of HTTP requests"),
+		metric.WithDescription("Total HTTP requests labeled by method (GET, POST), endpoint (/api/v1/scrub, etc.), and status code. Use rate() for request throughput."),
 		metric.WithUnit("{request}"),
 	)
 	if err != nil {
@@ -53,7 +53,7 @@ func (m *HTTPMetrics) init() {
 	// Request duration histogram
 	m.requestDur, err = m.meter.Float64Histogram(
 		"contextd.http.request_duration_seconds",
-		metric.WithDescription("HTTP request duration in seconds"),
+		metric.WithDescription("HTTP request duration in seconds, labeled by method, endpoint, and status. Use histogram_quantile for P50/P95/P99 latency."),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
@@ -64,7 +64,7 @@ func (m *HTTPMetrics) init() {
 	// Response size histogram
 	m.responseSize, err = m.meter.Int64Histogram(
 		"contextd.http.response_size_bytes",
-		metric.WithDescription("HTTP response size in bytes"),
+		metric.WithDescription("HTTP response body size in bytes, labeled by method, endpoint, and status. Large responses may indicate inefficient payloads."),
 		metric.WithUnit("By"),
 		metric.WithExplicitBucketBoundaries(100, 500, 1000, 5000, 10000, 50000, 100000, 500000),
 	)
@@ -142,10 +142,12 @@ func (m *HTTPMetrics) MetricsMiddleware() echo.MiddlewareFunc {
 	}
 }
 
-// normalizePath replaces dynamic path segments with placeholders.
+// normalizePath replaces dynamic path segments with placeholders to prevent
+// metric cardinality explosion. Currently returns path as-is because contextd
+// uses only fixed routes (/api/v1/scrub, /api/v1/threshold, /api/v1/status).
+// If parameterized routes are added (e.g., /api/v1/projects/:id), this function
+// should replace :id with a placeholder like {id} to keep cardinality bounded.
 func normalizePath(path string) string {
-	// For now, return path as-is since we have a fixed set of routes.
-	// Add normalization logic if parameterized routes are added.
 	if path == "" {
 		return "/"
 	}

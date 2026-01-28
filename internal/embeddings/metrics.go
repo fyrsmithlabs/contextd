@@ -38,7 +38,7 @@ func (m *Metrics) init() {
 	// Embedding generation duration by model and operation
 	m.duration, err = m.meter.Float64Histogram(
 		"contextd.embedding.generation_duration_seconds",
-		metric.WithDescription("Duration of embedding generation"),
+		metric.WithDescription("Duration of embedding generation in seconds, labeled by model (e.g., all-MiniLM-L6-v2) and operation (embed, batch_embed)"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 	)
@@ -49,7 +49,7 @@ func (m *Metrics) init() {
 	// Batch size histogram to understand embedding workload patterns
 	m.batchSize, err = m.meter.Int64Histogram(
 		"contextd.embedding.batch_size",
-		metric.WithDescription("Number of texts in embedding batch"),
+		metric.WithDescription("Number of texts per embedding batch request. Useful for optimizing batch sizes: too small wastes overhead, too large increases latency."),
 		metric.WithUnit("{text}"),
 		metric.WithExplicitBucketBoundaries(1, 2, 5, 10, 25, 50, 100, 250, 500),
 	)
@@ -60,7 +60,7 @@ func (m *Metrics) init() {
 	// Error count by model and operation
 	m.errors, err = m.meter.Int64Counter(
 		"contextd.embedding.errors_total",
-		metric.WithDescription("Total number of embedding errors"),
+		metric.WithDescription("Total embedding generation errors by model and operation. Includes model loading failures, ONNX runtime errors, and batch processing failures."),
 		metric.WithUnit("{error}"),
 	)
 	if err != nil {
