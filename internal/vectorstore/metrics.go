@@ -124,22 +124,49 @@ func init() {
 }
 
 // RecordHealthCheckResult records whether a health check succeeded or failed.
+//
 // TODO(#94): Implement health check metrics when health monitoring is added.
-// This will track vectorstore connectivity and latency for alerting.
+//
+// Expected implementation:
+//   - Metric: contextd.vectorstore.health_check_total{status}
+//   - Labels: status="success" or status="failure"
+//   - Use case: Alert on health_check_total{status="failure"} > 0 for 5m
+//
+// Interface contract:
+//   - success=true: Vectorstore responded within timeout
+//   - success=false: Connection failed, timeout, or unhealthy response
 func RecordHealthCheckResult(success bool) {
-	// Placeholder: will emit contextd.vectorstore.health_check_total{status=success|failure}
+	// Placeholder - see TODO(#94) for implementation plan
 }
 
 // UpdateHealthMetrics updates metrics based on health check results.
+//
 // TODO(#94): Implement when MetadataHealth tracking is production-ready.
-// This will expose collection sizes, tenant counts, and storage utilization.
+//
+// Expected implementation:
+//   - contextd.vectorstore.collection_size{collection}: Document count per collection
+//   - contextd.vectorstore.tenant_count: Unique tenants in the store
+//   - contextd.vectorstore.storage_bytes: Total storage utilization
+//
+// Interface contract:
+//   - Called periodically (e.g., every 30s) with latest health snapshot
+//   - MetadataHealth struct provides collection stats, tenant count, storage usage
 func UpdateHealthMetrics(health *MetadataHealth) {
-	// Placeholder: will emit contextd.vectorstore.collection_size, tenant_count gauges
+	// Placeholder - see TODO(#94) for implementation plan
 }
 
 // RecordQuarantineResult records whether a quarantine operation succeeded or failed.
+//
 // TODO(#94): Implement when document quarantine feature is added.
-// This will track documents flagged for review due to metadata inconsistencies.
+//
+// Expected implementation:
+//   - Metric: contextd.vectorstore.quarantine_total{status,reason}
+//   - Labels: status="success"/"failure", reason="metadata_mismatch"/"tenant_violation"
+//   - Use case: Track documents flagged for manual review due to inconsistencies
+//
+// Interface contract:
+//   - success=true: Document successfully quarantined for review
+//   - success=false: Quarantine operation failed (log details separately)
 func RecordQuarantineResult(success bool) {
-	// Placeholder: will emit contextd.vectorstore.quarantine_total{status=success|failure}
+	// Placeholder - see TODO(#94) for implementation plan
 }

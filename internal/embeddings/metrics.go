@@ -69,6 +69,25 @@ func (m *Metrics) init() {
 }
 
 // RecordGeneration records embedding generation metrics.
+//
+// Parameters:
+//   - model: Embedding model name (e.g., "all-MiniLM-L6-v2", "text-embedding-3-small")
+//   - operation: Operation type - "embed" for single text, "batch_embed" for multiple
+//   - duration: Time taken for the embedding operation
+//   - batchSize: Number of texts embedded (use 1 for single operations, 0 to skip recording)
+//   - err: Error if operation failed (nil for success)
+//
+// Usage:
+//
+//	// Single embedding
+//	start := time.Now()
+//	vec, err := embedder.Embed(ctx, text)
+//	metrics.RecordGeneration(ctx, "all-MiniLM-L6-v2", "embed", time.Since(start), 1, err)
+//
+//	// Batch embedding
+//	start := time.Now()
+//	vecs, err := embedder.EmbedBatch(ctx, texts)
+//	metrics.RecordGeneration(ctx, "all-MiniLM-L6-v2", "batch_embed", time.Since(start), len(texts), err)
 func (m *Metrics) RecordGeneration(ctx context.Context, model, operation string, duration time.Duration, batchSize int, err error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("model", model),

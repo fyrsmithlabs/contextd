@@ -143,10 +143,30 @@ func (m *HTTPMetrics) MetricsMiddleware() echo.MiddlewareFunc {
 }
 
 // normalizePath replaces dynamic path segments with placeholders to prevent
-// metric cardinality explosion. Currently returns path as-is because contextd
-// uses only fixed routes (/api/v1/scrub, /api/v1/threshold, /api/v1/status).
-// If parameterized routes are added (e.g., /api/v1/projects/:id), this function
-// should replace :id with a placeholder like {id} to keep cardinality bounded.
+// metric cardinality explosion.
+//
+// Current behavior: Returns path as-is because contextd uses only fixed routes:
+//   - /api/v1/scrub
+//   - /api/v1/threshold
+//   - /api/v1/status
+//
+// Future expansion guide:
+// If parameterized routes are added, implement normalization like:
+//
+//	func normalizePath(path string) string {
+//	    // Replace UUID segments: /api/v1/projects/abc-123 -> /api/v1/projects/{id}
+//	    uuidRegex := regexp.MustCompile(`/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+//	    path = uuidRegex.ReplaceAllString(path, "/{id}")
+//
+//	    // Replace numeric IDs: /api/v1/items/42 -> /api/v1/items/{id}
+//	    numericRegex := regexp.MustCompile(`/\d+`)
+//	    path = numericRegex.ReplaceAllString(path, "/{id}")
+//
+//	    return path
+//	}
+//
+// Why this matters: Without normalization, each unique path becomes a metric label,
+// causing cardinality explosion (e.g., 1M unique UUIDs = 1M time series).
 func normalizePath(path string) string {
 	if path == "" {
 		return "/"

@@ -119,7 +119,18 @@ func (m *ValueMetrics) init() {
 }
 
 // hashProjectID creates a truncated hash of the project ID to prevent enumeration.
-// This provides privacy while still allowing per-project metric aggregation.
+//
+// Security considerations:
+//   - Prevents project ID enumeration attacks via metric labels
+//   - SHA-256 provides cryptographic one-way transformation
+//   - 4 bytes (8 hex chars) balances privacy vs collision risk
+//   - At 10K projects, collision probability is ~0.001%
+//
+// Why truncate: Full SHA-256 (64 chars) creates excessive metric cardinality.
+// 8 chars provides sufficient uniqueness for per-project aggregation while
+// keeping Prometheus/Grafana cardinality manageable.
+//
+// Returns "unknown" for empty project IDs to avoid nil metric labels.
 func hashProjectID(projectID string) string {
 	if projectID == "" {
 		return "unknown"
@@ -137,7 +148,21 @@ func (m *ValueMetrics) isInitialized() bool {
 }
 
 // RecordTokensSaved records tokens saved via context compression.
-// inputTokens is the original size, outputTokens is the compressed size.
+//
+// Parameters:
+//   - inputTokens: Original token count before compression
+//   - outputTokens: Token count after compression
+//
+// Behavior:
+//   - Only records when inputTokens > outputTokens (positive savings)
+//   - Negative savings (expansion) are silently ignored to avoid skewing metrics
+//   - Zero or negative inputs are safely handled (no recording)
+//
+// Usage:
+//
+//	original := countTokens(fullContext)
+//	compressed := countTokens(foldedContext)
+//	valueMetrics.RecordTokensSaved(ctx, original, compressed)
 func (m *ValueMetrics) RecordTokensSaved(ctx context.Context, inputTokens, outputTokens int) {
 	if m == nil || !m.isInitialized() {
 		return

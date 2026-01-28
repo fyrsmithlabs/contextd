@@ -80,6 +80,20 @@ func (m *Metrics) init() {
 }
 
 // RecordInvocation records a tool invocation metric.
+//
+// Labels:
+//   - tool: The MCP tool name (e.g., "memory_search", "checkpoint_save")
+//
+// This function records:
+//   - Invocation count (contextd.mcp.tool.invocations_total)
+//   - Duration histogram (contextd.mcp.tool.duration_seconds)
+//   - Error count with reason categorization (contextd.mcp.tool.errors_total)
+//
+// Usage:
+//
+//	start := time.Now()
+//	result, err := handler.Execute(ctx, params)
+//	metrics.RecordInvocation(ctx, "memory_search", time.Since(start), err)
 func (m *Metrics) RecordInvocation(ctx context.Context, toolName string, duration time.Duration, err error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("tool", toolName),
@@ -120,7 +134,19 @@ func (m *Metrics) DecrementActive(ctx context.Context, toolName string) {
 	}
 }
 
-// categorizeError categorizes an error into a reason string.
+// categorizeError categorizes an error into a reason string for metric labels.
+//
+// Error categories are matched in priority order (first match wins):
+//   - tenant_error: Multi-tenant context or isolation failures
+//   - validation_error: Input validation or schema violations
+//   - not_found: Resource lookup failures
+//   - timeout: Operation timeouts
+//   - auth_error: Permission or authentication failures
+//   - storage_error: Vectorstore or embedding backend errors
+//   - internal_error: Uncategorized errors (default)
+//
+// To extend: Add new case before "default" with keyword matching.
+// Note: Order matters - more specific keywords should come first.
 func categorizeError(err error) string {
 	if err == nil {
 		return ""
