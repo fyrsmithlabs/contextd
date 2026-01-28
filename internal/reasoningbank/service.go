@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +36,32 @@ const (
 
 	// DefaultSearchLimit is the default maximum number of search results.
 	DefaultSearchLimit = 10
+
+	// entityBoostFactor multiplies relevance score when a memory mentions
+	// named entities extracted from the query. This improves precision for
+	// questions like "What is Caroline's identity?" by prioritizing memories
+	// that explicitly mention "Caroline".
+	entityBoostFactor = 1.3
 )
+
+// entityRegex extracts proper nouns (capitalized words) from queries.
+// Examples: "What is Caroline's identity?" → ["Caroline"]
+//
+//	"Tell me about John and Alice" → ["John", "Alice"]
+//
+// Used for entity-based boosting in memory search.
+var entityRegex = regexp.MustCompile(`\b[A-Z][a-z]+\b`)
+
+// entityStopwords contains common words that appear capitalized at sentence starts
+// but are not named entities. Used to filter false positives from entityRegex.
+var entityStopwords = map[string]struct{}{
+	"what": {}, "when": {}, "where": {}, "which": {}, "who": {}, "why": {}, "how": {},
+	"tell": {}, "show": {}, "find": {}, "get": {}, "give": {}, "let": {}, "make": {},
+	"did": {}, "does": {}, "can": {}, "could": {}, "would": {}, "should": {}, "will": {},
+	"the": {}, "this": {}, "that": {}, "these": {}, "those": {},
+	"are": {}, "was": {}, "were": {}, "has": {}, "have": {}, "had": {}, "been": {},
+	"about": {}, "for": {}, "from": {}, "into": {}, "with": {},
+}
 
 // Service provides cross-session memory storage and retrieval.
 //
@@ -419,6 +445,14 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 
 	const consolidatedMemoryBoost = 1.2 // 20% boost for consolidated memories
 
+	// Extract named entities from query for boosting (e.g., "Caroline" from "What is Caroline's identity?")
+	queryEntities := s.extractQueryEntities(query)
+	if len(queryEntities) > 0 {
+		s.logger.Debug("extracted query entities",
+			zap.Strings("entities", queryEntities),
+			zap.String("query", query))
+	}
+
 	for _, result := range results {
 		// Deduplication: skip if we've already seen this memory ID
 		// This prevents duplicates from race conditions during memory updates (delete→add pattern)
@@ -469,6 +503,16 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			s.logger.Debug("applying consolidated memory boost",
 				zap.String("id", memory.ID),
 				zap.Float32("original_score", result.Score),
+				zap.Float32("boosted_score", score))
+		}
+
+		// Apply boost when memory mentions entities extracted from the query
+		// This improves precision for questions like "What is Caroline's identity?"
+		if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
+			score *= entityBoostFactor
+			s.logger.Debug("applying entity boost",
+				zap.String("id", memory.ID),
+				zap.Strings("matched_entities", queryEntities),
 				zap.Float32("boosted_score", score))
 		}
 
@@ -610,6 +654,9 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 
 	const consolidatedMemoryBoost = 1.2
 
+	// Extract named entities from query for boosting
+	queryEntities := s.extractQueryEntities(query)
+
 	for _, result := range results {
 		// Deduplication
 		if _, seen := seenIDs[result.ID]; seen {
@@ -637,6 +684,11 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 				strings.Contains(memory.Description, "Consolidated from"))
 		if isConsolidated {
 			score *= consolidatedMemoryBoost
+		}
+
+		// Apply entity boost when memory mentions entities from query
+		if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
+			score *= entityBoostFactor
 		}
 
 		// Record usage signal
@@ -1156,6 +1208,57 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 		zap.Float64("new_confidence", memory.Confidence))
 
 	return memory.Confidence, nil
+}
+
+// extractQueryEntities extracts named entities (proper nouns) from a query.
+// Returns a slice of unique capitalized words found in the query, excluding
+// common stopwords (What, When, Where, etc.).
+//
+// Example: "What is Caroline's identity?" → ["Caroline"]
+//
+//	"Tell me about John and Alice" → ["John", "Alice"]
+func (s *Service) extractQueryEntities(query string) []string {
+	matches := entityRegex.FindAllString(query, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Deduplicate entities and filter stopwords
+	seen := make(map[string]struct{}, len(matches))
+	entities := make([]string, 0, len(matches))
+	for _, match := range matches {
+		lower := strings.ToLower(match)
+		// Skip stopwords (common question/verb words that aren't entities)
+		if _, isStopword := entityStopwords[lower]; isStopword {
+			continue
+		}
+		if _, ok := seen[lower]; !ok {
+			seen[lower] = struct{}{}
+			entities = append(entities, match)
+		}
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	return entities
+}
+
+// memoryContainsEntity checks if a memory's content mentions any of the given entities.
+// Matching is case-insensitive.
+func (s *Service) memoryContainsEntity(memory *Memory, entities []string) bool {
+	if len(entities) == 0 || memory == nil {
+		return false
+	}
+
+	// Combine searchable fields
+	searchText := strings.ToLower(memory.Title + " " + memory.Content + " " + memory.Description)
+
+	for _, entity := range entities {
+		if strings.Contains(searchText, strings.ToLower(entity)) {
+			return true
+		}
+	}
+	return false
 }
 
 // memoryToDocument converts a Memory to a vectorstore Document.

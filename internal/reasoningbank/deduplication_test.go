@@ -3,6 +3,7 @@ package reasoningbank
 import (
 	"context"
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
@@ -121,8 +122,8 @@ func TestService_SearchWithScores(t *testing.T) {
 
 	projectID := "project-scores"
 
-	// Create a memory
-	memory, err := NewMemory(projectID, "Relevance Test", "Content for testing search relevance", OutcomeSuccess, []string{"test"})
+	// Create a memory (using lowercase words that won't match entity extraction)
+	memory, err := NewMemory(projectID, "error handling strategies", "how to handle errors in go code", OutcomeSuccess, []string{"test"})
 	require.NoError(t, err)
 	memory.Confidence = 0.85
 	memory.State = MemoryStateActive
@@ -132,7 +133,8 @@ func TestService_SearchWithScores(t *testing.T) {
 	require.NoError(t, err)
 
 	// SearchWithScores should return both memory and relevance score
-	results, err := svc.SearchWithScores(ctx, projectID, "Relevance Test", 10)
+	// Use lowercase query to avoid entity extraction/boosting
+	results, err := svc.SearchWithScores(ctx, projectID, "error handling", 10)
 	require.NoError(t, err)
 	require.Len(t, results, 1, "should return 1 result")
 
@@ -181,4 +183,161 @@ func TestService_SearchWithScores_RelevanceVsConfidence(t *testing.T) {
 		assert.False(t, math.Abs(r.Relevance-r.Memory.Confidence) < 0.01,
 			"relevance and confidence should be independent values")
 	}
+}
+
+// TestService_ExtractQueryEntities tests named entity extraction from queries.
+// This addresses GitHub Issue #126: query understanding with entity extraction.
+func TestService_ExtractQueryEntities(t *testing.T) {
+	svc, _ := NewService(newMockStore(), zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	tests := []struct {
+		name     string
+		query    string
+		expected []string
+	}{
+		{
+			name:     "single name",
+			query:    "What is Caroline's identity?",
+			expected: []string{"Caroline"},
+		},
+		{
+			name:     "multiple names",
+			query:    "Tell me about John and Alice",
+			expected: []string{"John", "Alice"},
+		},
+		{
+			name:     "no entities",
+			query:    "how do i handle errors?",
+			expected: nil,
+		},
+		{
+			name:     "duplicate names deduplicated",
+			query:    "Did Alice meet Alice yesterday?",
+			expected: []string{"Alice"},
+		},
+		{
+			name:     "name at start of sentence",
+			query:    "Bob went to the store",
+			expected: []string{"Bob"},
+		},
+		{
+			name:     "possessive name",
+			query:    "Where is David's book?",
+			expected: []string{"David"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entities := svc.extractQueryEntities(tt.query)
+			if tt.expected == nil {
+				assert.Nil(t, entities)
+			} else {
+				// Sort both slices for comparison since order may vary
+				sort.Strings(entities)
+				sort.Strings(tt.expected)
+				assert.Equal(t, tt.expected, entities)
+			}
+		})
+	}
+}
+
+// TestService_MemoryContainsEntity tests entity matching in memories.
+func TestService_MemoryContainsEntity(t *testing.T) {
+	svc, _ := NewService(newMockStore(), zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	memory := &Memory{
+		Title:       "Caroline's identity discussion",
+		Content:     "Caroline mentioned she is a transgender woman",
+		Description: "From conversation with Caroline",
+	}
+
+	tests := []struct {
+		name     string
+		entities []string
+		expected bool
+	}{
+		{
+			name:     "entity in title",
+			entities: []string{"Caroline"},
+			expected: true,
+		},
+		{
+			name:     "entity not present",
+			entities: []string{"Alice"},
+			expected: false,
+		},
+		{
+			name:     "case insensitive match",
+			entities: []string{"CAROLINE"},
+			expected: true,
+		},
+		{
+			name:     "empty entities",
+			entities: []string{},
+			expected: false,
+		},
+		{
+			name:     "multiple entities one matches",
+			entities: []string{"Alice", "Caroline", "Bob"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := svc.memoryContainsEntity(memory, tt.entities)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestService_Search_EntityBoost tests that memories mentioning query entities
+// get boosted relevance scores.
+func TestService_Search_EntityBoost(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-entity-boost"
+
+	// Create two memories: one mentions Caroline, one doesn't
+	carolineMemory, _ := NewMemory(projectID, "About Caroline", "Caroline is a software engineer who loves Go", OutcomeSuccess, []string{})
+	carolineMemory.Confidence = 0.85
+	carolineMemory.State = MemoryStateActive
+
+	genericMemory, _ := NewMemory(projectID, "General info", "Software engineering best practices", OutcomeSuccess, []string{})
+	genericMemory.Confidence = 0.85
+	genericMemory.State = MemoryStateActive
+
+	_ = svc.Record(ctx, carolineMemory)
+	_ = svc.Record(ctx, genericMemory)
+
+	// Search with Caroline's name - entity boost should apply
+	results, err := svc.SearchWithScores(ctx, projectID, "What is Caroline's background?", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// The memory mentioning Caroline should have higher relevance (boosted by 1.3x)
+	var carolineResult, genericResult ScoredMemory
+	for _, r := range results {
+		if r.Memory.ID == carolineMemory.ID {
+			carolineResult = r
+		} else {
+			genericResult = r
+		}
+	}
+
+	// Caroline memory should be boosted (0.9 * 1.3 = 1.17)
+	// Generic memory stays at 0.9
+	assert.Greater(t, carolineResult.Relevance, genericResult.Relevance,
+		"memory mentioning Caroline should have higher relevance")
+	assert.InDelta(t, 0.9*1.3, carolineResult.Relevance, 0.01,
+		"Caroline memory should be boosted by 1.3x")
+	assert.InDelta(t, 0.9, genericResult.Relevance, 0.01,
+		"generic memory should not be boosted")
+
+	// Caroline memory should be ranked first
+	assert.Equal(t, carolineMemory.ID, results[0].Memory.ID,
+		"Caroline memory should be ranked first due to entity boost")
 }
