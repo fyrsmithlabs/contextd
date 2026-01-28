@@ -3,6 +3,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -111,63 +113,121 @@ func (m *ValueMetrics) init() {
 		m.logger.Warn("failed to create checkpoint resumed counter", zap.Error(err))
 	}
 
+	m.mu.Lock()
 	m.initialized = true
+	m.mu.Unlock()
+}
+
+// hashProjectID creates a truncated hash of the project ID to prevent enumeration.
+// This provides privacy while still allowing per-project metric aggregation.
+func hashProjectID(projectID string) string {
+	if projectID == "" {
+		return "unknown"
+	}
+	hash := sha256.Sum256([]byte(projectID))
+	// Use first 8 characters of hex-encoded hash for reasonable cardinality
+	return hex.EncodeToString(hash[:4])
+}
+
+// isInitialized safely checks if the metrics are initialized.
+func (m *ValueMetrics) isInitialized() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.initialized
 }
 
 // RecordTokensSaved records tokens saved via context compression.
 // inputTokens is the original size, outputTokens is the compressed size.
 func (m *ValueMetrics) RecordTokensSaved(ctx context.Context, inputTokens, outputTokens int) {
-	if m == nil || !m.initialized || m.tokensSaved == nil {
+	if m == nil || !m.isInitialized() {
+		return
+	}
+
+	m.mu.RLock()
+	counter := m.tokensSaved
+	m.mu.RUnlock()
+
+	if counter == nil {
 		return
 	}
 
 	saved := inputTokens - outputTokens
 	if saved > 0 {
-		m.tokensSaved.Add(ctx, int64(saved))
+		counter.Add(ctx, int64(saved))
 	}
 }
 
 // RecordMemoryOutcome records whether a memory retrieval was successful.
+// Project IDs are hashed before being used as metric labels to prevent enumeration.
 func (m *ValueMetrics) RecordMemoryOutcome(ctx context.Context, success bool, projectID string) {
-	if m == nil || !m.initialized {
+	if m == nil || !m.isInitialized() {
 		return
 	}
 
+	// Hash project ID to prevent enumeration attacks
+	hashedID := hashProjectID(projectID)
 	attrs := metric.WithAttributes(
-		attribute.String("project_id", projectID),
+		attribute.String("project_id", hashedID),
 	)
 
+	m.mu.RLock()
+	successCounter := m.memoryRetrievalSuccess
+	failureCounter := m.memoryRetrievalFailure
+	m.mu.RUnlock()
+
 	if success {
-		if m.memoryRetrievalSuccess != nil {
-			m.memoryRetrievalSuccess.Add(ctx, 1, attrs)
+		if successCounter != nil {
+			successCounter.Add(ctx, 1, attrs)
 		}
 	} else {
-		if m.memoryRetrievalFailure != nil {
-			m.memoryRetrievalFailure.Add(ctx, 1, attrs)
+		if failureCounter != nil {
+			failureCounter.Add(ctx, 1, attrs)
 		}
 	}
 }
 
 // RecordCheckpointCreated records a checkpoint creation.
+// Project IDs are hashed before being used as metric labels to prevent enumeration.
 func (m *ValueMetrics) RecordCheckpointCreated(ctx context.Context, projectID string, autoCreated bool) {
-	if m == nil || !m.initialized || m.checkpointCreated == nil {
+	if m == nil || !m.isInitialized() {
 		return
 	}
 
-	m.checkpointCreated.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("project_id", projectID),
+	m.mu.RLock()
+	counter := m.checkpointCreated
+	m.mu.RUnlock()
+
+	if counter == nil {
+		return
+	}
+
+	// Hash project ID to prevent enumeration attacks
+	hashedID := hashProjectID(projectID)
+	counter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("project_id", hashedID),
 		attribute.Bool("auto_created", autoCreated),
 	))
 }
 
 // RecordCheckpointResumed records a checkpoint resumption.
+// Project IDs are hashed before being used as metric labels to prevent enumeration.
 func (m *ValueMetrics) RecordCheckpointResumed(ctx context.Context, projectID string, level string) {
-	if m == nil || !m.initialized || m.checkpointResumed == nil {
+	if m == nil || !m.isInitialized() {
 		return
 	}
 
-	m.checkpointResumed.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("project_id", projectID),
+	m.mu.RLock()
+	counter := m.checkpointResumed
+	m.mu.RUnlock()
+
+	if counter == nil {
+		return
+	}
+
+	// Hash project ID to prevent enumeration attacks
+	hashedID := hashProjectID(projectID)
+	counter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("project_id", hashedID),
 		attribute.String("level", level),
 	))
 }

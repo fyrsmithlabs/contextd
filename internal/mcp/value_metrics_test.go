@@ -9,6 +9,41 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestHashProjectID(t *testing.T) {
+	tests := []struct {
+		name      string
+		projectID string
+		wantLen   int
+	}{
+		{"empty string returns unknown", "", 7}, // "unknown" is 7 chars
+		{"normal project ID", "my-project", 8},  // 8 hex chars
+		{"same input gives same output", "test-project", 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hashProjectID(tt.projectID)
+			if len(result) != tt.wantLen {
+				t.Errorf("hashProjectID(%q) = %q (len %d), want len %d", tt.projectID, result, len(result), tt.wantLen)
+			}
+		})
+	}
+
+	// Test determinism
+	hash1 := hashProjectID("my-project")
+	hash2 := hashProjectID("my-project")
+	if hash1 != hash2 {
+		t.Errorf("hashProjectID is not deterministic: %q != %q", hash1, hash2)
+	}
+
+	// Test different inputs give different outputs
+	hashA := hashProjectID("project-a")
+	hashB := hashProjectID("project-b")
+	if hashA == hashB {
+		t.Errorf("different inputs should give different hashes: %q == %q", hashA, hashB)
+	}
+}
+
 func TestValueMetrics_RecordTokensSaved(t *testing.T) {
 	reader := metric.NewManualReader()
 	mp := metric.NewMeterProvider(metric.WithReader(reader))
