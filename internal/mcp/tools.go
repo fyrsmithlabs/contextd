@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
@@ -189,9 +190,18 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "checkpoint_save")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "checkpoint_save")
+			s.metrics.RecordInvocation(ctx, "checkpoint_save", time.Since(start), toolErr)
+		}()
+
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, checkpointSaveOutput{}, err
 		}
 
@@ -215,12 +225,14 @@ func (s *Server) registerCheckpointTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
+			toolErr = err
 			return nil, checkpointSaveOutput{}, err
 		}
 
 		cp, err := s.checkpointSvc.Save(ctx, saveReq)
 		if err != nil {
-			return nil, checkpointSaveOutput{}, fmt.Errorf("checkpoint save failed: %w", err)
+			toolErr = fmt.Errorf("checkpoint save failed: %w", err)
+			return nil, checkpointSaveOutput{}, toolErr
 		}
 
 		result := checkpointSaveOutput{
@@ -247,9 +259,18 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "checkpoint_list")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "checkpoint_list")
+			s.metrics.RecordInvocation(ctx, "checkpoint_list", time.Since(start), toolErr)
+		}()
+
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, checkpointListOutput{}, err
 		}
 
@@ -266,12 +287,14 @@ func (s *Server) registerCheckpointTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
+			toolErr = err
 			return nil, checkpointListOutput{}, err
 		}
 
 		checkpoints, err := s.checkpointSvc.List(ctx, listReq)
 		if err != nil {
-			return nil, checkpointListOutput{}, fmt.Errorf("checkpoint list failed: %w", err)
+			toolErr = fmt.Errorf("checkpoint list failed: %w", err)
+			return nil, checkpointListOutput{}, toolErr
 		}
 
 		results := make([]map[string]interface{}, 0, len(checkpoints))
@@ -306,9 +329,18 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_resume",
 		Description: "Resume from a checkpoint at specified level (summary, context, or full)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointResumeInput) (*mcp.CallToolResult, checkpointResumeOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "checkpoint_resume")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "checkpoint_resume")
+			s.metrics.RecordInvocation(ctx, "checkpoint_resume", time.Since(start), toolErr)
+		}()
+
 		// Validate tenant_id
 		if err := sanitize.ValidateTenantID(args.TenantID); err != nil {
-			return nil, checkpointResumeOutput{}, fmt.Errorf("invalid tenant_id: %w", err)
+			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
+			return nil, checkpointResumeOutput{}, toolErr
 		}
 
 		resumeReq := &checkpoint.ResumeRequest{
@@ -320,12 +352,14 @@ func (s *Server) registerCheckpointTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err := withTenantContext(ctx, args.TenantID, "", "")
 		if err != nil {
+			toolErr = err
 			return nil, checkpointResumeOutput{}, err
 		}
 
 		response, err := s.checkpointSvc.Resume(ctx, resumeReq)
 		if err != nil {
-			return nil, checkpointResumeOutput{}, fmt.Errorf("checkpoint resume failed: %w", err)
+			toolErr = fmt.Errorf("checkpoint resume failed: %w", err)
+			return nil, checkpointResumeOutput{}, toolErr
 		}
 
 		result := checkpointResumeOutput{
@@ -411,15 +445,25 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "remediation_search")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "remediation_search")
+			s.metrics.RecordInvocation(ctx, "remediation_search", time.Since(start), toolErr)
+		}()
+
 		// Validate and derive tenant context from project path
 		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, remediationSearchOutput{}, err
 		}
 
 		// Validate team_id if provided
 		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
-			return nil, remediationSearchOutput{}, fmt.Errorf("invalid team_id: %w", err)
+			toolErr = fmt.Errorf("invalid team_id: %w", err)
+			return nil, remediationSearchOutput{}, toolErr
 		}
 
 		searchReq := &remediation.SearchRequest{
@@ -437,12 +481,14 @@ func (s *Server) registerRemediationTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
 		if err != nil {
+			toolErr = err
 			return nil, remediationSearchOutput{}, err
 		}
 
 		results, err := s.remediationSvc.Search(ctx, searchReq)
 		if err != nil {
-			return nil, remediationSearchOutput{}, fmt.Errorf("remediation search failed: %w", err)
+			toolErr = fmt.Errorf("remediation search failed: %w", err)
+			return nil, remediationSearchOutput{}, toolErr
 		}
 
 		remediations := make([]map[string]interface{}, 0, len(results))
@@ -477,15 +523,25 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "remediation_record")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "remediation_record")
+			s.metrics.RecordInvocation(ctx, "remediation_record", time.Since(start), toolErr)
+		}()
+
 		// Validate and derive tenant context from project path
 		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, remediationRecordOutput{}, err
 		}
 
 		// Validate team_id if provided
 		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
-			return nil, remediationRecordOutput{}, fmt.Errorf("invalid team_id: %w", err)
+			toolErr = fmt.Errorf("invalid team_id: %w", err)
+			return nil, remediationRecordOutput{}, toolErr
 		}
 
 		recordReq := &remediation.RecordRequest{
@@ -509,12 +565,14 @@ func (s *Server) registerRemediationTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
 		if err != nil {
+			toolErr = err
 			return nil, remediationRecordOutput{}, err
 		}
 
 		rem, err := s.remediationSvc.Record(ctx, recordReq)
 		if err != nil {
-			return nil, remediationRecordOutput{}, fmt.Errorf("remediation record failed: %w", err)
+			toolErr = fmt.Errorf("remediation record failed: %w", err)
+			return nil, remediationRecordOutput{}, toolErr
 		}
 
 		result := remediationRecordOutput{
@@ -536,9 +594,18 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_feedback",
 		Description: "Provide feedback on whether a remediation was helpful. Updates confidence score based on real-world success/failure.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationFeedbackInput) (*mcp.CallToolResult, remediationFeedbackOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "remediation_feedback")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "remediation_feedback")
+			s.metrics.RecordInvocation(ctx, "remediation_feedback", time.Since(start), toolErr)
+		}()
+
 		// Validate input
 		if args.RemediationID == "" {
-			return nil, remediationFeedbackOutput{}, fmt.Errorf("remediation_id is required")
+			toolErr = fmt.Errorf("remediation_id is required")
+			return nil, remediationFeedbackOutput{}, toolErr
 		}
 
 		// Auto-derive tenant_id from project_path if not provided
@@ -549,7 +616,8 @@ func (s *Server) registerRemediationTools() {
 
 		// Validate tenant_id was derived successfully
 		if tenantID == "" {
-			return nil, remediationFeedbackOutput{}, fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			return nil, remediationFeedbackOutput{}, toolErr
 		}
 
 		// Convert boolean helpful to Rating enum
@@ -566,7 +634,8 @@ func (s *Server) registerRemediationTools() {
 		}
 
 		if err := s.remediationSvc.Feedback(ctx, feedbackReq); err != nil {
-			return nil, remediationFeedbackOutput{}, fmt.Errorf("remediation feedback failed: %w", err)
+			toolErr = fmt.Errorf("remediation feedback failed: %w", err)
+			return nil, remediationFeedbackOutput{}, toolErr
 		}
 
 		// Get updated remediation to return new confidence (mirror memory_feedback pattern)
@@ -658,9 +727,18 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "semantic_search",
 		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "semantic_search")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "semantic_search")
+			s.metrics.RecordInvocation(ctx, "semantic_search", time.Since(start), toolErr)
+		}()
+
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
+			toolErr = err
 			return nil, semanticSearchOutput{}, err
 		}
 
@@ -674,6 +752,7 @@ func (s *Server) registerRepositoryTools() {
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
+			toolErr = err
 			return nil, semanticSearchOutput{}, err
 		}
 
@@ -727,7 +806,8 @@ func (s *Server) registerRepositoryTools() {
 			grepResults, err := s.repositorySvc.Grep(ctx, args.Query, grepOpts)
 			if err != nil {
 				// If semantic failed AND grep failed, return error
-				return nil, semanticSearchOutput{}, fmt.Errorf("search failed: %w", err)
+				toolErr = fmt.Errorf("search failed: %w", err)
+				return nil, semanticSearchOutput{}, toolErr
 			}
 
 			// Apply limit manually for grep results
@@ -1083,12 +1163,22 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_search",
 		Description: "Search for relevant memories/strategies from past sessions",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_search")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_search")
+			s.metrics.RecordInvocation(ctx, "memory_search", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			return nil, memorySearchOutput{}, fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, memorySearchOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			return nil, memorySearchOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, memorySearchOutput{}, toolErr
 		}
 
 		limit := args.Limit
@@ -1100,12 +1190,14 @@ func (s *Server) registerMemoryTools() {
 		// For memory tools, ProjectID serves as both tenant and project scope
 		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
 		if err != nil {
-			return nil, memorySearchOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
+			return nil, memorySearchOutput{}, toolErr
 		}
 
 		memories, err := s.reasoningbankSvc.Search(ctx, args.ProjectID, args.Query, limit)
 		if err != nil {
-			return nil, memorySearchOutput{}, fmt.Errorf("memory search failed: %w", err)
+			toolErr = fmt.Errorf("memory search failed: %w", err)
+			return nil, memorySearchOutput{}, toolErr
 		}
 
 		results := make([]map[string]interface{}, 0, len(memories))
@@ -1137,12 +1229,22 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_record",
 		Description: "Record a new memory/learning from the current session",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_record")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_record")
+			s.metrics.RecordInvocation(ctx, "memory_record", time.Since(start), toolErr)
+		}()
+
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			return nil, memoryRecordOutput{}, fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, memoryRecordOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			return nil, memoryRecordOutput{}, fmt.Errorf("invalid project_id: %w", err)
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		outcome := reasoningbank.OutcomeSuccess
@@ -1152,17 +1254,20 @@ func (s *Server) registerMemoryTools() {
 
 		memory, err := reasoningbank.NewMemory(args.ProjectID, args.Title, args.Content, outcome, args.Tags)
 		if err != nil {
-			return nil, memoryRecordOutput{}, fmt.Errorf("invalid memory: %w", err)
+			toolErr = fmt.Errorf("invalid memory: %w", err)
+			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
 		if err != nil {
-			return nil, memoryRecordOutput{}, fmt.Errorf("failed to set tenant context: %w", err)
+			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
+			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		if err := s.reasoningbankSvc.Record(ctx, memory); err != nil {
-			return nil, memoryRecordOutput{}, fmt.Errorf("memory record failed: %w", err)
+			toolErr = fmt.Errorf("memory record failed: %w", err)
+			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		output := memoryRecordOutput{
@@ -1184,14 +1289,24 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_feedback",
 		Description: "Provide feedback on a memory to adjust its confidence",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryFeedbackInput) (*mcp.CallToolResult, memoryFeedbackOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_feedback")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_feedback")
+			s.metrics.RecordInvocation(ctx, "memory_feedback", time.Since(start), toolErr)
+		}()
+
 		if err := s.reasoningbankSvc.Feedback(ctx, args.MemoryID, args.Helpful); err != nil {
-			return nil, memoryFeedbackOutput{}, fmt.Errorf("memory feedback failed: %w", err)
+			toolErr = fmt.Errorf("memory feedback failed: %w", err)
+			return nil, memoryFeedbackOutput{}, toolErr
 		}
 
 		// Get updated memory to return new confidence
 		memory, err := s.reasoningbankSvc.Get(ctx, args.MemoryID)
 		if err != nil {
-			return nil, memoryFeedbackOutput{}, fmt.Errorf("failed to get updated memory: %w", err)
+			toolErr = fmt.Errorf("failed to get updated memory: %w", err)
+			return nil, memoryFeedbackOutput{}, toolErr
 		}
 
 		output := memoryFeedbackOutput{
@@ -1212,10 +1327,19 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_outcome",
 		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_outcome")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_outcome")
+			s.metrics.RecordInvocation(ctx, "memory_outcome", time.Since(start), toolErr)
+		}()
+
 		// Record the outcome signal
 		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
 		if err != nil {
-			return nil, memoryOutcomeOutput{}, fmt.Errorf("memory outcome failed: %w", err)
+			toolErr = fmt.Errorf("memory outcome failed: %w", err)
+			return nil, memoryOutcomeOutput{}, toolErr
 		}
 
 		output := memoryOutcomeOutput{

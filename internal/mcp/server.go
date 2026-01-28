@@ -36,6 +36,7 @@ type Server struct {
 	scrubber         secrets.Scrubber
 	ignoreParser     *ignore.Parser
 	logger           *zap.Logger
+	metrics          *Metrics
 }
 
 // Config configures the MCP server.
@@ -137,6 +138,7 @@ func NewServer(
 		scrubber:         scrubber,
 		ignoreParser:     ignoreParser,
 		logger:           cfg.Logger,
+		metrics:          NewMetrics(cfg.Logger),
 	}
 
 	// Register tools
