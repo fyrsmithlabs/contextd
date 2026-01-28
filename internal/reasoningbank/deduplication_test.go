@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
 	"github.com/stretchr/testify/assert"
@@ -340,4 +341,121 @@ func TestService_Search_EntityBoost(t *testing.T) {
 	// Caroline memory should be ranked first
 	assert.Equal(t, carolineMemory.ID, results[0].Memory.ID,
 		"Caroline memory should be ranked first due to entity boost")
+}
+
+// TestService_IsTemporalQuery tests detection of time-sensitive queries.
+func TestService_IsTemporalQuery(t *testing.T) {
+	svc, _ := NewService(newMockStore(), zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	tests := []struct {
+		name     string
+		query    string
+		expected bool
+	}{
+		{"recent keyword", "what did i do recently?", true},
+		{"yesterday keyword", "what happened yesterday with the bug?", true},
+		{"last keyword", "show me the last error fix", true},
+		{"past week", "errors from the past week", true},
+		{"no temporal", "how do i handle errors?", false},
+		{"case insensitive", "RECENTLY fixed bugs", true},
+		{"earlier keyword", "the earlier approach to caching", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := svc.isTemporalQuery(tt.query)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestService_GetTemporalMultiplier tests age-based scoring multipliers.
+func TestService_GetTemporalMultiplier(t *testing.T) {
+	svc, _ := NewService(newMockStore(), zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	now := time.Now()
+
+	tests := []struct {
+		name       string
+		age        time.Duration
+		expected   float32
+		comparison string
+	}{
+		{"1 day old (recent)", 1 * 24 * time.Hour, 1.25, "boost"},
+		{"5 days old (recent)", 5 * 24 * time.Hour, 1.25, "boost"},
+		{"14 days old (medium)", 14 * 24 * time.Hour, 1.0, "neutral"},
+		{"45 days old (old)", 45 * 24 * time.Hour, 0.8, "penalty"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			memory := &Memory{
+				UpdatedAt: now.Add(-tt.age),
+			}
+			result := svc.getTemporalMultiplier(memory)
+			assert.InDelta(t, tt.expected, result, 0.01, tt.comparison)
+		})
+	}
+}
+
+// TestService_Search_TemporalBoost tests that recent memories get boosted
+// for temporal queries.
+func TestService_Search_TemporalBoost(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-temporal"
+
+	// Create two memories - we'll set timestamps via metadata directly
+	// since Record() always sets UpdatedAt = now
+	recentMemory, _ := NewMemory(projectID, "recent fix", "fixed the bug using retry logic", OutcomeSuccess, []string{})
+	recentMemory.Confidence = 0.85
+	recentMemory.State = MemoryStateActive
+
+	oldMemory, _ := NewMemory(projectID, "old approach", "used a different approach for the same issue", OutcomeSuccess, []string{})
+	oldMemory.Confidence = 0.85
+	oldMemory.State = MemoryStateActive
+
+	// Record both memories
+	_ = svc.Record(ctx, recentMemory)
+	_ = svc.Record(ctx, oldMemory)
+
+	// Manually update timestamps in the mock store to simulate age differences
+	// Record() always sets UpdatedAt = now, so we override via metadata
+	collection, _ := project.GetCollectionName(projectID, project.CollectionMemories)
+	store.mu.Lock()
+	for i := range store.collections[collection] {
+		if store.collections[collection][i].ID == recentMemory.ID {
+			store.collections[collection][i].Metadata["updated_at"] = time.Now().Add(-2 * 24 * time.Hour).Unix() // 2 days ago
+		}
+		if store.collections[collection][i].ID == oldMemory.ID {
+			store.collections[collection][i].Metadata["updated_at"] = time.Now().Add(-60 * 24 * time.Hour).Unix() // 60 days ago
+		}
+	}
+	store.mu.Unlock()
+
+	// Search with temporal query - recent memory should be boosted
+	results, err := svc.SearchWithScores(ctx, projectID, "what did i recently fix?", 10)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Find results by ID
+	var recentResult, oldResult ScoredMemory
+	for _, r := range results {
+		if r.Memory.ID == recentMemory.ID {
+			recentResult = r
+		} else {
+			oldResult = r
+		}
+	}
+
+	// Recent memory should have higher relevance (0.9 * 1.25 = 1.125)
+	// Old memory should be penalized (0.9 * 0.8 = 0.72)
+	assert.Greater(t, recentResult.Relevance, oldResult.Relevance,
+		"recent memory should have higher relevance for temporal query")
+
+	// Recent memory should be ranked first
+	assert.Equal(t, recentMemory.ID, results[0].Memory.ID,
+		"recent memory should be ranked first for temporal query")
 }

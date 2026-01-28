@@ -63,6 +63,23 @@ var entityStopwords = map[string]struct{}{
 	"about": {}, "for": {}, "from": {}, "into": {}, "with": {},
 }
 
+// temporalKeywords indicates queries that care about recency.
+// When detected, recent memories get boosted and older memories get penalized.
+var temporalKeywords = []string{
+	"recent", "recently", "lately", "last", "yesterday", "today",
+	"earlier", "previous", "previously", "past week", "few days",
+	"just now", "this morning", "this week", "month ago", "before",
+}
+
+const (
+	// temporalRecentBoost applied to memories < 7 days old for temporal queries
+	temporalRecentBoost = 1.25
+	// temporalMediumMultiplier for memories 7-30 days old (no change)
+	temporalMediumMultiplier = 1.0
+	// temporalOldPenalty applied to memories > 30 days old for temporal queries
+	temporalOldPenalty = 0.8
+)
+
 // Service provides cross-session memory storage and retrieval.
 //
 // It stores memories in Qdrant using semantic search to surface relevant
@@ -453,6 +470,14 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			zap.String("query", query))
 	}
 
+	// Check if query is temporal (mentions "recent", "yesterday", etc.)
+	// Temporal queries boost recent memories and penalize old ones
+	isTemporalQuery := s.isTemporalQuery(query)
+	if isTemporalQuery {
+		s.logger.Debug("detected temporal query",
+			zap.String("query", query))
+	}
+
 	for _, result := range results {
 		// Deduplication: skip if we've already seen this memory ID
 		// This prevents duplicates from race conditions during memory updates (delete→add pattern)
@@ -514,6 +539,19 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 				zap.String("id", memory.ID),
 				zap.Strings("matched_entities", queryEntities),
 				zap.Float32("boosted_score", score))
+		}
+
+		// Apply temporal weighting for time-sensitive queries
+		// Recent memories get boosted, old memories get penalized
+		if isTemporalQuery {
+			temporalMultiplier := s.getTemporalMultiplier(memory)
+			if temporalMultiplier != 1.0 {
+				score *= temporalMultiplier
+				s.logger.Debug("applying temporal weight",
+					zap.String("id", memory.ID),
+					zap.Float32("multiplier", temporalMultiplier),
+					zap.Float32("boosted_score", score))
+			}
 		}
 
 		// Record usage signal for this memory (positive = retrieved in search)
@@ -657,6 +695,9 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 	// Extract named entities from query for boosting
 	queryEntities := s.extractQueryEntities(query)
 
+	// Check if query is temporal
+	isTemporalQuery := s.isTemporalQuery(query)
+
 	for _, result := range results {
 		// Deduplication
 		if _, seen := seenIDs[result.ID]; seen {
@@ -689,6 +730,11 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 		// Apply entity boost when memory mentions entities from query
 		if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
 			score *= entityBoostFactor
+		}
+
+		// Apply temporal weighting for time-sensitive queries
+		if isTemporalQuery {
+			score *= s.getTemporalMultiplier(memory)
 		}
 
 		// Record usage signal
@@ -1259,6 +1305,40 @@ func (s *Service) memoryContainsEntity(memory *Memory, entities []string) bool {
 		}
 	}
 	return false
+}
+
+// isTemporalQuery checks if a query contains keywords indicating time-sensitivity.
+// Temporal queries benefit from recency boosting (recent memories rank higher).
+func (s *Service) isTemporalQuery(query string) bool {
+	lowerQuery := strings.ToLower(query)
+	for _, keyword := range temporalKeywords {
+		if strings.Contains(lowerQuery, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// getTemporalMultiplier returns a score multiplier based on memory age.
+// Recent memories (<7 days) get boosted, old memories (>30 days) get penalized.
+// Only applied for temporal queries (detected via isTemporalQuery).
+func (s *Service) getTemporalMultiplier(memory *Memory) float32 {
+	if memory == nil {
+		return 1.0
+	}
+
+	age := time.Since(memory.UpdatedAt)
+	switch {
+	case age < 7*24*time.Hour:
+		// Recent: boost
+		return temporalRecentBoost
+	case age < 30*24*time.Hour:
+		// Medium: no change
+		return temporalMediumMultiplier
+	default:
+		// Old: penalty
+		return temporalOldPenalty
+	}
 }
 
 // memoryToDocument converts a Memory to a vectorstore Document.
