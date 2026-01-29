@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
+	"github.com/fyrsmithlabs/contextd/internal/reranker"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -111,6 +112,7 @@ type Service struct {
 	stores        vectorstore.StoreProvider // For database-per-project isolation
 	defaultTenant string                    // Default tenant for StoreProvider (usually git username)
 	embedder      vectorstore.Embedder      // For re-embedding content to retrieve vectors
+	reranker      reranker.Reranker         // Optional reranker for improving search quality
 	signalStore   SignalStore
 	confCalc      *ConfidenceCalculator
 	logger        *zap.Logger
@@ -160,6 +162,14 @@ func WithDefaultTenant(tenantID string) ServiceOption {
 func WithEmbedder(embedder vectorstore.Embedder) ServiceOption {
 	return func(s *Service) {
 		s.embedder = embedder
+	}
+}
+
+// WithReranker sets an optional reranker for improving search quality.
+// If not provided, search results are not re-ranked.
+func WithReranker(r reranker.Reranker) ServiceOption {
+	return func(s *Service) {
+		s.reranker = r
 	}
 }
 
@@ -593,6 +603,48 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	sort.Slice(scoredMemories, func(i, j int) bool {
 		return scoredMemories[i].score > scoredMemories[j].score
 	})
+
+	// Apply reranking if available
+	if s.reranker != nil && len(scoredMemories) > 0 {
+		// Convert scoredMemories to Document format for reranker
+		docs := make([]reranker.Document, len(scoredMemories))
+		for i, sm := range scoredMemories {
+			docs[i] = reranker.Document{
+				ID:      sm.memory.ID,
+				Content: sm.memory.Content,
+				Score:   sm.score,
+			}
+		}
+
+		// Rerank documents
+		rerankedDocs, err := s.reranker.Rerank(ctx, query, docs, len(docs))
+		if err != nil {
+			// Log error but continue with original ranking
+			s.logger.Warn("reranking failed, using original ranking",
+				zap.String("project_id", projectID),
+				zap.String("query", query),
+				zap.Error(err))
+		} else {
+			// Replace scoredMemories with reranked results
+			// Map the reranked documents back to scoredMemory structs
+			rerankedMemories := make([]scoredMemory, len(rerankedDocs))
+			for i, rerankedDoc := range rerankedDocs {
+				// Find the original memory from scoredMemories
+				for _, sm := range scoredMemories {
+					if sm.memory.ID == rerankedDoc.ID {
+						rerankedMemories[i] = sm
+						s.logger.Debug("reranking result",
+							zap.String("id", rerankedDoc.ID),
+							zap.Int("original_position", rerankedDoc.OriginalRank),
+							zap.Int("reranked_position", i),
+							zap.Float32("reranker_score", rerankedDoc.RerankerScore))
+						break
+					}
+				}
+			}
+			scoredMemories = rerankedMemories
+		}
+	}
 
 	// Extract memories up to limit
 	memories := make([]Memory, 0, limit)
