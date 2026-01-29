@@ -108,6 +108,24 @@ type ScoredMemory struct {
 	Relevance float64 `json:"relevance"`
 }
 
+// SearchMetadata provides insights into search quality and suggestions for refinement.
+// Used to support iterative search mode where users can progressively refine queries.
+type SearchMetadata struct {
+	// SuggestedRefinements contains recommended search terms extracted from results
+	// that weren't present in the original query. These terms can help refine searches.
+	SuggestedRefinements []string `json:"suggested_refinements"`
+
+	// QueryCoverage indicates how well the search results matched the query (0.0-1.0).
+	// Higher values mean the results better matched the query intent.
+	// Calculated as the average relevance score of returned results.
+	QueryCoverage float64 `json:"query_coverage"`
+
+	// EntityMatches is the count of distinct entities found in the search results.
+	// Entities are extracted named items (people, concepts, technologies, etc.).
+	// Higher counts may indicate diverse results covering multiple aspects.
+	EntityMatches int `json:"entity_matches"`
+}
+
 // NewMemory creates a new memory with a generated UUID and default values.
 func NewMemory(projectID, title, content string, outcome Outcome, tags []string) (*Memory, error) {
 	if projectID == "" {

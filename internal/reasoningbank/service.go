@@ -851,6 +851,80 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 	return scoredMemories, nil
 }
 
+// SearchWithMetadata returns memories with search relevance scores and metadata for iterative refinement.
+//
+// In addition to ranked results, provides SearchMetadata containing:
+//   - SuggestedRefinements: Terms extracted from results that can help refine the query
+//   - QueryCoverage: Average relevance score indicating how well results matched the query
+//   - EntityMatches: Count of distinct entities found in results
+//
+// This metadata enables iterative search where users can progressively refine queries
+// based on what was found and suggested.
+//
+// FR-128: Iterative search mode with refinement suggestions
+func (s *Service) SearchWithMetadata(ctx context.Context, projectID, query string, limit int) ([]ScoredMemory, *SearchMetadata, error) {
+	// Get the scored results first
+	scoredMemories, err := s.SearchWithScores(ctx, projectID, query, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// If no results, return empty metadata
+	if len(scoredMemories) == 0 {
+		return scoredMemories, &SearchMetadata{
+			SuggestedRefinements: []string{},
+			QueryCoverage:        0.0,
+			EntityMatches:        0,
+		}, nil
+	}
+
+	// Extract entities from results that weren't in the original query
+	resultEntities := make(map[string]struct{})
+	for _, sm := range scoredMemories {
+		// Extract entities from memory title and content
+		titleEntities := s.extractQueryEntities(sm.Memory.Title)
+		contentEntities := s.extractQueryEntities(sm.Memory.Content)
+
+		for _, entity := range append(titleEntities, contentEntities...) {
+			resultEntities[entity] = struct{}{}
+		}
+	}
+
+	// Get query entities to filter out already-queried terms
+	queryEntities := s.extractQueryEntities(query)
+	queryEntitySet := make(map[string]struct{})
+	for _, entity := range queryEntities {
+		queryEntitySet[entity] = struct{}{}
+	}
+
+	// Build suggested refinements from result entities not in query
+	suggestedRefinements := make([]string, 0)
+	for entity := range resultEntities {
+		if _, alreadyInQuery := queryEntitySet[entity]; !alreadyInQuery {
+			suggestedRefinements = append(suggestedRefinements, entity)
+		}
+	}
+	// Limit refinement suggestions to top 5
+	if len(suggestedRefinements) > 5 {
+		suggestedRefinements = suggestedRefinements[:5]
+	}
+
+	// Calculate query coverage as average relevance of results
+	var totalRelevance float64
+	for _, sm := range scoredMemories {
+		totalRelevance += sm.Relevance
+	}
+	queryCoverage := totalRelevance / float64(len(scoredMemories))
+
+	metadata := &SearchMetadata{
+		SuggestedRefinements: suggestedRefinements,
+		QueryCoverage:        queryCoverage,
+		EntityMatches:        len(resultEntities),
+	}
+
+	return scoredMemories, metadata, nil
+}
+
 // Record creates a new memory explicitly (bypasses distillation).
 //
 // Sets initial confidence to ExplicitRecordConfidence (0.8) since
