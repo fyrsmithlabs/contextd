@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
+	"github.com/fyrsmithlabs/contextd/internal/reranker"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -25,6 +28,10 @@ const collectionMemories = "memories"
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 
 const (
+	// maxQueryLength is the maximum query length for regex-based processing.
+	// Prevents ReDoS attacks by limiting input size before regex execution.
+	maxQueryLength = 10000
+
 	// MinConfidence is the minimum confidence threshold for search results.
 	MinConfidence = 0.7
 
@@ -42,6 +49,12 @@ const (
 	// questions like "What is Caroline's identity?" by prioritizing memories
 	// that explicitly mention "Caroline".
 	entityBoostFactor = 1.3
+
+	// conversationBoostFactor multiplies relevance score when a memory shares
+	// the same conversation context as a top-ranked result. This improves
+	// multi-hop query performance by ensuring related memories are retrieved
+	// together.
+	conversationBoostFactor = 1.15
 )
 
 // entityRegex extracts proper nouns (capitalized words) from queries.
@@ -51,6 +64,11 @@ const (
 //
 // Used for entity-based boosting in memory search.
 var entityRegex = regexp.MustCompile(`\b[A-Z][a-z]+\b`)
+
+// conversationIDRegex extracts conversation IDs from memory tags.
+// Examples: "[conv-26 ...]" → "conv-26", "[locomo conv-42 ...]" → "conv-42"
+// Used for conversation-aware boosting in multi-hop queries.
+var conversationIDRegex = regexp.MustCompile(`\bconv-\d+\b`)
 
 // entityStopwords contains common words that appear capitalized at sentence starts
 // but are not named entities. Used to filter false positives from entityRegex.
@@ -94,6 +112,7 @@ type Service struct {
 	stores        vectorstore.StoreProvider // For database-per-project isolation
 	defaultTenant string                    // Default tenant for StoreProvider (usually git username)
 	embedder      vectorstore.Embedder      // For re-embedding content to retrieve vectors
+	reranker      reranker.Reranker         // Optional reranker for improving search quality
 	signalStore   SignalStore
 	confCalc      *ConfidenceCalculator
 	logger        *zap.Logger
@@ -143,6 +162,14 @@ func WithDefaultTenant(tenantID string) ServiceOption {
 func WithEmbedder(embedder vectorstore.Embedder) ServiceOption {
 	return func(s *Service) {
 		s.embedder = embedder
+	}
+}
+
+// WithReranker sets an optional reranker for improving search quality.
+// If not provided, search results are not re-ranked.
+func WithReranker(r reranker.Reranker) ServiceOption {
+	return func(s *Service) {
+		s.reranker = r
 	}
 }
 
@@ -407,17 +434,19 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "search", "tenant_not_configured")
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "search", "tenant_not_configured")
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: projectID,
-	})
 
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
@@ -571,12 +600,56 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	}
 
 	// Re-sort by boosted scores (higher score = more relevant)
-	// Use a simple bubble sort since the list is nearly sorted already
-	for i := 0; i < len(scoredMemories); i++ {
-		for j := i + 1; j < len(scoredMemories); j++ {
-			if scoredMemories[j].score > scoredMemories[i].score {
-				scoredMemories[i], scoredMemories[j] = scoredMemories[j], scoredMemories[i]
+	sort.Slice(scoredMemories, func(i, j int) bool {
+		return scoredMemories[i].score > scoredMemories[j].score
+	})
+
+	// Apply reranking if available
+	if s.reranker != nil && len(scoredMemories) > 0 {
+		// Convert scoredMemories to Document format for reranker
+		docs := make([]reranker.Document, len(scoredMemories))
+		for i, sm := range scoredMemories {
+			docs[i] = reranker.Document{
+				ID:      sm.memory.ID,
+				Content: sm.memory.Content,
+				Score:   sm.score,
 			}
+		}
+
+		// Rerank documents
+		rerankedDocs, err := s.reranker.Rerank(ctx, query, docs, len(docs))
+		if err != nil {
+			// Log error but continue with original ranking
+			s.logger.Warn("reranking failed, using original ranking",
+				zap.String("project_id", projectID),
+				zap.String("query", query),
+				zap.Error(err))
+		} else {
+			// Replace scoredMemories with reranked results
+			// Build lookup map for O(1) access instead of O(n²) nested loops
+			memoryMap := make(map[string]scoredMemory, len(scoredMemories))
+			for _, sm := range scoredMemories {
+				memoryMap[sm.memory.ID] = sm
+			}
+
+			// Map reranked docs back to scoredMemory structs
+			rerankedMemories := make([]scoredMemory, 0, len(rerankedDocs))
+			for i, rerankedDoc := range rerankedDocs {
+				sm, ok := memoryMap[rerankedDoc.ID]
+				if !ok {
+					// Log warning but continue - don't fail the whole search
+					s.logger.Warn("reranked document ID not found in original memories",
+						zap.String("id", rerankedDoc.ID))
+					continue
+				}
+				s.logger.Debug("reranking result",
+					zap.String("id", rerankedDoc.ID),
+					zap.Int("original_position", rerankedDoc.OriginalRank),
+					zap.Int("reranked_position", i),
+					zap.Float32("reranker_score", rerankedDoc.RerankerScore))
+				rerankedMemories = append(rerankedMemories, sm)
+			}
+			scoredMemories = rerankedMemories
 		}
 	}
 
@@ -750,13 +823,9 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 	}
 
 	// Sort by score (descending)
-	for i := 0; i < len(internalResults); i++ {
-		for j := i + 1; j < len(internalResults); j++ {
-			if internalResults[j].score > internalResults[i].score {
-				internalResults[i], internalResults[j] = internalResults[j], internalResults[i]
-			}
-		}
-	}
+	sort.Slice(internalResults, func(i, j int) bool {
+		return internalResults[i].score > internalResults[j].score
+	})
 
 	// Convert to ScoredMemory and limit
 	scoredMemories := make([]ScoredMemory, 0, limit)
@@ -834,17 +903,21 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		return err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "record", "tenant_not_configured")
-		return fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		// No tenant context set by caller, inject default
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "record", "tenant_not_configured")
+			return fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: memory.ProjectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: memory.ProjectID,
-	})
+	// Note: If tenant context is already set, we respect it (don't overwrite)
 
 	// Ensure collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
@@ -911,6 +984,10 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return fmt.Errorf("getting memory: %w", err)
 	}
 
+	// Capture original state for potential rollback
+	originalConfidence := memory.Confidence
+	originalUpdatedAt := memory.UpdatedAt
+
 	// Record explicit signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalExplicit, helpful, "")
 	if err != nil {
@@ -949,7 +1026,9 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return err
 	}
 
-	// Delete old version from the correct collection
+	// Delete-then-add with rollback: delete old version, add updated version.
+	// If add fails, attempt to restore the original document using originalConfidence
+	// captured at the start of the function (line 929).
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		s.recordError(ctx, "feedback", "delete_old_failed")
 		return fmt.Errorf("deleting old memory: %w", err)
@@ -959,6 +1038,16 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		// Attempt rollback: restore original document with original state
+		memory.Confidence = originalConfidence
+		memory.UpdatedAt = originalUpdatedAt
+		rollbackDoc := s.memoryToDocument(memory, collectionName)
+		_, rollbackErr := store.AddDocuments(ctx, []vectorstore.Document{rollbackDoc})
+		if rollbackErr != nil {
+			s.logger.Error("failed to rollback memory after update failure",
+				zap.String("id", memoryID),
+				zap.Error(rollbackErr))
+		}
 		s.recordError(ctx, "feedback", "update_failed")
 		return fmt.Errorf("updating memory: %w", err)
 	}
@@ -996,22 +1085,29 @@ func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 		return nil, fmt.Errorf("memory ID cannot be empty")
 	}
 
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("invalid memory ID format: must be a valid UUID")
+	}
+
 	// With StoreProvider only, we can't enumerate all project stores
 	if s.store == nil {
 		return nil, fmt.Errorf("Get requires legacy store; use GetByProjectID with StoreProvider")
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "get", "tenant_not_configured")
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "get", "tenant_not_configured")
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		// Note: We can't inject ProjectID here since we don't know which project yet
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID: tenantID,
+		})
 	}
-	// Note: We can't inject ProjectID here since we don't know which project yet
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID: tenantID,
-	})
 
 	// List all collections and search each one
 	collections, err := s.store.ListCollections(ctx)
@@ -1062,6 +1158,11 @@ func (s *Service) GetByProjectID(ctx context.Context, projectID, memoryID string
 	}
 	if memoryID == "" {
 		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(memoryID); err != nil {
+		return nil, fmt.Errorf("invalid memory ID format: must be a valid UUID")
 	}
 
 	// Get store and collection name
@@ -1138,6 +1239,11 @@ func (s *Service) DeleteByProjectID(ctx context.Context, projectID, memoryID str
 		return fmt.Errorf("memory ID cannot be empty")
 	}
 
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(memoryID); err != nil {
+		return fmt.Errorf("invalid memory ID format: must be a valid UUID")
+	}
+
 	// Get store and collection name
 	store, collectionName, err := s.getStore(ctx, projectID)
 	if err != nil {
@@ -1179,6 +1285,10 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 		s.recordError(ctx, "outcome", "get_memory_failed")
 		return 0, fmt.Errorf("getting memory: %w", err)
 	}
+
+	// Capture original state for potential rollback
+	originalConfidence := memory.Confidence
+	originalUpdatedAt := memory.UpdatedAt
 
 	// Create and store outcome signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalOutcome, succeeded, sessionID)
@@ -1222,15 +1332,28 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 		return 0, err
 	}
 
-	// Delete old version and re-add with updated confidence
+	// Delete-then-add with rollback: delete old version, add updated version.
+	// If add fails, attempt to restore the original document using originalConfidence
+	// captured at the start of the function.
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		s.recordError(ctx, "outcome", "delete_old_failed")
 		return 0, fmt.Errorf("deleting old memory: %w", err)
 	}
 
+	// Re-add with updated confidence
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		// Attempt rollback: restore original document with original state
+		memory.Confidence = originalConfidence
+		memory.UpdatedAt = originalUpdatedAt
+		rollbackDoc := s.memoryToDocument(memory, collectionName)
+		_, rollbackErr := store.AddDocuments(ctx, []vectorstore.Document{rollbackDoc})
+		if rollbackErr != nil {
+			s.logger.Error("failed to rollback memory after update failure",
+				zap.String("id", memoryID),
+				zap.Error(rollbackErr))
+		}
 		s.recordError(ctx, "outcome", "update_failed")
 		return 0, fmt.Errorf("updating memory: %w", err)
 	}
@@ -1263,7 +1386,14 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 // Example: "What is Caroline's identity?" → ["Caroline"]
 //
 //	"Tell me about John and Alice" → ["John", "Alice"]
+//
+// Input is truncated to maxQueryLength to prevent ReDoS attacks.
 func (s *Service) extractQueryEntities(query string) []string {
+	// Limit input length to prevent ReDoS
+	if len(query) > maxQueryLength {
+		query = query[:maxQueryLength]
+	}
+
 	matches := entityRegex.FindAllString(query, -1)
 	if len(matches) == 0 {
 		return nil
@@ -1307,9 +1437,40 @@ func (s *Service) memoryContainsEntity(memory *Memory, entities []string) bool {
 	return false
 }
 
+// extractConversationID extracts a conversation ID from memory tags.
+// Returns empty string if no conversation ID is found.
+//
+// Example tags: ["locomo", "conv-26", "Melanie", "turn_329", "session_15"]
+// Returns: "conv-26"
+func (s *Service) extractConversationID(memory *Memory) string {
+	if memory == nil {
+		return ""
+	}
+
+	// Check tags first (most common location)
+	for _, tag := range memory.Tags {
+		if match := conversationIDRegex.FindString(tag); match != "" {
+			return match
+		}
+	}
+
+	// Also check title (tags might be embedded there)
+	if match := conversationIDRegex.FindString(memory.Title); match != "" {
+		return match
+	}
+
+	return ""
+}
+
 // isTemporalQuery checks if a query contains keywords indicating time-sensitivity.
 // Temporal queries benefit from recency boosting (recent memories rank higher).
+// Input is truncated to maxQueryLength for safety.
 func (s *Service) isTemporalQuery(query string) bool {
+	// Limit input length for safety
+	if len(query) > maxQueryLength {
+		query = query[:maxQueryLength]
+	}
+
 	lowerQuery := strings.ToLower(query)
 	for _, keyword := range temporalKeywords {
 		if strings.Contains(lowerQuery, keyword) {
@@ -1441,16 +1602,18 @@ func (s *Service) ListMemories(ctx context.Context, projectID string, limit, off
 		return nil, err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: projectID,
-	})
 
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
@@ -1685,11 +1848,10 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 
 	// Parse content (strip title from beginning if present)
 	content := result.Content
-	if len(title) > 0 && len(content) > len(title)+2 {
+	titlePrefix := title + "\n\n"
+	if len(title) > 0 && len(content) >= len(titlePrefix) && strings.HasPrefix(content, titlePrefix) {
 		// Remove "title\n\n" prefix
-		if content[:len(title)] == title {
-			content = content[len(title)+2:]
-		}
+		content = content[len(titlePrefix):]
 	}
 
 	memory := &Memory{

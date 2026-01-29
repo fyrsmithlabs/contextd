@@ -455,7 +455,8 @@ func TestService_Get(t *testing.T) {
 	})
 
 	t.Run("returns error for non-existent ID", func(t *testing.T) {
-		_, err := svc.Get(ctx, "non-existent-id")
+		// Use a valid UUID format that doesn't exist in the store
+		_, err := svc.Get(ctx, "00000000-0000-0000-0000-000000000000")
 		require.Error(t, err)
 		assert.Equal(t, ErrMemoryNotFound, err)
 	})
@@ -514,7 +515,8 @@ func TestService_Feedback(t *testing.T) {
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
-		err := svc.Feedback(ctx, "non-existent-id", true)
+		// Use a valid UUID format that doesn't exist in the store
+		err := svc.Feedback(ctx, "00000000-0000-0000-0000-000000000000", true)
 		require.Error(t, err)
 	})
 }
@@ -576,7 +578,8 @@ func TestService_RecordOutcome(t *testing.T) {
 		projectID := "project-123"
 		memory, _ := NewMemory(projectID, "Test Memory", "Test content", OutcomeSuccess, []string{"test"})
 		_ = svc.Record(ctx, memory)
-		_, err := svc.RecordOutcome(ctx, "non-existent-id", true, "session-126")
+		// Use a valid UUID format that doesn't exist in the store
+		_, err := svc.RecordOutcome(ctx, "00000000-0000-0000-0000-000000000000", true, "session-126")
 		require.Error(t, err)
 	})
 
@@ -999,7 +1002,8 @@ func TestService_GetByProjectID(t *testing.T) {
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
-		_, err := svc.GetByProjectID(ctx, "project-123", "non-existent")
+		// Use a valid UUID format that doesn't exist in the store
+		_, err := svc.GetByProjectID(ctx, "project-123", "00000000-0000-0000-0000-000000000000")
 		require.Error(t, err)
 		assert.Equal(t, ErrMemoryNotFound, err)
 	})
@@ -1465,7 +1469,8 @@ func TestGetMemoryVector(t *testing.T) {
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
-		vector, err := svc.GetMemoryVector(ctx, "non-existent-id")
+		// Use a valid UUID format that doesn't exist in the store
+		vector, err := svc.GetMemoryVector(ctx, "00000000-0000-0000-0000-000000000000")
 		assert.Error(t, err)
 		assert.Nil(t, vector)
 		assert.Contains(t, err.Error(), "memory not found")
@@ -1554,7 +1559,8 @@ func TestGetMemoryVectorByProjectID(t *testing.T) {
 	})
 
 	t.Run("returns error for non-existent memory", func(t *testing.T) {
-		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "non-existent-id")
+		// Use a valid UUID format that doesn't exist in the store
+		vector, err := svc.GetMemoryVectorByProjectID(ctx, "some-project", "00000000-0000-0000-0000-000000000000")
 		assert.Error(t, err)
 		assert.Nil(t, vector)
 		assert.Contains(t, err.Error(), "memory not found")
