@@ -42,6 +42,12 @@ const (
 	// questions like "What is Caroline's identity?" by prioritizing memories
 	// that explicitly mention "Caroline".
 	entityBoostFactor = 1.3
+
+	// conversationBoostFactor multiplies relevance score when a memory shares
+	// the same conversation context as a top-ranked result. This improves
+	// multi-hop query performance by ensuring related memories are retrieved
+	// together.
+	conversationBoostFactor = 1.15
 )
 
 // entityRegex extracts proper nouns (capitalized words) from queries.
@@ -51,6 +57,11 @@ const (
 //
 // Used for entity-based boosting in memory search.
 var entityRegex = regexp.MustCompile(`\b[A-Z][a-z]+\b`)
+
+// conversationIDRegex extracts conversation IDs from memory tags.
+// Examples: "[conv-26 ...]" → "conv-26", "[locomo conv-42 ...]" → "conv-42"
+// Used for conversation-aware boosting in multi-hop queries.
+var conversationIDRegex = regexp.MustCompile(`\bconv-\d+\b`)
 
 // entityStopwords contains common words that appear capitalized at sentence starts
 // but are not named entities. Used to filter false positives from entityRegex.
@@ -1313,6 +1324,31 @@ func (s *Service) memoryContainsEntity(memory *Memory, entities []string) bool {
 		}
 	}
 	return false
+}
+
+// extractConversationID extracts a conversation ID from memory tags.
+// Returns empty string if no conversation ID is found.
+//
+// Example tags: ["locomo", "conv-26", "Melanie", "turn_329", "session_15"]
+// Returns: "conv-26"
+func (s *Service) extractConversationID(memory *Memory) string {
+	if memory == nil {
+		return ""
+	}
+
+	// Check tags first (most common location)
+	for _, tag := range memory.Tags {
+		if match := conversationIDRegex.FindString(tag); match != "" {
+			return match
+		}
+	}
+
+	// Also check title (tags might be embedded there)
+	if match := conversationIDRegex.FindString(memory.Title); match != "" {
+		return match
+	}
+
+	return ""
 }
 
 // isTemporalQuery checks if a query contains keywords indicating time-sensitivity.
