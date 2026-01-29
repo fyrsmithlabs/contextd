@@ -30,7 +30,7 @@ const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoning
 const (
 	// maxQueryLength is the maximum query length for regex-based processing.
 	// Prevents ReDoS attacks by limiting input size before regex execution.
-	maxQueryLength = 10000
+	maxQueryLength = 2000
 
 	// MinConfidence is the minimum confidence threshold for search results.
 	MinConfidence = 0.7
@@ -909,6 +909,10 @@ func (s *Service) SearchWithMetadata(ctx context.Context, projectID, query strin
 		suggestedRefinements = suggestedRefinements[:5]
 	}
 
+	// Sanitize refinements to prevent cross-tenant data leakage
+	// Filters out UUIDs, emails, and other PII patterns
+	suggestedRefinements = s.sanitizeRefinements(suggestedRefinements)
+
 	// Calculate query coverage as average relevance of results
 	var totalRelevance float64
 	for _, sm := range scoredMemories {
@@ -1602,6 +1606,29 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 }
 
 // Stats returns current memory statistics for statusline display.
+
+// sanitizeRefinements filters out refinement suggestions that could leak cross-tenant data.
+// This prevents UUIDs, email addresses, and other PII from being suggested as query refinements.
+func (s *Service) sanitizeRefinements(refinements []string) []string {
+	sanitized := make([]string, 0, len(refinements))
+	for _, r := range refinements {
+		// Skip if looks like UUID
+		if _, err := uuid.Parse(r); err == nil {
+			continue
+		}
+		// Skip if looks like email
+		if strings.Contains(r, "@") {
+			continue
+		}
+		// Skip very short refinements (likely noise)
+		if len(r) < 3 {
+			continue
+		}
+		sanitized = append(sanitized, r)
+	}
+	return sanitized
+}
+
 func (s *Service) Stats() Stats {
 	s.statsMu.RLock()
 	defer s.statsMu.RUnlock()

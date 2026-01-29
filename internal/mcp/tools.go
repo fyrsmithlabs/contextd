@@ -1138,7 +1138,7 @@ type memorySearchInput struct {
 type memorySearchOutput struct {
 	Memories    []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
 	Count       int                      `json:"count" jsonschema:"Number of results"`
-	Metadata    *map[string]interface{}  `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
+	Metadata    map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
 }
 
 type memoryRecordInput struct {
@@ -1260,7 +1260,7 @@ func (s *Server) registerMemoryTools() {
 		output := memorySearchOutput{
 			Memories: results,
 			Count:    len(results),
-			Metadata: &metadataMap,
+			Metadata: metadataMap,
 		}
 
 		return &mcp.CallToolResult{

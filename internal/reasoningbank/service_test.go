@@ -2142,3 +2142,41 @@ func TestService_SearchWithMetadata(t *testing.T) {
 		assert.LessOrEqual(t, len(metadata.SuggestedRefinements), 5)
 	})
 }
+
+// TestService_SanitizeRefinements tests the sanitizeRefinements helper function
+// that prevents cross-tenant data leakage in search refinements.
+func TestService_SanitizeRefinements(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	store := newMockStore()
+	svc, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+	require.NoError(t, err)
+
+	t.Run("filters out UUIDs", func(t *testing.T) {
+		input := []string{"Alice", "550e8400-e29b-41d4-a716-446655440000", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("filters out emails", func(t *testing.T) {
+		input := []string{"Alice", "alice@example.com", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("filters out short strings", func(t *testing.T) {
+		input := []string{"Alice", "AB", "a", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		result := svc.sanitizeRefinements([]string{})
+		assert.Empty(t, result)
+	})
+
+	t.Run("preserves valid refinements", func(t *testing.T) {
+		input := []string{"Alice", "Caroline", "Memory", "Error"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, input, result)
+	})
+}
