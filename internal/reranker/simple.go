@@ -2,9 +2,13 @@ package reranker
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 )
+
+// ErrNilContext is returned when a nil context is passed to Rerank.
+var ErrNilContext = errors.New("context cannot be nil")
 
 // SimpleReranker implements a simple TF-IDF based reranking algorithm.
 // It calculates term overlap between the query and documents, then combines
@@ -23,6 +27,9 @@ func NewSimpleReranker() *SimpleReranker {
 // 3. Combines original score (50% weight) with overlap score (50% weight)
 // 4. Sorts by combined score and returns top K results
 func (r *SimpleReranker) Rerank(ctx context.Context, query string, docs []Document, topK int) ([]ScoredDocument, error) {
+	if ctx == nil {
+		return nil, ErrNilContext
+	}
 	if topK <= 0 {
 		topK = len(docs)
 	}
@@ -152,11 +159,14 @@ func calculateTermOverlap(queryTokens, docTokens []string) float32 {
 		docTokenSet[token] = true
 	}
 
-	// Count how many query tokens appear in document
+	// Count how many unique query tokens appear in document
+	// Use a counted map to avoid counting duplicate query tokens multiple times
 	matchCount := 0
+	counted := make(map[string]bool)
 	for _, queryToken := range queryTokens {
-		if docTokenSet[queryToken] {
+		if docTokenSet[queryToken] && !counted[queryToken] {
 			matchCount++
+			counted[queryToken] = true
 		}
 	}
 
