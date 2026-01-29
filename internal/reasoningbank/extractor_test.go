@@ -2,6 +2,7 @@ package reasoningbank
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,15 +23,15 @@ func TestSimpleExtractorExtract(t *testing.T) {
 	referenceDate := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC) // Monday
 
 	tests := []struct {
-		name           string
-		text           string
-		referenceDate  time.Time
-		expectError    bool
-		expectFacts    int
-		expectedFacts  []struct {
-			subject   string
-			predicate string
-			object    string
+		name          string
+		text          string
+		referenceDate time.Time
+		expectError   bool
+		expectFacts   int
+		expectedFacts []struct {
+			subject    string
+			predicate  string
+			object     string
 			confidence float64
 		}
 	}{
@@ -81,11 +82,11 @@ func TestSimpleExtractorExtract(t *testing.T) {
 			},
 		},
 		{
-			name:        "I did something",
-			text:        "I fixed the database connection pool issue.",
+			name:          "I did something",
+			text:          "I fixed the database connection pool issue.",
 			referenceDate: referenceDate,
-			expectError: false,
-			expectFacts: 1,
+			expectError:   false,
+			expectFacts:   1,
 			expectedFacts: []struct {
 				subject    string
 				predicate  string
@@ -96,11 +97,11 @@ func TestSimpleExtractorExtract(t *testing.T) {
 			},
 		},
 		{
-			name:        "property assignment",
-			text:        "Go is powerful for backend development.",
+			name:          "property assignment",
+			text:          "Go is powerful for backend development.",
 			referenceDate: referenceDate,
-			expectError: false,
-			expectFacts: 1,
+			expectError:   false,
+			expectFacts:   1,
 			expectedFacts: []struct {
 				subject    string
 				predicate  string
@@ -111,10 +112,10 @@ func TestSimpleExtractorExtract(t *testing.T) {
 			},
 		},
 		{
-			name:        "empty text",
-			text:        "",
+			name:          "empty text",
+			text:          "",
 			referenceDate: referenceDate,
-			expectError: true,
+			expectError:   true,
 		},
 		{
 			name:          "text with no extractable patterns",
@@ -124,11 +125,11 @@ func TestSimpleExtractorExtract(t *testing.T) {
 			expectFacts:   0,
 		},
 		{
-			name:        "multiple sentences mixed",
-			text:        "I attended the planning session. We learned about the new deployment pipeline. I'm thinking about optimization strategies.",
+			name:          "multiple sentences mixed",
+			text:          "I attended the planning session. We learned about the new deployment pipeline. I'm thinking about optimization strategies.",
 			referenceDate: referenceDate,
-			expectError: false,
-			expectFacts: 3,
+			expectError:   false,
+			expectFacts:   3,
 		},
 	}
 
@@ -250,17 +251,17 @@ func TestSplitSentences(t *testing.T) {
 		{
 			name:     "single sentence with period",
 			text:     "I attended the meeting.",
-			expected: 2, // Split creates empty string at end
+			expected: 1, // Empty string at end is now filtered out
 		},
 		{
 			name:     "multiple sentences",
 			text:     "I attended the meeting. I learned a lot! Do you agree?",
-			expected: 4,
+			expected: 3, // Empty string at end is now filtered out
 		},
 		{
 			name:     "multiple punctuation",
 			text:     "Really?! Yes. Indeed...",
-			expected: 4,
+			expected: 3, // Empty strings are filtered out
 		},
 		{
 			name:     "no punctuation",
@@ -270,7 +271,7 @@ func TestSplitSentences(t *testing.T) {
 		{
 			name:     "empty string",
 			text:     "",
-			expected: 1,
+			expected: 0, // Empty strings are filtered out
 		},
 	}
 
@@ -333,6 +334,50 @@ func TestExtractorWithSourceID(t *testing.T) {
 	// (it will be set by the caller)
 	assert.Empty(t, facts[0].SourceID)
 	assert.NotEmpty(t, facts[0].Provenance)
+}
+
+func TestExtractorMaxTextLength(t *testing.T) {
+	extractor := NewSimpleExtractor()
+	ctx := context.Background()
+	referenceDate := time.Now()
+
+	// Create text that exceeds the 100KB limit
+	largeText := strings.Repeat("I attended a meeting. ", 10000)
+	require.Greater(t, len(largeText), maxTextLength, "test text should exceed maxTextLength")
+
+	facts, err := extractor.Extract(ctx, largeText, referenceDate)
+	require.Error(t, err)
+	assert.Nil(t, facts)
+	assert.Contains(t, err.Error(), "exceeds maximum length")
+}
+
+func TestExtractorContextCancellation(t *testing.T) {
+	extractor := NewSimpleExtractor()
+	referenceDate := time.Now()
+
+	// Create a pre-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	facts, err := extractor.Extract(ctx, "I attended a meeting.", referenceDate)
+	require.Error(t, err)
+	assert.Nil(t, facts)
+	assert.Equal(t, context.Canceled, err)
+}
+
+func TestExtractorContextTimeout(t *testing.T) {
+	extractor := NewSimpleExtractor()
+	referenceDate := time.Now()
+
+	// Create a context that times out immediately
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+
+	facts, err := extractor.Extract(ctx, "I attended a meeting.", referenceDate)
+	require.Error(t, err)
+	assert.Nil(t, facts)
+	assert.Equal(t, context.DeadlineExceeded, err)
 }
 
 func BenchmarkExtractorSimple(b *testing.B) {

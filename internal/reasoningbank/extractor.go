@@ -2,10 +2,15 @@ package reasoningbank
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// maxTextLength is the maximum allowed input text length (100KB).
+// This prevents denial of service attacks via extremely large inputs.
+const maxTextLength = 100000
 
 // SimpleExtractor is a rule-based fact extractor using regex patterns.
 //
@@ -47,11 +52,13 @@ func NewSimpleExtractor() *SimpleExtractor {
 }
 
 // buildPatterns creates the set of regex patterns for fact extraction.
+// All patterns use [^.!?]{1,200} instead of .+? to prevent ReDoS attacks.
 func buildPatterns() []*patternRule {
 	return []*patternRule{
 		{
 			// Pattern: "I went to/attended X" or "I attended X"
-			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:went to|attended|visited)\s+(.+?)(?:\s+(?:yesterday|today|tomorrow|last|this|next))?\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:went to|attended|visited)\s+([^.!?]{1,200})(?:\s+(?:yesterday|today|tomorrow|last|this|next))?\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				obj := strings.TrimSpace(groups[1])
 				// Remove trailing temporal references
@@ -65,7 +72,8 @@ func buildPatterns() []*patternRule {
 		},
 		{
 			// Pattern: "I'm thinking about X" or "I'm considering X"
-			regex: regexp.MustCompile(`(?i)\b(?:I'm|I am|we're|we are)\s+(?:thinking about|considering|pondering|planning)\s+(.+?)\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b(?:I'm|I am|we're|we are)\s+(?:thinking about|considering|pondering|planning)\s+([^.!?]{1,200})\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				return "I", "considering", strings.TrimSpace(groups[1])
 			},
@@ -73,7 +81,8 @@ func buildPatterns() []*patternRule {
 		},
 		{
 			// Pattern: "I learned X" or "I learned about X"
-			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+learned\s+(?:about\s+)?(.+?)\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+learned\s+(?:about\s+)?([^.!?]{1,200})\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				obj := strings.TrimSpace(groups[1])
 				// Remove common patterns and temporal references
@@ -87,7 +96,8 @@ func buildPatterns() []*patternRule {
 		},
 		{
 			// Pattern: "I implemented X" or "I built X"
-			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:implemented|built|created|developed)\s+(.+?)\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:implemented|built|created|developed)\s+([^.!?]{1,200})\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				obj := strings.TrimSpace(groups[1])
 				// Remove trailing temporal references
@@ -100,7 +110,8 @@ func buildPatterns() []*patternRule {
 		},
 		{
 			// Pattern: "X is Y" (property assignment)
-			regex: regexp.MustCompile(`(?i)\b([A-Za-z]+)\s+is\s+(.+?)\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b([A-Za-z]+)\s+is\s+([^.!?]{1,200})\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				return strings.TrimSpace(groups[1]), "is", strings.TrimSpace(groups[2])
 			},
@@ -108,7 +119,8 @@ func buildPatterns() []*patternRule {
 		},
 		{
 			// Pattern: "I did X" or "I had X"
-			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:did|had|made|fixed|resolved)\s+(.+?)\.?$`),
+			// Using [^.!?]{1,200} instead of .+? to prevent ReDoS attacks
+			regex: regexp.MustCompile(`(?i)\b(?:I|we)\s+(?:did|had|made|fixed|resolved)\s+([^.!?]{1,200})\.?$`),
 			extractFn: func(groups []string) (string, string, string) {
 				return "I", "did", strings.TrimSpace(groups[1])
 			},
@@ -119,15 +131,32 @@ func buildPatterns() []*patternRule {
 
 // Extract parses text and returns structured facts.
 func (e *SimpleExtractor) Extract(ctx context.Context, text string, referenceDate time.Time) ([]Fact, error) {
+	// Check context at start for timeout/cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if text == "" {
 		return nil, ErrEmptyFactText
+	}
+
+	// Validate input length to prevent DoS
+	if len(text) > maxTextLength {
+		return nil, fmt.Errorf("text exceeds maximum length of %d bytes", maxTextLength)
 	}
 
 	// Split text into sentences for independent processing
 	sentences := splitSentences(text)
 	var facts []Fact
 
-	for _, sentence := range sentences {
+	for i, sentence := range sentences {
+		// Periodically check context for cancellation during long processing
+		if i%100 == 0 && i > 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+
 		sentence = strings.TrimSpace(sentence)
 		if sentence == "" {
 			continue
@@ -166,11 +195,21 @@ func (e *SimpleExtractor) Extract(ctx context.Context, text string, referenceDat
 }
 
 // splitSentences splits text into sentences by common delimiters.
+// Empty strings are filtered out to avoid unnecessary processing.
 func splitSentences(text string) []string {
 	// Split by sentence terminators: period, exclamation, question mark
 	re := regexp.MustCompile(`[.!?]+`)
 	sentences := re.Split(text, -1)
-	return sentences
+
+	// Filter out empty strings
+	filtered := sentences[:0]
+	for _, s := range sentences {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
 }
 
 // resolveTemporalReference extracts and resolves temporal references from text.
