@@ -407,17 +407,19 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "search", "tenant_not_configured")
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "search", "tenant_not_configured")
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: projectID,
-	})
 
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
@@ -834,17 +836,21 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		return err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "record", "tenant_not_configured")
-		return fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		// No tenant context set by caller, inject default
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "record", "tenant_not_configured")
+			return fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: memory.ProjectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: memory.ProjectID,
-	})
+	// Note: If tenant context is already set, we respect it (don't overwrite)
 
 	// Ensure collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
@@ -1001,17 +1007,19 @@ func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 		return nil, fmt.Errorf("Get requires legacy store; use GetByProjectID with StoreProvider")
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		s.recordError(ctx, "get", "tenant_not_configured")
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			s.recordError(ctx, "get", "tenant_not_configured")
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		// Note: We can't inject ProjectID here since we don't know which project yet
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID: tenantID,
+		})
 	}
-	// Note: We can't inject ProjectID here since we don't know which project yet
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID: tenantID,
-	})
 
 	// List all collections and search each one
 	collections, err := s.store.ListCollections(ctx)
@@ -1441,16 +1449,18 @@ func (s *Service) ListMemories(ctx context.Context, projectID string, limit, off
 		return nil, err
 	}
 
-	// Inject tenant context for payload-based isolation
-	// Fail-closed: require tenant ID to be set (no fallback)
-	tenantID := s.defaultTenant
-	if tenantID == "" {
-		return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+	// Use tenant context from caller if set (MCP tools set this)
+	// Otherwise fall back to defaultTenant for backward compatibility
+	if _, err := vectorstore.TenantFromContext(ctx); err != nil {
+		tenantID := s.defaultTenant
+		if tenantID == "" {
+			return nil, fmt.Errorf("tenant ID not configured for reasoningbank service")
+		}
+		ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		})
 	}
-	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		ProjectID: projectID,
-	})
 
 	// Check if collection exists
 	exists, err := store.CollectionExists(ctx, collectionName)
