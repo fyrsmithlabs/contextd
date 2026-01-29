@@ -626,21 +626,28 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 				zap.Error(err))
 		} else {
 			// Replace scoredMemories with reranked results
-			// Map the reranked documents back to scoredMemory structs
-			rerankedMemories := make([]scoredMemory, len(rerankedDocs))
+			// Build lookup map for O(1) access instead of O(n²) nested loops
+			memoryMap := make(map[string]scoredMemory, len(scoredMemories))
+			for _, sm := range scoredMemories {
+				memoryMap[sm.memory.ID] = sm
+			}
+
+			// Map reranked docs back to scoredMemory structs
+			rerankedMemories := make([]scoredMemory, 0, len(rerankedDocs))
 			for i, rerankedDoc := range rerankedDocs {
-				// Find the original memory from scoredMemories
-				for _, sm := range scoredMemories {
-					if sm.memory.ID == rerankedDoc.ID {
-						rerankedMemories[i] = sm
-						s.logger.Debug("reranking result",
-							zap.String("id", rerankedDoc.ID),
-							zap.Int("original_position", rerankedDoc.OriginalRank),
-							zap.Int("reranked_position", i),
-							zap.Float32("reranker_score", rerankedDoc.RerankerScore))
-						break
-					}
+				sm, ok := memoryMap[rerankedDoc.ID]
+				if !ok {
+					// Log warning but continue - don't fail the whole search
+					s.logger.Warn("reranked document ID not found in original memories",
+						zap.String("id", rerankedDoc.ID))
+					continue
 				}
+				s.logger.Debug("reranking result",
+					zap.String("id", rerankedDoc.ID),
+					zap.Int("original_position", rerankedDoc.OriginalRank),
+					zap.Int("reranked_position", i),
+					zap.Float32("reranker_score", rerankedDoc.RerankerScore))
+				rerankedMemories = append(rerankedMemories, sm)
 			}
 			scoredMemories = rerankedMemories
 		}
