@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/fyrsmithlabs/contextd/internal/project"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -25,6 +27,10 @@ const collectionMemories = "memories"
 const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 
 const (
+	// maxQueryLength is the maximum query length for regex-based processing.
+	// Prevents ReDoS attacks by limiting input size before regex execution.
+	maxQueryLength = 10000
+
 	// MinConfidence is the minimum confidence threshold for search results.
 	MinConfidence = 0.7
 
@@ -584,14 +590,9 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 	}
 
 	// Re-sort by boosted scores (higher score = more relevant)
-	// Use a simple bubble sort since the list is nearly sorted already
-	for i := 0; i < len(scoredMemories); i++ {
-		for j := i + 1; j < len(scoredMemories); j++ {
-			if scoredMemories[j].score > scoredMemories[i].score {
-				scoredMemories[i], scoredMemories[j] = scoredMemories[j], scoredMemories[i]
-			}
-		}
-	}
+	sort.Slice(scoredMemories, func(i, j int) bool {
+		return scoredMemories[i].score > scoredMemories[j].score
+	})
 
 	// Extract memories up to limit
 	memories := make([]Memory, 0, limit)
@@ -763,13 +764,9 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 	}
 
 	// Sort by score (descending)
-	for i := 0; i < len(internalResults); i++ {
-		for j := i + 1; j < len(internalResults); j++ {
-			if internalResults[j].score > internalResults[i].score {
-				internalResults[i], internalResults[j] = internalResults[j], internalResults[i]
-			}
-		}
-	}
+	sort.Slice(internalResults, func(i, j int) bool {
+		return internalResults[i].score > internalResults[j].score
+	})
 
 	// Convert to ScoredMemory and limit
 	scoredMemories := make([]ScoredMemory, 0, limit)
@@ -928,6 +925,10 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return fmt.Errorf("getting memory: %w", err)
 	}
 
+	// Capture original state for potential rollback
+	originalConfidence := memory.Confidence
+	originalUpdatedAt := memory.UpdatedAt
+
 	// Record explicit signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalExplicit, helpful, "")
 	if err != nil {
@@ -966,7 +967,9 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 		return err
 	}
 
-	// Delete old version from the correct collection
+	// Delete-then-add with rollback: delete old version, add updated version.
+	// If add fails, attempt to restore the original document using originalConfidence
+	// captured at the start of the function (line 929).
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		s.recordError(ctx, "feedback", "delete_old_failed")
 		return fmt.Errorf("deleting old memory: %w", err)
@@ -976,6 +979,16 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		// Attempt rollback: restore original document with original state
+		memory.Confidence = originalConfidence
+		memory.UpdatedAt = originalUpdatedAt
+		rollbackDoc := s.memoryToDocument(memory, collectionName)
+		_, rollbackErr := store.AddDocuments(ctx, []vectorstore.Document{rollbackDoc})
+		if rollbackErr != nil {
+			s.logger.Error("failed to rollback memory after update failure",
+				zap.String("id", memoryID),
+				zap.Error(rollbackErr))
+		}
 		s.recordError(ctx, "feedback", "update_failed")
 		return fmt.Errorf("updating memory: %w", err)
 	}
@@ -1011,6 +1024,11 @@ func (s *Service) Feedback(ctx context.Context, memoryID string, helpful bool) e
 func (s *Service) Get(ctx context.Context, id string) (*Memory, error) {
 	if id == "" {
 		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("invalid memory ID format: must be a valid UUID")
 	}
 
 	// With StoreProvider only, we can't enumerate all project stores
@@ -1081,6 +1099,11 @@ func (s *Service) GetByProjectID(ctx context.Context, projectID, memoryID string
 	}
 	if memoryID == "" {
 		return nil, fmt.Errorf("memory ID cannot be empty")
+	}
+
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(memoryID); err != nil {
+		return nil, fmt.Errorf("invalid memory ID format: must be a valid UUID")
 	}
 
 	// Get store and collection name
@@ -1157,6 +1180,11 @@ func (s *Service) DeleteByProjectID(ctx context.Context, projectID, memoryID str
 		return fmt.Errorf("memory ID cannot be empty")
 	}
 
+	// Validate UUID format to prevent filter injection
+	if _, err := uuid.Parse(memoryID); err != nil {
+		return fmt.Errorf("invalid memory ID format: must be a valid UUID")
+	}
+
 	// Get store and collection name
 	store, collectionName, err := s.getStore(ctx, projectID)
 	if err != nil {
@@ -1198,6 +1226,10 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 		s.recordError(ctx, "outcome", "get_memory_failed")
 		return 0, fmt.Errorf("getting memory: %w", err)
 	}
+
+	// Capture original state for potential rollback
+	originalConfidence := memory.Confidence
+	originalUpdatedAt := memory.UpdatedAt
 
 	// Create and store outcome signal
 	signal, err := NewSignal(memoryID, memory.ProjectID, SignalOutcome, succeeded, sessionID)
@@ -1241,15 +1273,28 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 		return 0, err
 	}
 
-	// Delete old version and re-add with updated confidence
+	// Delete-then-add with rollback: delete old version, add updated version.
+	// If add fails, attempt to restore the original document using originalConfidence
+	// captured at the start of the function.
 	if err := store.DeleteDocumentsFromCollection(ctx, collectionName, []string{memoryID}); err != nil {
 		s.recordError(ctx, "outcome", "delete_old_failed")
 		return 0, fmt.Errorf("deleting old memory: %w", err)
 	}
 
+	// Re-add with updated confidence
 	doc := s.memoryToDocument(memory, collectionName)
 	_, err = store.AddDocuments(ctx, []vectorstore.Document{doc})
 	if err != nil {
+		// Attempt rollback: restore original document with original state
+		memory.Confidence = originalConfidence
+		memory.UpdatedAt = originalUpdatedAt
+		rollbackDoc := s.memoryToDocument(memory, collectionName)
+		_, rollbackErr := store.AddDocuments(ctx, []vectorstore.Document{rollbackDoc})
+		if rollbackErr != nil {
+			s.logger.Error("failed to rollback memory after update failure",
+				zap.String("id", memoryID),
+				zap.Error(rollbackErr))
+		}
 		s.recordError(ctx, "outcome", "update_failed")
 		return 0, fmt.Errorf("updating memory: %w", err)
 	}
@@ -1282,7 +1327,14 @@ func (s *Service) RecordOutcome(ctx context.Context, memoryID string, succeeded 
 // Example: "What is Caroline's identity?" → ["Caroline"]
 //
 //	"Tell me about John and Alice" → ["John", "Alice"]
+//
+// Input is truncated to maxQueryLength to prevent ReDoS attacks.
 func (s *Service) extractQueryEntities(query string) []string {
+	// Limit input length to prevent ReDoS
+	if len(query) > maxQueryLength {
+		query = query[:maxQueryLength]
+	}
+
 	matches := entityRegex.FindAllString(query, -1)
 	if len(matches) == 0 {
 		return nil
@@ -1353,7 +1405,13 @@ func (s *Service) extractConversationID(memory *Memory) string {
 
 // isTemporalQuery checks if a query contains keywords indicating time-sensitivity.
 // Temporal queries benefit from recency boosting (recent memories rank higher).
+// Input is truncated to maxQueryLength for safety.
 func (s *Service) isTemporalQuery(query string) bool {
+	// Limit input length for safety
+	if len(query) > maxQueryLength {
+		query = query[:maxQueryLength]
+	}
+
 	lowerQuery := strings.ToLower(query)
 	for _, keyword := range temporalKeywords {
 		if strings.Contains(lowerQuery, keyword) {
@@ -1731,11 +1789,10 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 
 	// Parse content (strip title from beginning if present)
 	content := result.Content
-	if len(title) > 0 && len(content) > len(title)+2 {
+	titlePrefix := title + "\n\n"
+	if len(title) > 0 && len(content) >= len(titlePrefix) && strings.HasPrefix(content, titlePrefix) {
 		// Remove "title\n\n" prefix
-		if content[:len(title)] == title {
-			content = content[len(title)+2:]
-		}
+		content = content[len(titlePrefix):]
 	}
 
 	memory := &Memory{
