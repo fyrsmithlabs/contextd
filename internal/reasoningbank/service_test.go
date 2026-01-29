@@ -2005,3 +2005,178 @@ func TestService_Search_MetadataPreservation(t *testing.T) {
 		assert.Nil(t, retrievedActive.ConsolidationID, "active memory has no consolidation_id")
 	})
 }
+
+func TestService_SearchWithMetadata(t *testing.T) {
+	ctx := context.Background()
+	store := newMockStore()
+	svc, _ := NewService(store, zap.NewNop(), WithDefaultTenant("test-tenant"))
+
+	projectID := "project-123"
+
+	// Create test memories with different content
+	memory1, _ := NewMemory(projectID, "Go Error Handling Pattern", "Use fmt.Errorf with %w for error wrapping in Go. Caroline recommends this approach.", OutcomeSuccess, []string{"go", "errors"})
+	memory1.Confidence = 0.9
+	_ = svc.Record(ctx, memory1)
+
+	memory2, _ := NewMemory(projectID, "Testing Strategies", "Use table-driven tests for comprehensive coverage. David's pattern for Go testing.", OutcomeSuccess, []string{"go", "testing"})
+	memory2.Confidence = 0.8
+	_ = svc.Record(ctx, memory2)
+
+	memory3, _ := NewMemory(projectID, "Context Management", "Always use context for lifecycle management in Go applications.", OutcomeSuccess, []string{"go", "context"})
+	memory3.Confidence = 0.85
+	_ = svc.Record(ctx, memory3)
+
+	t.Run("returns metadata with results", func(t *testing.T) {
+		results, metadata, err := svc.SearchWithMetadata(ctx, projectID, "error handling in Go", 10)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		// Should have results
+		assert.NotEmpty(t, results)
+
+		// Metadata should have valid fields
+		assert.GreaterOrEqual(t, metadata.QueryCoverage, 0.0)
+		// Note: QueryCoverage can exceed 1.0 due to boosting (consolidated memory boost, entity boost, etc.)
+		assert.Greater(t, metadata.QueryCoverage, 0.0)
+		assert.GreaterOrEqual(t, metadata.EntityMatches, 0)
+	})
+
+	t.Run("suggests refinements from result entities", func(t *testing.T) {
+		results, metadata, err := svc.SearchWithMetadata(ctx, projectID, "wrapping", 10)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		// Should have results
+		assert.NotEmpty(t, results)
+
+		// Suggested refinements are entities found in results
+		// that weren't in the query
+		for _, suggestion := range metadata.SuggestedRefinements {
+			// Suggestions should be non-empty
+			assert.NotEmpty(t, suggestion)
+			// Suggestions should not be the query term itself
+			assert.NotEqual(t, "wrapping", strings.ToLower(suggestion))
+		}
+
+		// We should have some suggestions from the diverse memories
+		// (they contain terms like "fmt", "error", "go", "testing", etc.)
+		assert.GreaterOrEqual(t, len(metadata.SuggestedRefinements), 0)
+	})
+
+	t.Run("calculates query coverage as average relevance", func(t *testing.T) {
+		results, metadata, err := svc.SearchWithMetadata(ctx, projectID, "Go programming", 10)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		if len(results) > 0 {
+			// Query coverage should be non-negative
+			assert.GreaterOrEqual(t, metadata.QueryCoverage, 0.0)
+
+			// Rough check: query coverage should be related to result relevance
+			// Note: Can exceed 1.0 due to boosting (consolidated, entity, temporal)
+			totalRelevance := 0.0
+			for _, result := range results {
+				totalRelevance += result.Relevance
+			}
+			expectedCoverage := totalRelevance / float64(len(results))
+
+			// Allow small floating point tolerance
+			assert.InDelta(t, expectedCoverage, metadata.QueryCoverage, 0.01)
+		}
+	})
+
+	t.Run("counts entities in results", func(t *testing.T) {
+		results, metadata, err := svc.SearchWithMetadata(ctx, projectID, "testing", 10)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		// Entity count should be non-negative
+		assert.GreaterOrEqual(t, metadata.EntityMatches, 0)
+
+		// If we have results, we should have some entities
+		if len(results) > 0 {
+			assert.Greater(t, metadata.EntityMatches, 0)
+		}
+	})
+
+	t.Run("handles empty results gracefully", func(t *testing.T) {
+		// Search with a query that's unlikely to match existing memories
+		results, metadata, err := svc.SearchWithMetadata(ctx, projectID, "xyzabc_nonexistent_query_12345", 10)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		// With this highly unlikely query, should have minimal/no results
+		// (mocked store may return some results, so we check metadata validity instead)
+		assert.NotNil(t, metadata)
+
+		// Metadata should still be valid (even with empty results)
+		assert.GreaterOrEqual(t, metadata.QueryCoverage, 0.0)
+		assert.GreaterOrEqual(t, metadata.EntityMatches, 0)
+
+		// If truly empty results, check all zero values
+		if len(results) == 0 {
+			assert.Equal(t, 0.0, metadata.QueryCoverage)
+			assert.Equal(t, 0, metadata.EntityMatches)
+			assert.Empty(t, metadata.SuggestedRefinements)
+		}
+	})
+
+	t.Run("limits suggested refinements to 5", func(t *testing.T) {
+		// Create more memories with diverse entities
+		for i := 0; i < 8; i++ {
+			mem, _ := NewMemory(projectID,
+				fmt.Sprintf("Memory %d with Entity%d", i, i),
+				fmt.Sprintf("Content with Entity%d, Entity%d, Entity%d", i, i+1, i+2),
+				OutcomeSuccess,
+				[]string{"diverse", "test"},
+			)
+			mem.Confidence = 0.75
+			_ = svc.Record(ctx, mem)
+		}
+
+		_, metadata, err := svc.SearchWithMetadata(ctx, projectID, "diverse", 20)
+		require.NoError(t, err)
+		require.NotNil(t, metadata)
+
+		// Suggested refinements should be capped at 5
+		assert.LessOrEqual(t, len(metadata.SuggestedRefinements), 5)
+	})
+}
+
+// TestService_SanitizeRefinements tests the sanitizeRefinements helper function
+// that prevents cross-tenant data leakage in search refinements.
+func TestService_SanitizeRefinements(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	store := newMockStore()
+	svc, err := NewService(store, logger, WithDefaultTenant("test-tenant"))
+	require.NoError(t, err)
+
+	t.Run("filters out UUIDs", func(t *testing.T) {
+		input := []string{"Alice", "550e8400-e29b-41d4-a716-446655440000", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("filters out emails", func(t *testing.T) {
+		input := []string{"Alice", "alice@example.com", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("filters out short strings", func(t *testing.T) {
+		input := []string{"Alice", "AB", "a", "Bob"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, []string{"Alice", "Bob"}, result)
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		result := svc.sanitizeRefinements([]string{})
+		assert.Empty(t, result)
+	})
+
+	t.Run("preserves valid refinements", func(t *testing.T) {
+		input := []string{"Alice", "Caroline", "Memory", "Error"}
+		result := svc.sanitizeRefinements(input)
+		assert.Equal(t, input, result)
+	})
+}

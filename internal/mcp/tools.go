@@ -1136,8 +1136,9 @@ type memorySearchInput struct {
 }
 
 type memorySearchOutput struct {
-	Memories []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
-	Count    int                      `json:"count" jsonschema:"Number of results"`
+	Memories    []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
+	Count       int                      `json:"count" jsonschema:"Number of results"`
+	Metadata    map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
 }
 
 type memoryRecordInput struct {
@@ -1230,7 +1231,7 @@ func (s *Server) registerMemoryTools() {
 			return nil, memorySearchOutput{}, toolErr
 		}
 
-		scoredMemories, err := s.reasoningbankSvc.SearchWithScores(ctx, args.ProjectID, args.Query, limit)
+		scoredMemories, metadata, err := s.reasoningbankSvc.SearchWithMetadata(ctx, args.ProjectID, args.Query, limit)
 		if err != nil {
 			toolErr = fmt.Errorf("memory search failed: %w", err)
 			return nil, memorySearchOutput{}, toolErr
@@ -1249,9 +1250,17 @@ func (s *Server) registerMemoryTools() {
 			})
 		}
 
+		// Convert metadata to map for output
+		metadataMap := map[string]interface{}{
+			"suggested_refinements": metadata.SuggestedRefinements,
+			"query_coverage":        metadata.QueryCoverage,
+			"entity_matches":        metadata.EntityMatches,
+		}
+
 		output := memorySearchOutput{
 			Memories: results,
 			Count:    len(results),
+			Metadata: metadataMap,
 		}
 
 		return &mcp.CallToolResult{

@@ -30,7 +30,7 @@ const instrumentationName = "github.com/fyrsmithlabs/contextd/internal/reasoning
 const (
 	// maxQueryLength is the maximum query length for regex-based processing.
 	// Prevents ReDoS attacks by limiting input size before regex execution.
-	maxQueryLength = 10000
+	maxQueryLength = 2000
 
 	// MinConfidence is the minimum confidence threshold for search results.
 	MinConfidence = 0.7
@@ -858,6 +858,84 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 	return scoredMemories, nil
 }
 
+// SearchWithMetadata returns memories with search relevance scores and metadata for iterative refinement.
+//
+// In addition to ranked results, provides SearchMetadata containing:
+//   - SuggestedRefinements: Terms extracted from results that can help refine the query
+//   - QueryCoverage: Average relevance score indicating how well results matched the query
+//   - EntityMatches: Count of distinct entities found in results
+//
+// This metadata enables iterative search where users can progressively refine queries
+// based on what was found and suggested.
+//
+// FR-128: Iterative search mode with refinement suggestions
+func (s *Service) SearchWithMetadata(ctx context.Context, projectID, query string, limit int) ([]ScoredMemory, *SearchMetadata, error) {
+	// Get the scored results first
+	scoredMemories, err := s.SearchWithScores(ctx, projectID, query, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// If no results, return empty metadata
+	if len(scoredMemories) == 0 {
+		return scoredMemories, &SearchMetadata{
+			SuggestedRefinements: []string{},
+			QueryCoverage:        0.0,
+			EntityMatches:        0,
+		}, nil
+	}
+
+	// Extract entities from results that weren't in the original query
+	resultEntities := make(map[string]struct{})
+	for _, sm := range scoredMemories {
+		// Extract entities from memory title and content
+		titleEntities := s.extractQueryEntities(sm.Memory.Title)
+		contentEntities := s.extractQueryEntities(sm.Memory.Content)
+
+		for _, entity := range append(titleEntities, contentEntities...) {
+			resultEntities[entity] = struct{}{}
+		}
+	}
+
+	// Get query entities to filter out already-queried terms
+	queryEntities := s.extractQueryEntities(query)
+	queryEntitySet := make(map[string]struct{})
+	for _, entity := range queryEntities {
+		queryEntitySet[entity] = struct{}{}
+	}
+
+	// Build suggested refinements from result entities not in query
+	suggestedRefinements := make([]string, 0)
+	for entity := range resultEntities {
+		if _, alreadyInQuery := queryEntitySet[entity]; !alreadyInQuery {
+			suggestedRefinements = append(suggestedRefinements, entity)
+		}
+	}
+	// Limit refinement suggestions to top 5
+	if len(suggestedRefinements) > 5 {
+		suggestedRefinements = suggestedRefinements[:5]
+	}
+
+	// Sanitize refinements to prevent cross-tenant data leakage
+	// Filters out UUIDs, emails, and other PII patterns
+	suggestedRefinements = s.sanitizeRefinements(suggestedRefinements)
+
+	// Calculate query coverage as average relevance of results
+	var totalRelevance float64
+	for _, sm := range scoredMemories {
+		totalRelevance += sm.Relevance
+	}
+	queryCoverage := totalRelevance / float64(len(scoredMemories))
+
+	metadata := &SearchMetadata{
+		SuggestedRefinements: suggestedRefinements,
+		QueryCoverage:        queryCoverage,
+		EntityMatches:        len(resultEntities),
+	}
+
+	return scoredMemories, metadata, nil
+}
+
 // Record creates a new memory explicitly (bypasses distillation).
 //
 // Sets initial confidence to ExplicitRecordConfidence (0.8) since
@@ -1535,6 +1613,29 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 }
 
 // Stats returns current memory statistics for statusline display.
+
+// sanitizeRefinements filters out refinement suggestions that could leak cross-tenant data.
+// This prevents UUIDs, email addresses, and other PII from being suggested as query refinements.
+func (s *Service) sanitizeRefinements(refinements []string) []string {
+	sanitized := make([]string, 0, len(refinements))
+	for _, r := range refinements {
+		// Skip if looks like UUID
+		if _, err := uuid.Parse(r); err == nil {
+			continue
+		}
+		// Skip if looks like email
+		if strings.Contains(r, "@") {
+			continue
+		}
+		// Skip very short refinements (likely noise)
+		if len(r) < 3 {
+			continue
+		}
+		sanitized = append(sanitized, r)
+	}
+	return sanitized
+}
+
 func (s *Service) Stats() Stats {
 	s.statsMu.RLock()
 	defer s.statsMu.RUnlock()
