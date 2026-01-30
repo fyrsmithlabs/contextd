@@ -172,6 +172,17 @@ func (h *SessionHandler) End(ctx context.Context, input json.RawMessage) (interf
 
 	memoriesCreated := 0
 
+	// Flush session buffer if Memory service supports session granularity
+	if h.registry.Memory() != nil {
+		ids, err := h.registry.Memory().FlushSession(ctx, req.ProjectID, req.SessionID)
+		if err != nil {
+			// Best-effort: don't fail session end on flush error
+			_ = err // TODO: add structured logging when handler has logger access
+		} else {
+			memoriesCreated += len(ids)
+		}
+	}
+
 	// Call Distiller if available
 	if h.registry.Distiller() != nil {
 		summary := reasoningbank.SessionSummary{

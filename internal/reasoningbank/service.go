@@ -128,6 +128,11 @@ type Service struct {
 	searchDuration      metric.Float64Histogram
 	confidenceHistogram metric.Float64Histogram
 
+	// Session granularity support
+	granularity MemoryGranularity       // "turn" (default) or "session"
+	bufferMgr   *SessionBufferManager   // Non-nil when granularity=session
+	summarizer  *SessionSummarizer      // Non-nil when granularity=session
+
 	// Stats tracking for statusline
 	statsMu        sync.RWMutex
 	lastConfidence float64
@@ -170,6 +175,29 @@ func WithEmbedder(embedder vectorstore.Embedder) ServiceOption {
 func WithReranker(r reranker.Reranker) ServiceOption {
 	return func(s *Service) {
 		s.reranker = r
+	}
+}
+
+// WithSessionGranularity enables session-level memory storage.
+//
+// When enabled, Record() calls with a SessionID buffer turns in memory
+// instead of storing immediately. Call FlushSession() to summarize and
+// persist buffered turns as session-level memories.
+//
+// maxBufferedTurns limits how many turns can be buffered per session (0 = unlimited).
+func WithSessionGranularity(extractor FactExtractor, logger *zap.Logger, maxBufferedTurns int) ServiceOption {
+	return func(s *Service) {
+		s.granularity = GranularitySession
+		s.bufferMgr = NewSessionBufferManager(maxBufferedTurns)
+		summarizer, err := NewSessionSummarizer(extractor, logger)
+		if err != nil {
+			logger.Error("failed to create session summarizer, falling back to turn granularity",
+				zap.Error(err))
+			s.granularity = GranularityTurn
+			s.bufferMgr = nil
+			return
+		}
+		s.summarizer = summarizer
 	}
 }
 
@@ -948,11 +976,31 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		return ErrInvalidMemory
 	}
 
+	// Session buffering: when granularity=session and the memory has a SessionID,
+	// buffer the turn instead of storing immediately.
+	if s.granularity == GranularitySession && s.bufferMgr != nil && memory.SessionID != "" {
+		entry := TurnEntry{
+			Title:   memory.Title,
+			Content: memory.Content,
+			Outcome: memory.Outcome,
+			Tags:    memory.Tags,
+		}
+		if err := s.bufferMgr.BufferTurn(memory.ProjectID, memory.SessionID, entry); err != nil {
+			return fmt.Errorf("buffering turn: %w", err)
+		}
+		s.logger.Debug("buffered turn for session",
+			zap.String("session_id", memory.SessionID),
+			zap.String("project_id", memory.ProjectID),
+			zap.String("title", memory.Title))
+		return nil
+	}
+
 	// Set explicit record confidence ONLY if default from NewMemory (0.5)
 	// AND the description doesn't indicate it's from distillation
 	// This allows distilled memories and custom confidence to be preserved
 	isDistilled := strings.Contains(memory.Description, "Learned from session") ||
-		strings.Contains(memory.Description, "Anti-pattern learned from session")
+		strings.Contains(memory.Description, "Anti-pattern learned from session") ||
+		strings.Contains(memory.Description, "Session summary")
 
 	if !isDistilled && memory.Confidence == 0.5 {
 		memory.Confidence = ExplicitRecordConfidence
@@ -1039,6 +1087,79 @@ func (s *Service) Record(ctx context.Context, memory *Memory) error {
 		zap.Float64("confidence", memory.Confidence))
 
 	return nil
+}
+
+// FlushSession summarizes and persists a session's buffered turns.
+//
+// This method:
+//  1. Retrieves and removes the buffered turns for the session
+//  2. Summarizes them into session-level memories via SessionSummarizer
+//  3. Stores each session memory via Record() (which bypasses buffering since
+//     the resulting memories won't have SessionID set for buffering)
+//
+// Returns the IDs of created session memories. Returns nil with no error
+// if the buffer manager is nil or no buffer exists for the session.
+func (s *Service) FlushSession(ctx context.Context, projectID, sessionID string) ([]string, error) {
+	if s.bufferMgr == nil {
+		return nil, nil
+	}
+	if projectID == "" {
+		return nil, ErrEmptyProjectID
+	}
+	if sessionID == "" {
+		return nil, fmt.Errorf("session ID cannot be empty")
+	}
+
+	buf := s.bufferMgr.FlushBuffer(projectID, sessionID)
+	if buf == nil {
+		s.logger.Debug("no buffer to flush",
+			zap.String("project_id", projectID),
+			zap.String("session_id", sessionID))
+		return nil, nil
+	}
+
+	if s.summarizer == nil {
+		s.logger.Warn("session summarizer not configured, discarding buffer",
+			zap.String("session_id", sessionID),
+			zap.Int("turns", len(buf.Turns)))
+		return nil, fmt.Errorf("session summarizer not configured")
+	}
+
+	s.logger.Info("flushing session buffer",
+		zap.String("session_id", sessionID),
+		zap.String("project_id", projectID),
+		zap.Int("turns", len(buf.Turns)))
+
+	memories, err := s.summarizer.Summarize(ctx, buf)
+	if err != nil {
+		return nil, fmt.Errorf("summarizing session: %w", err)
+	}
+
+	var createdIDs []string
+	for _, mem := range memories {
+		// Clear SessionID so Record() doesn't try to buffer again
+		savedSessionID := mem.SessionID
+		mem.SessionID = ""
+
+		if err := s.Record(ctx, mem); err != nil {
+			s.logger.Error("failed to store session memory",
+				zap.String("session_id", savedSessionID),
+				zap.String("memory_id", mem.ID),
+				zap.Error(err))
+			continue
+		}
+
+		// Restore SessionID for the returned memory
+		mem.SessionID = savedSessionID
+		createdIDs = append(createdIDs, mem.ID)
+	}
+
+	s.logger.Info("session flush completed",
+		zap.String("session_id", sessionID),
+		zap.String("project_id", projectID),
+		zap.Int("memories_created", len(createdIDs)))
+
+	return createdIDs, nil
 }
 
 // Feedback updates a memory's confidence based on user feedback.
@@ -1604,6 +1725,17 @@ func (s *Service) memoryToDocument(memory *Memory, collectionName string) vector
 		metadata["consolidation_id"] = *memory.ConsolidationID
 	}
 
+	// Include session fields if set
+	if memory.SessionID != "" {
+		metadata["session_id"] = memory.SessionID
+	}
+	if memory.SessionDate != nil {
+		metadata["session_date"] = memory.SessionDate.Unix()
+	}
+	if memory.Granularity != "" {
+		metadata["granularity"] = string(memory.Granularity)
+	}
+
 	return vectorstore.Document{
 		ID:         memory.ID,
 		Content:    content,
@@ -1947,6 +2079,16 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 		consolidationID = &consolidationIDStr
 	}
 
+	// Parse session fields
+	sessionID, _ := result.Metadata["session_id"].(string)
+	var sessionDate *time.Time
+	if sdUnix := parseInt64(result.Metadata["session_date"]); sdUnix > 0 {
+		sd := time.Unix(sdUnix, 0)
+		sessionDate = &sd
+	}
+	granularityStr, _ := result.Metadata["granularity"].(string)
+	granularity := MemoryGranularity(granularityStr)
+
 	// Parse content (strip title from beginning if present)
 	content := result.Content
 	titlePrefix := title + "\n\n"
@@ -1967,6 +2109,9 @@ func (s *Service) resultToMemory(result vectorstore.SearchResult) (*Memory, erro
 		Tags:            tags,
 		ConsolidationID: consolidationID,
 		State:           state,
+		SessionID:       sessionID,
+		SessionDate:     sessionDate,
+		Granularity:     granularity,
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
 	}
