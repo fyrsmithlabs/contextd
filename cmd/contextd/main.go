@@ -294,12 +294,26 @@ func run() error {
 	// Initialize reasoningbank service
 	var distillerSvc *reasoningbank.Distiller
 	if store != nil {
-		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying(),
-			reasoningbank.WithDefaultTenant(tenant.GetDefaultTenantID()))
+		// Build service options
+		rbOpts := []reasoningbank.ServiceOption{
+			reasoningbank.WithDefaultTenant(tenant.GetDefaultTenantID()),
+		}
+
+		// Enable session granularity if configured
+		if cfg.ReasoningBank.Granularity == "session" {
+			extractor := reasoningbank.NewSimpleExtractor()
+			rbOpts = append(rbOpts, reasoningbank.WithSessionGranularity(
+				extractor, logger.Underlying(), cfg.ReasoningBank.MaxBufferedTurns))
+			logger.Info(ctx, "reasoningbank session granularity enabled",
+				zap.Int("max_buffered_turns", cfg.ReasoningBank.MaxBufferedTurns))
+		}
+
+		reasoningbankSvc, err = reasoningbank.NewService(store, logger.Underlying(), rbOpts...)
 		if err != nil {
 			logger.Warn(ctx, "reasoningbank service initialization failed", zap.Error(err))
 		} else {
-			logger.Info(ctx, "reasoningbank service initialized")
+			logger.Info(ctx, "reasoningbank service initialized",
+				zap.String("granularity", cfg.ReasoningBank.Granularity))
 
 			// Initialize distiller for memory consolidation
 			distillerSvc, err = reasoningbank.NewDistiller(reasoningbankSvc, logger.Underlying())

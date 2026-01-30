@@ -42,6 +42,17 @@ const (
 	MemoryStateArchived MemoryState = "archived"
 )
 
+// MemoryGranularity indicates the granularity at which a memory was stored.
+type MemoryGranularity string
+
+const (
+	// GranularityTurn indicates the memory was recorded from a single turn/interaction.
+	GranularityTurn MemoryGranularity = "turn"
+
+	// GranularitySession indicates the memory was consolidated from an entire session.
+	GranularitySession MemoryGranularity = "session"
+)
+
 // Memory represents a cross-session memory in the ReasoningBank.
 //
 // Memories are distilled strategies learned from agent interactions.
@@ -91,6 +102,18 @@ type Memory struct {
 	// Archived memories have been consolidated into other memories but are preserved
 	// for attribution and traceability. They are excluded from normal searches.
 	State MemoryState `json:"state"`
+
+	// SessionID links this memory to the session that produced it.
+	// Empty for turn-granularity memories recorded individually.
+	SessionID string `json:"session_id,omitempty"`
+
+	// SessionDate is when the session occurred, for temporal queries.
+	// Nil for turn-granularity memories.
+	SessionDate *time.Time `json:"session_date,omitempty"`
+
+	// Granularity indicates whether this memory was stored per-turn or per-session.
+	// Defaults to GranularityTurn for backward compatibility.
+	Granularity MemoryGranularity `json:"granularity,omitempty"`
 
 	// CreatedAt is when the memory was created.
 	CreatedAt time.Time `json:"created_at"`
@@ -143,17 +166,18 @@ func NewMemory(projectID, title, content string, outcome Outcome, tags []string)
 
 	now := time.Now()
 	return &Memory{
-		ID:         uuid.New().String(),
-		ProjectID:  projectID,
-		Title:      title,
-		Content:    content,
-		Outcome:    outcome,
-		Confidence: 0.5, // Default confidence (neutral)
-		UsageCount: 0,
-		Tags:       tags,
-		State:      MemoryStateActive, // New memories are active by default
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          uuid.New().String(),
+		ProjectID:   projectID,
+		Title:       title,
+		Content:     content,
+		Outcome:     outcome,
+		Confidence:  0.5, // Default confidence (neutral)
+		UsageCount:  0,
+		Tags:        tags,
+		State:       MemoryStateActive, // New memories are active by default
+		Granularity: GranularityTurn,   // Default to turn-level granularity
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}, nil
 }
 
@@ -185,6 +209,9 @@ func (m *Memory) Validate() error {
 	}
 	if m.State != MemoryStateActive && m.State != MemoryStateArchived {
 		return errors.New("state must be 'active' or 'archived'")
+	}
+	if m.Granularity != "" && m.Granularity != GranularityTurn && m.Granularity != GranularitySession {
+		return errors.New("granularity must be 'turn' or 'session'")
 	}
 	return nil
 }

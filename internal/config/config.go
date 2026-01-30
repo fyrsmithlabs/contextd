@@ -29,6 +29,7 @@ type Config struct {
 	Repository              RepositoryConfig
 	Statusline              StatuslineConfig
 	ConsolidationScheduler  ConsolidationSchedulerConfig
+	ReasoningBank           ReasoningBankConfig
 	Fallback                FallbackConfig
 }
 
@@ -162,6 +163,18 @@ type EmbeddingsConfig struct {
 // CheckpointConfig holds checkpoint service configuration.
 type CheckpointConfig struct {
 	MaxContentSizeKB int `koanf:"max_content_size_kb"` // Maximum content size in KB (default: 1024 = 1MB)
+}
+
+// ReasoningBankConfig holds memory granularity and buffering configuration.
+type ReasoningBankConfig struct {
+	// Granularity controls memory storage granularity.
+	// "turn" (default): store each memory individually on record.
+	// "session": buffer turns and flush as session summary on session end.
+	Granularity string `koanf:"granularity"`
+
+	// MaxBufferedTurns is the maximum number of turns to buffer per session.
+	// When exceeded, oldest turns are dropped. Default: 500.
+	MaxBufferedTurns int `koanf:"max_buffered_turns"`
 }
 
 // ConsolidationSchedulerConfig holds automatic memory consolidation configuration.
@@ -309,6 +322,12 @@ func Load() *Config {
 		SimilarityThreshold: getEnvFloat("CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD", 0.8), // Default: 0.8
 	}
 
+	// ReasoningBank configuration
+	cfg.ReasoningBank = ReasoningBankConfig{
+		Granularity:      getEnvString("CONTEXTD_REASONINGBANK_GRANULARITY", "turn"),
+		MaxBufferedTurns: getEnvInt("CONTEXTD_REASONINGBANK_MAX_BUFFERED_TURNS", 500),
+	}
+
 	// Qdrant configuration
 	cfg.Qdrant = QdrantConfig{
 		Host:           getEnvString("QDRANT_HOST", "localhost"),
@@ -435,6 +454,19 @@ func (c *Config) Validate() error {
 	// Validate production configuration
 	if err := c.Production.Validate(); err != nil {
 		return fmt.Errorf("production config validation failed: %w", err)
+	}
+
+	// Validate ReasoningBank configuration
+	switch c.ReasoningBank.Granularity {
+	case "turn", "session":
+		// Valid
+	case "":
+		// Empty defaults to "turn" at runtime
+	default:
+		return fmt.Errorf("invalid CONTEXTD_REASONINGBANK_GRANULARITY: %q (must be 'turn' or 'session')", c.ReasoningBank.Granularity)
+	}
+	if c.ReasoningBank.MaxBufferedTurns < 0 {
+		return fmt.Errorf("CONTEXTD_REASONINGBANK_MAX_BUFFERED_TURNS must be non-negative, got %d", c.ReasoningBank.MaxBufferedTurns)
 	}
 	return nil
 }

@@ -1142,11 +1142,13 @@ type memorySearchOutput struct {
 }
 
 type memoryRecordInput struct {
-	ProjectID string   `json:"project_id" jsonschema:"required,Project identifier"`
-	Title     string   `json:"title" jsonschema:"required,Brief title for the memory"`
-	Content   string   `json:"content" jsonschema:"required,The strategy or learning to remember"`
-	Outcome   string   `json:"outcome" jsonschema:"required,Outcome type (success or failure)"`
-	Tags      []string `json:"tags,omitempty" jsonschema:"Tags for categorization"`
+	ProjectID   string   `json:"project_id" jsonschema:"required,Project identifier"`
+	Title       string   `json:"title" jsonschema:"required,Brief title for the memory"`
+	Content     string   `json:"content" jsonschema:"required,The strategy or learning to remember"`
+	Outcome     string   `json:"outcome" jsonschema:"required,Outcome type (success or failure)"`
+	Tags        []string `json:"tags,omitempty" jsonschema:"Tags for categorization"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"Session ID for session-level buffering (when granularity=session)"`
+	SessionDate string   `json:"session_date,omitempty" jsonschema:"Session date in RFC3339 format (optional, defaults to now)"`
 }
 
 type memoryRecordOutput struct {
@@ -1302,6 +1304,16 @@ func (s *Server) registerMemoryTools() {
 		if err != nil {
 			toolErr = fmt.Errorf("invalid memory: %w", err)
 			return nil, memoryRecordOutput{}, toolErr
+		}
+
+		// Set optional session fields for session-level buffering
+		if args.SessionID != "" {
+			memory.SessionID = args.SessionID
+			if args.SessionDate != "" {
+				if sd, parseErr := time.Parse(time.RFC3339, args.SessionDate); parseErr == nil {
+					memory.SessionDate = &sd
+				}
+			}
 		}
 
 		// Add tenant context to Go context for vectorstore operations
@@ -1479,6 +1491,75 @@ func (s *Server) registerMemoryTools() {
 				&mcp.TextContent{Text: resultMsg},
 			},
 		}, output, nil
+	})
+
+	// memory_consolidate_session
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "memory_consolidate_session",
+		Description: "Flush and summarize a session's buffered turns into session-level memories. Only effective when granularity is set to 'session'.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct {
+		ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
+		SessionID string `json:"session_id" jsonschema:"required,Session ID to flush"`
+	}) (*mcp.CallToolResult, struct {
+		MemoryIDs []string `json:"memory_ids"`
+		Count     int      `json:"count"`
+		Message   string   `json:"message"`
+	}, error) {
+		start := time.Now()
+		s.metrics.IncrementActive(ctx, "memory_consolidate_session")
+		var toolErr error
+		defer func() {
+			s.metrics.DecrementActive(ctx, "memory_consolidate_session")
+			s.metrics.RecordInvocation(ctx, "memory_consolidate_session", time.Since(start), toolErr)
+		}()
+
+		type output struct {
+			MemoryIDs []string `json:"memory_ids"`
+			Count     int      `json:"count"`
+			Message   string   `json:"message"`
+		}
+
+		if args.ProjectID == "" {
+			toolErr = fmt.Errorf("project_id is required")
+			return nil, output{}, toolErr
+		}
+		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
+			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, output{}, toolErr
+		}
+		if args.SessionID == "" {
+			toolErr = fmt.Errorf("session_id is required")
+			return nil, output{}, toolErr
+		}
+
+		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
+			return nil, output{}, toolErr
+		}
+
+		ids, err := s.reasoningbankSvc.FlushSession(ctx, args.ProjectID, args.SessionID)
+		if err != nil {
+			toolErr = fmt.Errorf("session flush failed: %w", err)
+			return nil, output{}, toolErr
+		}
+
+		if ids == nil {
+			ids = []string{}
+		}
+
+		msg := fmt.Sprintf("Session %s flushed: %d memories created", args.SessionID, len(ids))
+		out := output{
+			MemoryIDs: ids,
+			Count:     len(ids),
+			Message:   msg,
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: msg},
+			},
+		}, out, nil
 	})
 }
 
