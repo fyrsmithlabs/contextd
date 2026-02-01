@@ -8,7 +8,7 @@ class Contextd < Formula
   license "AGPL-3.0"
 
   url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v0.4.0.tar.gz"
-  sha256 "9f717428e0d3baba7df76e29d5cd1152e4ed7709618c20b4b6746e2aa6ebff58"
+  sha256 "a847a754152225439fbeea8da11578b0ea740400e12456fe04225ff66bb349b9"
 
   depends_on "go" => :build
   depends_on "onnxruntime"
