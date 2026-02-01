@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-01
+
 ### Added
+- **Session-Level Memory Granularity** (#137) - Turn vs session recording modes
+  - `SessionBufferManager` for controlling memory capture granularity
+  - `memory_consolidate_session` MCP tool for flushing session buffers
+  - Configurable via `CONTEXTD_REASONINGBANK_GRANULARITY` (turn/session)
+  - `CONTEXTD_REASONINGBANK_MAX_BUFFERED_TURNS` for buffer size control
+- **Fact Extraction** (#135) - Rule-based fact type extractor
+  - Structured knowledge capture from memory content
+  - Consensus review findings addressed
+- **Iterative Search** (#133) - Multi-pass search with refinement metadata
+  - Progressive result improvement across search iterations
+  - Consensus review findings addressed
+- **Cross-Encoder Reranking** (#129) - Reranking layer in search pipeline
+  - Improved relevance scoring with cross-encoder models
+  - O(n) map lookup optimization for reranking integration
+- **Conversation-Aware Retrieval** - Active conversation context influences memory search
+- **Temporal Proximity Weighting** - Recent memories boosted based on configurable time decay
+- **Named Entity Extraction and Boosting** - Entity recognition improves search relevance
+- **SearchWithScores** - Proper relevance score reporting in search results
+- **Search Deduplication** - Automatic dedup of memory search results
+- **Conversation Indexing and Self-Reflection** (#101, #53) - Index Claude Code conversations and analyze behavioral patterns
+- **Complete Metrics Coverage** (#85) - Full Prometheus metrics for all services
+- **Tool Invocation Metrics** (#86) - Per-tool call counts, latencies, error rates
+- **Grafana Dashboards** (#93) - MCP infrastructure dashboard and overview panels
 - **Local Fallback Storage** (Epic #114, Issues #115-120) - Graceful degradation when remote vector store is unavailable
   - FallbackStore decorator wraps remote (Qdrant) and local (chromem) stores
   - Write-ahead log (WAL) with HMAC-SHA256 checksums and secret scrubbing
@@ -15,19 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Health monitoring via gRPC connection state and periodic pings
   - Circuit breaker pattern prevents sync storms (5 failures → 5min backoff)
   - Opt-in via `CONTEXTD_FALLBACK_ENABLED=true` environment variable
-  - Configuration: local_path, wal_path, health_check_interval, wal_retention_days
-  - Test coverage: 52.7% with unit tests for all components
+- **Production Hardening** - Fallback storage, WAL, health monitoring
+  - Background scanning and alerting configuration
+  - Startup validation and Prometheus metrics
+  - Metadata recovery CLI (`ctxd`) commands for diagnosing corrupted metadata
+- **Thread-Safe Tool Registry** - Tool registry with search capabilities
 - **Error Codes Reference** - Comprehensive error codes documentation in `docs/api/error-codes.md`
   - All 17 error codes with descriptions, causes, and resolutions
   - 14 example scenarios with expected behavior
   - Troubleshooting flowcharts for common errors
-  - Links integrated into mcp-tools.md and troubleshooting.md
 - **Semantic Similarity Testing** - Infrastructure for measuring embedding quality
   - Quality metrics tracking (precision, recall, MRR)
   - Baseline metrics comparison framework
   - Integration test suite for semantic search accuracy
 
 ### Changed
+- **Plugin Migrated to Marketplace** - Plugin moved to `fyrsmithlabs/marketplace`
+  - Command format changed from `/contextd:*` to `/contextd-*`
 - **Documentation Improvements** - Comprehensive updates across all docs
   - CONTEXTD.md: Added all 20 MCP tools organized by category
   - HOOKS.md: Completed MCP tools reference table
@@ -39,10 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workflow Metrics** - Added nolint directive for OTEL metrics pending workflow implementation
 
 ### Fixed
+- **Tenant Context** - Respect caller tenant context instead of overwriting
+- **HTTP Panic Handling** - Use defer for active request counter to handle panics
 - **Config Loader** - Fixed symlink resolution for macOS `/var` -> `/private/var` paths
 - **Logging Tests** - Fixed stdout sync assertion failing in CI environments
 - **Integration Tests** - Fixed race condition in semantic embedder vocabulary map access
 - **Lint Compliance** - Fixed errcheck issue in ctxd checkpoint command
+- Multiple rounds of consensus review findings addressed across all features
 
 ### Security
 - **MCP Tool Handler Hardening** (Issue #107, PR #108) - Comprehensive input validation for all MCP tools
@@ -52,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New centralized validation package: `internal/sanitize/validate.go` with consistent error types
   - Fail-closed pattern: `withTenantContext()` now returns `(context.Context, error)` instead of silently proceeding
   - Tools hardened: `repository_*`, `checkpoint_*`, `memory_*`, `conversation_*`, `reflect_*`, `branch_create`
+- **golang.org/x/crypto** upgraded to v0.47.0 (#103)
+- **Input Sanitization** across all MCP tool inputs
 
 ## [0.3.4] - 2026-01-14
 
