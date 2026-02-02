@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Plugin Migrated to Marketplace** - Plugin moved to `fyrsmithlabs/marketplace`
-  - Command format changed from `/contextd:*` to `/contextd-*`
+  - Install via `claude plugins add fyrsmithlabs/marketplace`
 - **Documentation Improvements** - Comprehensive updates across all docs
   - CONTEXTD.md: Added all 20 MCP tools organized by category
   - HOOKS.md: Completed MCP tools reference table
