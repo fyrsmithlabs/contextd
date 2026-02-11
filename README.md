@@ -3,6 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/fyrsmithlabs/contextd?include_prereleases)](https://github.com/fyrsmithlabs/contextd/releases)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Ffyrsmithlabs%2Fcontextd-blue)](https://ghcr.io/fyrsmithlabs/contextd)
 [![Homebrew](https://img.shields.io/badge/homebrew-fyrsmithlabs%2Fcontextd-orange)](https://github.com/fyrsmithlabs/contextd/blob/main/Formula/contextd.rb)
+[![Discord](https://img.shields.io/discord/1458534929586589807?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/Q6dNAUjgPH)
 
 **Cross-session memory and context management for AI agents.**
 
@@ -591,6 +592,12 @@ make test
 
 ---
 
+## Community
+
+Join the [FyrsmithLabs Discord](https://discord.gg/Q6dNAUjgPH) to ask questions, share feedback, and connect with other users and contributors.
+
+---
+
 ## Contributing
 
 Contributions welcome! Please:
@@ -615,3 +622,4 @@ MIT License - See [LICENSE](LICENSE) for details.
 - [Docker Image](https://ghcr.io/fyrsmithlabs/contextd)
 - [Homebrew Formula](https://github.com/fyrsmithlabs/contextd/blob/main/Formula/contextd.rb)
 - [Issues](https://github.com/fyrsmithlabs/contextd/issues)
+- [Discord](https://discord.gg/Q6dNAUjgPH)
