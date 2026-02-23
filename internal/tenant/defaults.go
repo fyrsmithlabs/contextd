@@ -80,4 +80,3 @@ func parseGitHubUsername(url string) string {
 
 	return ""
 }
-

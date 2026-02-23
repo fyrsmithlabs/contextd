@@ -223,8 +223,8 @@ func TestExtractor_ExtractCommitReferences(t *testing.T) {
 			wantLen: 0,
 		},
 		{
-			name: "empty message",
-			msg:  RawMessage{},
+			name:    "empty message",
+			msg:     RawMessage{},
 			wantLen: 0,
 		},
 	}
@@ -289,7 +289,7 @@ func TestIsValidFilePath(t *testing.T) {
 		{"v2.3.4", false},
 		{"e.g.", false},
 		{"i.e.", false},
-		{"ab", false},         // too short
+		{"ab", false},          // too short
 		{"noextension", false}, // no extension
 	}
 

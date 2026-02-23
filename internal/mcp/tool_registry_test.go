@@ -57,9 +57,9 @@ func TestToolRegistry_RegisterInvalid(t *testing.T) {
 	registry := NewToolRegistry()
 
 	tests := []struct {
-		name     string
-		tool     *ToolMetadata
-		wantErr  string
+		name    string
+		tool    *ToolMetadata
+		wantErr string
 	}{
 		{
 			name:    "nil tool",
@@ -337,7 +337,7 @@ func TestToolRegistry_SearchContains(t *testing.T) {
 	results, err := registry.Search("memory")
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(results))
-	
+
 	// Both should have score 2 (contains)
 	for _, r := range results {
 		assert.Equal(t, 2, r.Score)

@@ -152,7 +152,7 @@ func TestPluginUpdateValidationWorkflow(t *testing.T) {
 		fileChanges := []FileChange{
 			{Path: "internal/mcp/tools.go", Status: "modified"},
 			{Path: ".claude-plugin/schemas/old-schema.json", Status: "removed"}, // Deleted file
-			{Path: ".claude-plugin/schemas/new-schema.json", Status: "added"},    // New file should be validated
+			{Path: ".claude-plugin/schemas/new-schema.json", Status: "added"},   // New file should be validated
 		}
 		env.OnActivity(FetchPRFilesActivity, mock.Anything, mock.Anything).Return(fileChanges, nil)
 
@@ -195,7 +195,6 @@ func TestPluginUpdateValidationWorkflow(t *testing.T) {
 		assert.Len(t, result.PluginFilesChanged, 2)
 	})
 }
-
 
 // TestCategorizeFilesActivity tests file categorization logic.
 func TestCategorizeFilesActivity(t *testing.T) {

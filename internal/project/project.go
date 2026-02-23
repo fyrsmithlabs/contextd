@@ -9,14 +9,14 @@ import (
 
 // Common errors.
 var (
-	ErrProjectNotFound     = errors.New("project not found")
-	ErrProjectExists       = errors.New("project already exists")
-	ErrInvalidProjectID    = errors.New("invalid project ID")
-	ErrInvalidProjectName  = errors.New("invalid project name")
-	ErrInvalidProjectPath  = errors.New("invalid project path")
-	ErrEmptyProjectID      = errors.New("project ID cannot be empty")
-	ErrEmptyProjectName    = errors.New("project name cannot be empty")
-	ErrEmptyProjectPath    = errors.New("project path cannot be empty")
+	ErrProjectNotFound    = errors.New("project not found")
+	ErrProjectExists      = errors.New("project already exists")
+	ErrInvalidProjectID   = errors.New("invalid project ID")
+	ErrInvalidProjectName = errors.New("invalid project name")
+	ErrInvalidProjectPath = errors.New("invalid project path")
+	ErrEmptyProjectID     = errors.New("project ID cannot be empty")
+	ErrEmptyProjectName   = errors.New("project name cannot be empty")
+	ErrEmptyProjectPath   = errors.New("project path cannot be empty")
 )
 
 // Project represents a user's codebase with isolated collections.

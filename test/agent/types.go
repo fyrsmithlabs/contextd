@@ -33,9 +33,9 @@ type Persona struct {
 
 // Turn represents a single interaction in a conversation.
 type Turn struct {
-	Timestamp time.Time `json:"timestamp"`
-	Role      string    `json:"role"` // "user" or "assistant"
-	Content   string    `json:"content"`
+	Timestamp time.Time  `json:"timestamp"`
+	Role      string     `json:"role"` // "user" or "assistant"
+	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -66,15 +66,15 @@ type OutcomeEvent struct {
 
 // Session represents a complete test session.
 type Session struct {
-	ID        string         `json:"id"`
-	Persona   Persona        `json:"persona"`
-	ProjectID string         `json:"project_id"`
-	StartTime time.Time      `json:"start_time"`
-	EndTime   time.Time      `json:"end_time"`
-	Turns     []Turn         `json:"turns"`
+	ID        string          `json:"id"`
+	Persona   Persona         `json:"persona"`
+	ProjectID string          `json:"project_id"`
+	StartTime time.Time       `json:"start_time"`
+	EndTime   time.Time       `json:"end_time"`
+	Turns     []Turn          `json:"turns"`
 	Feedback  []FeedbackEvent `json:"feedback"`
-	Outcomes  []OutcomeEvent `json:"outcomes"`
-	Metrics   SessionMetrics `json:"metrics"`
+	Outcomes  []OutcomeEvent  `json:"outcomes"`
+	Metrics   SessionMetrics  `json:"metrics"`
 }
 
 // SessionMetrics captures test results.
@@ -115,7 +115,7 @@ type Scenario struct {
 
 // Action represents a specific action in a scenario.
 type Action struct {
-	Type string `json:"type"` // "record", "search", "feedback", "outcome"
+	Type string                 `json:"type"` // "record", "search", "feedback", "outcome"
 	Args map[string]interface{} `json:"args"`
 }
 
@@ -149,8 +149,8 @@ type TestResult struct {
 
 // AssertResult captures individual assertion outcomes.
 type AssertResult struct {
-	Assertion Assertion `json:"assertion"`
-	Passed    bool      `json:"passed"`
+	Assertion Assertion   `json:"assertion"`
+	Passed    bool        `json:"passed"`
 	Actual    interface{} `json:"actual,omitempty"`
-	Message   string    `json:"message,omitempty"`
+	Message   string      `json:"message,omitempty"`
 }

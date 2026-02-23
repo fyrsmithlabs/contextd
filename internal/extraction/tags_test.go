@@ -153,9 +153,9 @@ func TestNewTagExtractor_CustomRules(t *testing.T) {
 
 func TestExtractDomain(t *testing.T) {
 	tests := []struct {
-		name   string
-		tags   []string
-		want   string
+		name string
+		tags []string
+		want string
 	}{
 		{
 			name: "kubernetes is priority",

@@ -51,18 +51,18 @@ func (p *FastEmbedProvider) Close() error {
 // This is a fallback when CGO is not available.
 func fastEmbedModelDimension(model string) (int, bool) {
 	dims := map[string]int{
-		"BAAI/bge-small-en-v1.5":                384,
-		"BAAI/bge-small-en":                     384,
-		"BAAI/bge-base-en-v1.5":                 768,
-		"BAAI/bge-base-en":                      768,
-		"BAAI/bge-small-zh-v1.5":                512,
+		"BAAI/bge-small-en-v1.5":                 384,
+		"BAAI/bge-small-en":                      384,
+		"BAAI/bge-base-en-v1.5":                  768,
+		"BAAI/bge-base-en":                       768,
+		"BAAI/bge-small-zh-v1.5":                 512,
 		"sentence-transformers/all-MiniLM-L6-v2": 384,
-		"fast-bge-small-en-v1.5":                384,
-		"fast-bge-small-en":                     384,
-		"fast-bge-base-en-v1.5":                 768,
-		"fast-bge-base-en":                      768,
-		"fast-bge-small-zh-v1.5":                512,
-		"fast-all-MiniLM-L6-v2":                 384,
+		"fast-bge-small-en-v1.5":                 384,
+		"fast-bge-small-en":                      384,
+		"fast-bge-base-en-v1.5":                  768,
+		"fast-bge-base-en":                       768,
+		"fast-bge-small-zh-v1.5":                 512,
+		"fast-all-MiniLM-L6-v2":                  384,
 	}
 	dim, ok := dims[model]
 	return dim, ok

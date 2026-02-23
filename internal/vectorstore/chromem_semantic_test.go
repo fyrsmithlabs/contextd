@@ -34,7 +34,7 @@ func (e *semanticTestEmbedder) EmbedQuery(ctx context.Context, text string) ([]f
 // Documents with overlapping keywords get similar embeddings.
 func (e *semanticTestEmbedder) makeSemanticEmbedding(text string) []float32 {
 	embedding := make([]float32, e.vectorSize)
-	
+
 	// Create semantic features based on keywords
 	// Each keyword activates specific dimensions
 	keywords := map[string][]int{
@@ -51,7 +51,7 @@ func (e *semanticTestEmbedder) makeSemanticEmbedding(text string) []float32 {
 		"machine":     {60, 61, 62, 70, 71, 72},
 		"learning":    {60, 61, 62, 70, 71, 72}, // Similar to "machine"
 	}
-	
+
 	// Activate dimensions for each keyword found
 	textLower := toLower(text)
 	for keyword, dims := range keywords {
@@ -63,7 +63,7 @@ func (e *semanticTestEmbedder) makeSemanticEmbedding(text string) []float32 {
 			}
 		}
 	}
-	
+
 	// Normalize to unit vector (required for cosine similarity)
 	var sumSq float32
 	for _, val := range embedding {
@@ -75,7 +75,7 @@ func (e *semanticTestEmbedder) makeSemanticEmbedding(text string) []float32 {
 			embedding[i] *= norm
 		}
 	}
-	
+
 	return embedding
 }
 
@@ -140,7 +140,7 @@ func TestChromemStore_SemanticSimilarity_HighScoresForSimilarContent(t *testing.
 	// Add documents with known semantic relationships
 	docs := []vectorstore.Document{
 		{ID: "doc1", Content: "Go programming language tutorial"},
-		{ID: "doc2", Content: "Golang programming guide"},        // Very similar to doc1
+		{ID: "doc2", Content: "Golang programming guide"},         // Very similar to doc1
 		{ID: "doc3", Content: "Python machine learning tutorial"}, // Different topic
 	}
 	_, err = store.AddDocuments(ctx, docs)
@@ -156,7 +156,7 @@ func TestChromemStore_SemanticSimilarity_HighScoresForSimilarContent(t *testing.
 	for _, r := range results {
 		if r.ID == "doc1" || r.ID == "doc2" {
 			// Semantically similar content should score > 0.7
-			assert.Greater(t, r.Score, float32(0.7), 
+			assert.Greater(t, r.Score, float32(0.7),
 				"Similar content (ID: %s) should have similarity > 0.7, got %.3f", r.ID, r.Score)
 			foundHighScore = true
 		}
@@ -189,7 +189,7 @@ func TestChromemStore_SemanticSimilarity_LowScoresForDissimilarContent(t *testin
 	// Add documents with different semantic content
 	docs := []vectorstore.Document{
 		{ID: "doc1", Content: "Go programming language tutorial"},
-		{ID: "doc2", Content: "Database vector search guide"},    // Completely different
+		{ID: "doc2", Content: "Database vector search guide"},     // Completely different
 		{ID: "doc3", Content: "Python machine learning tutorial"}, // Also different
 	}
 	_, err = store.AddDocuments(ctx, docs)
@@ -204,7 +204,7 @@ func TestChromemStore_SemanticSimilarity_LowScoresForDissimilarContent(t *testin
 	for _, r := range results {
 		if r.ID == "doc2" || r.ID == "doc3" {
 			// Semantically dissimilar content should score < 0.5
-			assert.Less(t, r.Score, float32(0.5), 
+			assert.Less(t, r.Score, float32(0.5),
 				"Dissimilar content (ID: %s) should have similarity < 0.5, got %.3f", r.ID, r.Score)
 		}
 	}
@@ -234,10 +234,10 @@ func TestChromemStore_SemanticSimilarity_RankingByRelevance(t *testing.T) {
 
 	// Add documents with varying relevance to our query
 	docs := []vectorstore.Document{
-		{ID: "exact_match", Content: "Go programming language tutorial guide"},     // Exact match
-		{ID: "close_match", Content: "Golang programming tutorial"},                // Very similar
-		{ID: "partial_match", Content: "Programming language guide"},               // Partial overlap
-		{ID: "unrelated", Content: "Database vector search"},                       // Unrelated
+		{ID: "exact_match", Content: "Go programming language tutorial guide"}, // Exact match
+		{ID: "close_match", Content: "Golang programming tutorial"},            // Very similar
+		{ID: "partial_match", Content: "Programming language guide"},           // Partial overlap
+		{ID: "unrelated", Content: "Database vector search"},                   // Unrelated
 	}
 	_, err = store.AddDocuments(ctx, docs)
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestChromemStore_SemanticSimilarity_ScoreRange(t *testing.T) {
 			"Score should be >= 0.0, got %.3f for doc %s", r.Score, r.ID)
 		assert.LessOrEqual(t, r.Score, float32(1.0),
 			"Score should be <= 1.0, got %.3f for doc %s", r.Score, r.ID)
-		
+
 		// Also verify score is not NaN or Inf
 		assert.False(t, math.IsNaN(float64(r.Score)),
 			"Score should not be NaN for doc %s", r.ID)

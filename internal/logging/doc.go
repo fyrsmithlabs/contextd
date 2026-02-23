@@ -41,16 +41,16 @@
 // # Configuration Precedence
 //
 // Configuration follows standard contextd precedence:
-//   1. Defaults (NewDefaultConfig)
-//   2. File (config.yaml)
-//   3. Environment variables (CONTEXTD_LOGGING_*)
+//  1. Defaults (NewDefaultConfig)
+//  2. File (config.yaml)
+//  3. Environment variables (CONTEXTD_LOGGING_*)
 //
 // # Secret Redaction
 //
 // Secrets are redacted at multiple layers:
-//   1. Domain primitives (config.Secret type)
-//   2. Encoder-level field name filtering
-//   3. Encoder-level pattern matching
+//  1. Domain primitives (config.Secret type)
+//  2. Encoder-level field name filtering
+//  3. Encoder-level pattern matching
 //
 // Use helpers for manual redaction:
 //

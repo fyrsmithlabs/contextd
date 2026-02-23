@@ -219,7 +219,7 @@ func TestResolveTemporalReference(t *testing.T) {
 		{
 			name:          "last Monday",
 			text:          "I attended last Monday.",
-			referenceDate: referenceDate, // Monday Jan 15
+			referenceDate: referenceDate,                   // Monday Jan 15
 			expected:      referenceDate.AddDate(0, 0, -7), // Previous Monday Jan 8
 		},
 		{

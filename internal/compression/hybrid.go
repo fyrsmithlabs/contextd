@@ -24,9 +24,9 @@ const (
 // HybridCompressor combines extractive and abstractive approaches
 // with intelligent routing based on content type
 type HybridCompressor struct {
-	extractive         *ExtractiveCompressor
-	abstractive        Compressor // Use interface for dependency injection
-	config             Config
+	extractive  *ExtractiveCompressor
+	abstractive Compressor // Use interface for dependency injection
+	config      Config
 }
 
 // NewHybridCompressor creates a new hybrid compressor

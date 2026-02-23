@@ -75,7 +75,7 @@ func TestSessionHandler_Start(t *testing.T) {
 			{ID: "cp-1", Summary: "Previous work", CreatedAt: now},
 		},
 	}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	input := json.RawMessage(`{"project_id": "test-project", "session_id": "sess-123"}`)
 	result, err := handler.Start(context.Background(), input)
@@ -108,7 +108,7 @@ func TestSessionHandler_Start(t *testing.T) {
 
 func TestSessionHandler_Start_ValidationError(t *testing.T) {
 	mockReg := &mockRegistry{}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	// Missing project_id
 	input := json.RawMessage(`{"session_id": "sess-123"}`)
@@ -153,7 +153,7 @@ func (m *mockRegistry) Memory() *reasoningbank.Service {
 	return nil
 }
 
-func (m *mockRegistry) Repository() *repository.Service  { return nil }
+func (m *mockRegistry) Repository() *repository.Service     { return nil }
 func (m *mockRegistry) Troubleshoot() *troubleshoot.Service { return nil }
 
 func (m *mockRegistry) Hooks() *hooks.HookManager {
@@ -223,7 +223,7 @@ func (m *mockCheckpointSvc) Close() error {
 
 func TestSessionHandler_ContextThreshold(t *testing.T) {
 	mockReg := &mockRegistry{}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	input := json.RawMessage(`{
 		"project_id": "test-project",
@@ -248,7 +248,7 @@ func TestSessionHandler_ContextThreshold(t *testing.T) {
 
 func TestSessionHandler_ContextThreshold_InvalidPercent(t *testing.T) {
 	mockReg := &mockRegistry{}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	input := json.RawMessage(`{"project_id": "test", "session_id": "sess", "percent": 150}`)
 	_, err := handler.ContextThreshold(context.Background(), input)
@@ -259,7 +259,7 @@ func TestSessionHandler_ContextThreshold_InvalidPercent(t *testing.T) {
 
 func TestSessionHandler_End(t *testing.T) {
 	mockReg := &mockRegistry{}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	input := json.RawMessage(`{
 		"project_id": "test-project",
@@ -287,7 +287,7 @@ func TestSessionHandler_End(t *testing.T) {
 
 func TestSessionHandler_End_ValidationError(t *testing.T) {
 	mockReg := &mockRegistry{}
-	handler := NewSessionHandler(mockReg)
+	handler := NewSessionHandler(mockReg, nil)
 
 	tests := []struct {
 		name  string

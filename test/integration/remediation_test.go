@@ -35,9 +35,9 @@ func TestRemediation_RecordAndSearch(t *testing.T) {
 
 	// 1. Record a remediation
 	recordReq := &remediation.RecordRequest{
-		Title:    "Nil Pointer Panic Fix",
-		Problem:  "panic: runtime error: invalid memory address",
-		Symptoms: []string{"nil pointer dereference", "runtime panic"},
+		Title:     "Nil Pointer Panic Fix",
+		Problem:   "panic: runtime error: invalid memory address",
+		Symptoms:  []string{"nil pointer dereference", "runtime panic"},
 		RootCause: "Nil pointer dereference in HTTP handler",
 		Solution:  "Add nil check before accessing user.Profile",
 		CodeDiff: `if user == nil || user.Profile == nil {

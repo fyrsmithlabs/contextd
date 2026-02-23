@@ -544,7 +544,6 @@ func detectGitBranch(path string) string {
 	return "unknown"
 }
 
-
 // validatePath validates and cleans a file path.
 func validatePath(path string) (string, error) {
 	if path == "" {

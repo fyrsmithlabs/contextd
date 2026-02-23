@@ -132,11 +132,11 @@ func TestValidateStartup_FailOnDegraded(t *testing.T) {
 
 func TestMetrics_UpdateHealthMetrics(t *testing.T) {
 	health := &MetadataHealth{
-		Healthy:       []string{"a", "b", "c"},
-		Corrupt:       []string{"d"},
-		Empty:         []string{"e"},
-		HealthyCount:  3,
-		CorruptCount:  1,
+		Healthy:      []string{"a", "b", "c"},
+		Corrupt:      []string{"d"},
+		Empty:        []string{"e"},
+		HealthyCount: 3,
+		CorruptCount: 1,
 	}
 
 	// Should not panic

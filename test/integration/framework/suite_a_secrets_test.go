@@ -509,32 +509,32 @@ func TestSecretsScrubbingIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		testCases := []struct {
-			name     string
-			content  string
+			name       string
+			content    string
 			shouldFind bool
-			ruleID   string
+			ruleID     string
 		}{
 			{
-				name:     "AWS Access Key",
-				content:  "AWS access key: AKIAIOSFODNN7EXAMPLE", // Include keyword
+				name:       "AWS Access Key",
+				content:    "AWS access key: AKIAIOSFODNN7EXAMPLE", // Include keyword
 				shouldFind: true,
-				ruleID:   "aws-access-key-id",
+				ruleID:     "aws-access-key-id",
 			},
 			{
-				name:     "GitHub PAT",
-				content:  "ghp_1234567890abcdefghijklmnopqrstuv123456",
+				name:       "GitHub PAT",
+				content:    "ghp_1234567890abcdefghijklmnopqrstuv123456",
 				shouldFind: true,
-				ruleID:   "github-token",
+				ruleID:     "github-token",
 			},
 			{
-				name:     "JWT",
-				content:  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.abc123",
+				name:       "JWT",
+				content:    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.abc123",
 				shouldFind: true,
-				ruleID:   "jwt",
+				ruleID:     "jwt",
 			},
 			{
-				name:     "No secrets",
-				content:  "Just normal text about AWS services",
+				name:       "No secrets",
+				content:    "Just normal text about AWS services",
 				shouldFind: false,
 			},
 		}

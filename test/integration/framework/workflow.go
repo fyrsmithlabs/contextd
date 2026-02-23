@@ -706,7 +706,7 @@ func runSameBugRetrievalTest(ctx workflow.Context, config TestConfig) TestResult
 			{
 				Type: "record_memory",
 				Memory: &MemoryRecord{
-					Title:   "nil pointer dereference in user service GetProfile",
+					Title: "nil pointer dereference in user service GetProfile",
 					Content: `Bug: nil pointer dereference when user.Profile is accessed
 Root cause: GetUser returns nil on cache miss instead of fetching from DB
 Fix: Added nil check and fallback to DB fetch
@@ -871,7 +871,7 @@ func runSimilarBugAdaptationTest(ctx workflow.Context, config TestConfig) TestRe
 			{
 				Type: "record_memory",
 				Memory: &MemoryRecord{
-					Title:   "nil pointer when accessing order.Customer.Address",
+					Title: "nil pointer when accessing order.Customer.Address",
 					Content: `Bug: nil pointer when accessing order.Customer.Address
 Root cause: Customer relationship not eagerly loaded from database
 Fix: Added Include("Customer.Address") to query for eager loading
@@ -1032,7 +1032,7 @@ func runFalsePositivePreventionTest(ctx workflow.Context, config TestConfig) Tes
 			{
 				Type: "record_memory",
 				Memory: &MemoryRecord{
-					Title:   "database connection pool exhaustion under high load",
+					Title: "database connection pool exhaustion under high load",
 					Content: `Bug: Connection pool exhausted under load causing timeouts
 Root cause: Pool size too small for concurrent request volume
 Fix: Increased pool size from 10 to 50 and added connection timeout of 30s
@@ -1045,7 +1045,7 @@ Also added circuit breaker to prevent cascade failures`,
 			{
 				Type: "record_memory",
 				Memory: &MemoryRecord{
-					Title:   "redis cache eviction policy causing memory issues",
+					Title: "redis cache eviction policy causing memory issues",
 					Content: `Bug: Redis OOM errors during peak traffic
 Root cause: Default eviction policy was noeviction
 Fix: Changed to allkeys-lru policy with maxmemory-policy

@@ -93,7 +93,7 @@ func TestConsolidation_Integration_MultipleClusters(t *testing.T) {
 	// Run consolidation with threshold that will cluster similar memories
 	opts := ConsolidationOptions{
 		SimilarityThreshold: 0.8,
-		MaxClustersPerRun:   0,  // No limit
+		MaxClustersPerRun:   0, // No limit
 		DryRun:              false,
 		ForceAll:            true,
 	}
@@ -1026,18 +1026,18 @@ func TestConsolidation_Integration_OriginalContentPreservation(t *testing.T) {
 
 // TestConsolidation_Integration_ConfidenceCalculation verifies that consolidated
 // memory confidence is calculated correctly from source memories using:
-// 1. Weighted average formula: base = sum(conf_i * weight_i) / sum(weight_i)
-//    where weight_i = usageCount_i + 1
-// 2. Consensus bonus: bonus = consensusFactor * numSourcesFactor * 0.1
-//    where consensusFactor = 1 - (stdDev / 0.5) and numSourcesFactor = min(n/10, 1)
+//  1. Weighted average formula: base = sum(conf_i * weight_i) / sum(weight_i)
+//     where weight_i = usageCount_i + 1
+//  2. Consensus bonus: bonus = consensusFactor * numSourcesFactor * 0.1
+//     where consensusFactor = 1 - (stdDev / 0.5) and numSourcesFactor = min(n/10, 1)
 //
 // This integration test covers Acceptance Criteria: "Confidence scores are updated based on consolidation"
 //
 // Test scenarios verify that final confidence >= base confidence (due to consensus bonus)
 func TestConsolidation_Integration_ConfidenceCalculation(t *testing.T) {
 	testCases := []struct {
-		name               string
-		memories           []struct {
+		name     string
+		memories []struct {
 			title      string
 			content    string
 			confidence float64

@@ -33,10 +33,10 @@ func TestLogger_ContextAwareMethods(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name     string
-		logFunc  func()
-		level    zapcore.Level
-		message  string
+		name    string
+		logFunc func()
+		level   zapcore.Level
+		message string
 	}{
 		{
 			name:    "trace",

@@ -100,15 +100,15 @@ type PluginUpdateValidationConfig struct {
 
 // PluginUpdateValidationResult contains validation results.
 type PluginUpdateValidationResult struct {
-	CodeFilesChanged      []string                       // Files that affect plugin behavior
-	PluginFilesChanged    []string                       // Files in .claude-plugin/
-	NeedsUpdate           bool                           // Whether plugin needs updating
-	SchemaValid           bool                           // Whether schemas are valid JSON
-	AgentValidation       *DocumentationValidationResult // Agent validation results (if enabled)
-	AgentValidationRan    bool                           // Whether agent validation was executed
-	CommentPosted         bool                           // Whether we posted a comment
-	CommentURL            string                         // URL of posted comment
-	Errors                []string                       // Any errors encountered
+	CodeFilesChanged   []string                       // Files that affect plugin behavior
+	PluginFilesChanged []string                       // Files in .claude-plugin/
+	NeedsUpdate        bool                           // Whether plugin needs updating
+	SchemaValid        bool                           // Whether schemas are valid JSON
+	AgentValidation    *DocumentationValidationResult // Agent validation results (if enabled)
+	AgentValidationRan bool                           // Whether agent validation was executed
+	CommentPosted      bool                           // Whether we posted a comment
+	CommentURL         string                         // URL of posted comment
+	Errors             []string                       // Any errors encountered
 }
 
 // CategorizedFiles contains files categorized by type.

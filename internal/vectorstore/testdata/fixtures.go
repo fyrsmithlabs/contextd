@@ -97,9 +97,9 @@ func HighSimilarityPair() SemanticTestCase {
 		},
 		ExpectedRanking: []string{"doc1", "doc2", "doc3"},
 		ExpectedScoreRanges: map[string]ScoreRange{
-			"doc1": {Min: 0.7, Max: 1.0},  // Very high similarity
-			"doc2": {Min: 0.7, Max: 1.0},  // Very high similarity (Go = Golang)
-			"doc3": {Min: 0.0, Max: 0.6},  // Different language
+			"doc1": {Min: 0.7, Max: 1.0}, // Very high similarity
+			"doc2": {Min: 0.7, Max: 1.0}, // Very high similarity (Go = Golang)
+			"doc3": {Min: 0.0, Max: 0.6}, // Different language
 		},
 		Description: "Validates that semantically similar documents (Go/Golang) receive high similarity scores",
 	}
@@ -136,9 +136,9 @@ func LowSimilarityPair() SemanticTestCase {
 		},
 		ExpectedRanking: []string{"doc1", "doc3", "doc2"},
 		ExpectedScoreRanges: map[string]ScoreRange{
-			"doc1": {Min: 0.7, Max: 1.0},  // High similarity
-			"doc3": {Min: 0.6, Max: 1.0},  // High similarity (concurrency-related)
-			"doc2": {Min: 0.0, Max: 0.3},  // Very low similarity (different domain)
+			"doc1": {Min: 0.7, Max: 1.0}, // High similarity
+			"doc3": {Min: 0.6, Max: 1.0}, // High similarity (concurrency-related)
+			"doc2": {Min: 0.0, Max: 0.3}, // Very low similarity (different domain)
 		},
 		Description: "Validates that dissimilar documents from different domains receive low similarity scores",
 	}
@@ -182,10 +182,10 @@ func SynonymHandling() SemanticTestCase {
 		},
 		ExpectedRanking: []string{"doc1", "doc2", "doc3", "doc4"},
 		ExpectedScoreRanges: map[string]ScoreRange{
-			"doc1": {Min: 0.7, Max: 1.0},  // Exact match
-			"doc2": {Min: 0.7, Max: 1.0},  // Tutorial/guide synonym
-			"doc3": {Min: 0.4, Max: 0.7},  // Same topic, different level
-			"doc4": {Min: 0.0, Max: 0.4},  // Different topic
+			"doc1": {Min: 0.7, Max: 1.0}, // Exact match
+			"doc2": {Min: 0.7, Max: 1.0}, // Tutorial/guide synonym
+			"doc3": {Min: 0.4, Max: 0.7}, // Same topic, different level
+			"doc4": {Min: 0.0, Max: 0.4}, // Different topic
 		},
 		Description: "Validates that synonyms (tutorial/guide) are recognized as semantically similar",
 	}
@@ -229,10 +229,10 @@ func MultiTopicDocuments() SemanticTestCase {
 		},
 		ExpectedRanking: []string{"doc1", "doc3", "doc2", "doc4"},
 		ExpectedScoreRanges: map[string]ScoreRange{
-			"doc1": {Min: 0.7, Max: 1.0},  // Both ML and Python
-			"doc3": {Min: 0.5, Max: 0.8},  // ML but not Python
-			"doc2": {Min: 0.4, Max: 0.7},  // Python but not ML
-			"doc4": {Min: 0.0, Max: 0.4},  // Neither ML nor Python
+			"doc1": {Min: 0.7, Max: 1.0}, // Both ML and Python
+			"doc3": {Min: 0.5, Max: 0.8}, // ML but not Python
+			"doc2": {Min: 0.4, Max: 0.7}, // Python but not ML
+			"doc4": {Min: 0.0, Max: 0.4}, // Neither ML nor Python
 		},
 		Description: "Validates correct ranking when documents contain multiple topics with partial query matches",
 	}
@@ -283,11 +283,11 @@ func GradualRelevanceDecay() SemanticTestCase {
 		},
 		ExpectedRanking: []string{"doc1", "doc2", "doc3", "doc4", "doc5"},
 		ExpectedScoreRanges: map[string]ScoreRange{
-			"doc1": {Min: 0.8, Max: 1.0},  // Exact match
-			"doc2": {Min: 0.6, Max: 0.9},  // High relevance
-			"doc3": {Min: 0.4, Max: 0.7},  // Medium relevance
-			"doc4": {Min: 0.2, Max: 0.5},  // Low relevance
-			"doc5": {Min: 0.0, Max: 0.3},  // No relevance
+			"doc1": {Min: 0.8, Max: 1.0}, // Exact match
+			"doc2": {Min: 0.6, Max: 0.9}, // High relevance
+			"doc3": {Min: 0.4, Max: 0.7}, // Medium relevance
+			"doc4": {Min: 0.2, Max: 0.5}, // Low relevance
+			"doc5": {Min: 0.0, Max: 0.3}, // No relevance
 		},
 		Description: "Validates that similarity scores decay gradually as document relevance decreases",
 	}

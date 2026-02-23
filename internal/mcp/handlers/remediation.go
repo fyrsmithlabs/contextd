@@ -83,22 +83,22 @@ func (h *RemediationHandler) Search(ctx context.Context, input json.RawMessage) 
 	results := make([]map[string]interface{}, 0, len(remediations))
 	for _, rem := range remediations {
 		results = append(results, map[string]interface{}{
-			"id":              rem.ID,
-			"title":           rem.Title,
-			"problem":         rem.Problem,
-			"symptoms":        rem.Symptoms,
-			"root_cause":      rem.RootCause,
-			"solution":        rem.Solution,
-			"code_diff":       rem.CodeDiff,
-			"affected_files":  rem.AffectedFiles,
-			"category":        rem.Category,
-			"confidence":      rem.Confidence,
-			"score":           rem.Score,
-			"usage_count":     rem.UsageCount,
-			"tags":            rem.Tags,
-			"scope":           rem.Scope,
-			"created_at":      rem.CreatedAt,
-			"updated_at":      rem.UpdatedAt,
+			"id":             rem.ID,
+			"title":          rem.Title,
+			"problem":        rem.Problem,
+			"symptoms":       rem.Symptoms,
+			"root_cause":     rem.RootCause,
+			"solution":       rem.Solution,
+			"code_diff":      rem.CodeDiff,
+			"affected_files": rem.AffectedFiles,
+			"category":       rem.Category,
+			"confidence":     rem.Confidence,
+			"score":          rem.Score,
+			"usage_count":    rem.UsageCount,
+			"tags":           rem.Tags,
+			"scope":          rem.Scope,
+			"created_at":     rem.CreatedAt,
+			"updated_at":     rem.UpdatedAt,
 		})
 	}
 
@@ -140,11 +140,11 @@ func (h *RemediationHandler) Record(ctx context.Context, input json.RawMessage) 
 	}
 
 	return map[string]interface{}{
-		"id":          rem.ID,
-		"title":       rem.Title,
-		"confidence":  rem.Confidence,
-		"scope":       rem.Scope,
-		"category":    rem.Category,
-		"created_at":  rem.CreatedAt,
+		"id":         rem.ID,
+		"title":      rem.Title,
+		"confidence": rem.Confidence,
+		"scope":      rem.Scope,
+		"category":   rem.Category,
+		"created_at": rem.CreatedAt,
 	}, nil
 }

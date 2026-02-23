@@ -63,12 +63,12 @@ func (h *TroubleshootHandler) Diagnose(ctx context.Context, input json.RawMessag
 	}
 
 	return map[string]interface{}{
-		"error_message":     diagnosis.ErrorMessage,
-		"root_cause":        diagnosis.RootCause,
-		"hypotheses":        hypotheses,
-		"recommendations":   diagnosis.Recommendations,
-		"related_patterns":  patterns,
-		"confidence":        diagnosis.Confidence,
+		"error_message":    diagnosis.ErrorMessage,
+		"root_cause":       diagnosis.RootCause,
+		"hypotheses":       hypotheses,
+		"recommendations":  diagnosis.Recommendations,
+		"related_patterns": patterns,
+		"confidence":       diagnosis.Confidence,
 	}, nil
 }
 
@@ -101,10 +101,10 @@ func (h *TroubleshootHandler) SavePattern(ctx context.Context, input json.RawMes
 	}
 
 	return map[string]interface{}{
-		"id":          pattern.ID,
-		"error_type":  pattern.ErrorType,
-		"confidence":  pattern.Confidence,
-		"created_at":  pattern.CreatedAt,
+		"id":         pattern.ID,
+		"error_type": pattern.ErrorType,
+		"confidence": pattern.Confidence,
+		"created_at": pattern.CreatedAt,
 	}, nil
 }
 

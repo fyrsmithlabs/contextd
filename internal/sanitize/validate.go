@@ -38,7 +38,7 @@ var (
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{0,62}[a-z0-9]?$`)
 
 // dangerousPatternChars are characters that could cause ReDoS or shell injection in patterns.
-var dangerousPatternChars = regexp.MustCompile(`[;\|\$\x60\\]|\.{3,}|\*{3,}`)
+var dangerousPatternChars = regexp.MustCompile(`[;\|\$\x60\\<>&\(\)\{\}]|\.{3,}|\*{3,}`)
 
 // ValidatePath checks a path for security issues:
 //   - No directory traversal (..)
@@ -230,6 +230,26 @@ func ValidateGlobPatterns(patterns []string) error {
 			return fmt.Errorf("pattern[%d] %q: %w", i, p, err)
 		}
 	}
+	return nil
+}
+
+// ValidateRequiredID validates an identifier that must be non-empty.
+// Use in authorization contexts where empty IDs could bypass access controls.
+func ValidateRequiredID(id, fieldName string) error {
+	if id == "" {
+		return fmt.Errorf("%s is required and cannot be empty", fieldName)
+	}
+
+	// Check for path traversal characters
+	if strings.ContainsAny(id, "/\\..") {
+		return fmt.Errorf("invalid %s: contains path characters", fieldName)
+	}
+
+	// Validate format
+	if !identifierPattern.MatchString(id) {
+		return fmt.Errorf("invalid %s: must be lowercase alphanumeric with underscores (1-64 chars)", fieldName)
+	}
+
 	return nil
 }
 

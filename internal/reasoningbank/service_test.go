@@ -20,13 +20,13 @@ import (
 // mockStore is a simple in-memory mock of vectorstore.Store for testing.
 // Thread-safe: uses mutex for concurrent access from scheduler goroutines.
 type mockStore struct {
-	mu               sync.RWMutex
-	collections      map[string][]vectorstore.Document
-	vectorSize       int
-	searchCalled     bool
-	searchCallCount  int
-	returnError      bool
-	errorToReturn    error
+	mu              sync.RWMutex
+	collections     map[string][]vectorstore.Document
+	vectorSize      int
+	searchCalled    bool
+	searchCallCount int
+	returnError     bool
+	errorToReturn   error
 }
 
 func newMockStore() *mockStore {

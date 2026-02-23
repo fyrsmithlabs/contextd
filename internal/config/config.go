@@ -18,26 +18,26 @@ import (
 
 // Config holds the complete contextd v2 configuration.
 type Config struct {
-	Production              ProductionConfig
-	Server                  ServerConfig
-	Observability           ObservabilityConfig
-	PreFetch                PreFetchConfig
-	Checkpoint              CheckpointConfig
-	VectorStore             VectorStoreConfig
-	Qdrant                  QdrantConfig
-	Embeddings              EmbeddingsConfig
-	Repository              RepositoryConfig
-	Statusline              StatuslineConfig
-	ConsolidationScheduler  ConsolidationSchedulerConfig
-	ReasoningBank           ReasoningBankConfig
-	Fallback                FallbackConfig
+	Production             ProductionConfig
+	Server                 ServerConfig
+	Observability          ObservabilityConfig
+	PreFetch               PreFetchConfig
+	Checkpoint             CheckpointConfig
+	VectorStore            VectorStoreConfig
+	Qdrant                 QdrantConfig
+	Embeddings             EmbeddingsConfig
+	Repository             RepositoryConfig
+	Statusline             StatuslineConfig
+	ConsolidationScheduler ConsolidationSchedulerConfig
+	ReasoningBank          ReasoningBankConfig
+	Fallback               FallbackConfig
 }
 
 // StatuslineConfig holds statusline display configuration.
 type StatuslineConfig struct {
-	Enabled  bool                   `koanf:"enabled"`
-	Endpoint string                 `koanf:"endpoint"` // HTTP endpoint for status
-	Show     StatuslineShowConfig   `koanf:"show"`
+	Enabled    bool                 `koanf:"enabled"`
+	Endpoint   string               `koanf:"endpoint"` // HTTP endpoint for status
+	Show       StatuslineShowConfig `koanf:"show"`
 	Thresholds StatuslineThresholds `koanf:"thresholds"`
 }
 
@@ -71,8 +71,8 @@ type RepositoryConfig struct {
 
 // VectorStoreConfig holds vectorstore provider configuration.
 type VectorStoreConfig struct {
-	Provider string        `koanf:"provider"` // "chromem" or "qdrant" (default: "chromem")
-	Chromem  ChromemConfig `koanf:"chromem"`
+	Provider string         `koanf:"provider"` // "chromem" or "qdrant" (default: "chromem")
+	Chromem  ChromemConfig  `koanf:"chromem"`
 	Fallback FallbackConfig `koanf:"fallback"`
 }
 
@@ -153,8 +153,8 @@ type QdrantConfig struct {
 
 // EmbeddingsConfig holds embeddings service configuration.
 type EmbeddingsConfig struct {
-	Provider    string `koanf:"provider"`     // "fastembed" or "tei"
-	BaseURL     string `koanf:"base_url"`     // TEI URL (if using TEI)
+	Provider    string `koanf:"provider"` // "fastembed" or "tei"
+	BaseURL     string `koanf:"base_url"` // TEI URL (if using TEI)
 	Model       string `koanf:"model"`
 	CacheDir    string `koanf:"cache_dir"`    // Model cache directory (for fastembed)
 	ONNXVersion string `koanf:"onnx_version"` // Optional ONNX runtime version override
@@ -179,9 +179,9 @@ type ReasoningBankConfig struct {
 
 // ConsolidationSchedulerConfig holds automatic memory consolidation configuration.
 type ConsolidationSchedulerConfig struct {
-	Enabled             bool    `koanf:"enabled"`              // Enable automatic consolidation (default: false)
-	Interval            time.Duration `koanf:"interval"`       // Time between consolidation runs (default: 24h)
-	SimilarityThreshold float64 `koanf:"similarity_threshold"` // Similarity threshold for consolidation (default: 0.8)
+	Enabled             bool          `koanf:"enabled"`              // Enable automatic consolidation (default: false)
+	Interval            time.Duration `koanf:"interval"`             // Time between consolidation runs (default: 24h)
+	SimilarityThreshold float64       `koanf:"similarity_threshold"` // Similarity threshold for consolidation (default: 0.8)
 }
 
 // ServerConfig holds HTTP server configuration.
@@ -194,9 +194,9 @@ type ServerConfig struct {
 type ObservabilityConfig struct {
 	EnableTelemetry   bool   `koanf:"enable_telemetry"`
 	ServiceName       string `koanf:"service_name"`
-	OTLPEndpoint      string `koanf:"otlp_endpoint"`       // OTLP endpoint (default: localhost:4317)
-	OTLPProtocol      string `koanf:"otlp_protocol"`       // "grpc" or "http/protobuf" (default: grpc)
-	OTLPInsecure      bool   `koanf:"otlp_insecure"`       // Use insecure connection (default: true for localhost)
+	OTLPEndpoint      string `koanf:"otlp_endpoint"`        // OTLP endpoint (default: localhost:4317)
+	OTLPProtocol      string `koanf:"otlp_protocol"`        // "grpc" or "http/protobuf" (default: grpc)
+	OTLPInsecure      bool   `koanf:"otlp_insecure"`        // Use insecure connection (default: true for localhost)
 	OTLPTLSSkipVerify bool   `koanf:"otlp_tls_skip_verify"` // Skip TLS verification for internal CAs
 }
 
@@ -225,7 +225,16 @@ type RuleConfig struct {
 
 // Load loads configuration from environment variables with defaults.
 //
-// Environment variables:
+// Quick Start - Most commonly configured env vars:
+//
+//   - CONTEXTD_DATA_PATH: Base data path (default: /data)
+//   - EMBEDDINGS_PROVIDER: fastembed (default, local) or tei (remote)
+//   - EMBEDDINGS_CACHE_DIR: Model cache directory (default: ./local_cache)
+//   - VECTORSTORE_PROVIDER: chromem (default, embedded) or qdrant (external)
+//   - CHECKPOINT_MAX_CONTENT_SIZE_KB: Max checkpoint size in KB (default: 1024)
+//   - CONTEXTD_PRODUCTION_MODE: Enable production safety checks (default: false)
+//
+// All environment variables:
 //
 // Server:
 //   - SERVER_PORT: HTTP server port (default: 9090)
@@ -317,7 +326,7 @@ func Load() *Config {
 
 	// Consolidation Scheduler configuration
 	cfg.ConsolidationScheduler = ConsolidationSchedulerConfig{
-		Enabled:             getEnvBool("CONSOLIDATION_SCHEDULER_ENABLED", false),    // Default: disabled
+		Enabled:             getEnvBool("CONSOLIDATION_SCHEDULER_ENABLED", false),             // Default: disabled
 		Interval:            getEnvDuration("CONSOLIDATION_SCHEDULER_INTERVAL", 24*time.Hour), // Default: 24h
 		SimilarityThreshold: getEnvFloat("CONSOLIDATION_SCHEDULER_SIMILARITY_THRESHOLD", 0.8), // Default: 0.8
 	}
@@ -425,26 +434,25 @@ func (c *Config) Validate() error {
 		return errors.New("service name required when telemetry is enabled")
 	}
 
-
 	// Validate environment variable inputs
 	if err := validateHostname(c.Qdrant.Host); err != nil {
 		return fmt.Errorf("invalid QDRANT_HOST: %w", err)
 	}
-	
+
 	if err := validatePath(c.Qdrant.DataPath); err != nil {
 		return fmt.Errorf("invalid CONTEXTD_DATA_PATH: %w", err)
 	}
-	
+
 	if err := validatePath(c.VectorStore.Chromem.Path); err != nil {
 		return fmt.Errorf("invalid CONTEXTD_VECTORSTORE_CHROMEM_PATH: %w", err)
 	}
-	
+
 	if c.Embeddings.CacheDir != "" {
 		if err := validatePath(c.Embeddings.CacheDir); err != nil {
 			return fmt.Errorf("invalid EMBEDDINGS_CACHE_DIR: %w", err)
 		}
 	}
-	
+
 	if c.Embeddings.BaseURL != "" {
 		if err := validateURL(c.Embeddings.BaseURL); err != nil {
 			return fmt.Errorf("invalid EMBEDDING_BASE_URL: %w", err)
@@ -543,6 +551,7 @@ func splitAndTrim(s, sep string) []string {
 	}
 	return result
 }
+
 // ProductionConfig holds production deployment configuration.
 type ProductionConfig struct {
 	// Enabled indicates whether production mode is active.
@@ -631,7 +640,7 @@ func validatePath(path string) error {
 	if strings.Contains(path, "..") {
 		return fmt.Errorf("path contains traversal sequence: %s", path)
 	}
-	
+
 	// For absolute paths, verify the cleaned path doesn't escape
 	if filepath.IsAbs(path) {
 		clean := filepath.Clean(path)
@@ -639,12 +648,12 @@ func validatePath(path string) error {
 		// If cleaned has fewer separators, upward traversal occurred
 		origDepth := strings.Count(path, string(filepath.Separator))
 		cleanDepth := strings.Count(clean, string(filepath.Separator))
-		
+
 		if cleanDepth < origDepth-1 {
 			return fmt.Errorf("path traversal detected: %s (resolves to %s)", path, clean)
 		}
 	}
-	
+
 	return nil
 }
 

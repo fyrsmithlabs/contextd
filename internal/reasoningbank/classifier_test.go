@@ -10,12 +10,12 @@ func TestRegexCategoryClassifier_Classify(t *testing.T) {
 	classifier := NewRegexCategoryClassifier()
 
 	tests := []struct {
-		name           string
-		title          string
-		content        string
-		tags           []string
-		wantCategory   MemoryCategory
-		wantMinConf    float64
+		name         string
+		title        string
+		content      string
+		tags         []string
+		wantCategory MemoryCategory
+		wantMinConf  float64
 	}{
 		// --- Operational ---
 		{

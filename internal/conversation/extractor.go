@@ -160,7 +160,7 @@ func isValidFilePath(path string) bool {
 	// Filter out common false positives
 	falsePositives := []string{
 		"0.0.0", "1.0.0", "2.0.0", // Version-like
-		"e.g.", "i.e.", "etc.",    // Abbreviations
+		"e.g.", "i.e.", "etc.", // Abbreviations
 	}
 	for _, fp := range falsePositives {
 		if path == fp {

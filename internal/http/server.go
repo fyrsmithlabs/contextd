@@ -207,10 +207,14 @@ func (s *Server) handleHealth(c echo.Context) error {
 }
 
 // handleMetadataHealth returns detailed metadata integrity information.
-// NOTE: This endpoint exposes collection hashes which are internal identifiers.
-// In production, protect this endpoint with authentication/authorization or use
-// a reverse proxy to restrict access. The /health endpoint provides summary info only.
+// Restricted to localhost connections only to prevent internal metadata exposure.
 func (s *Server) handleMetadataHealth(c echo.Context) error {
+	// Restrict to localhost only (CWE-200: prevent internal metadata exposure)
+	remoteAddr := c.RealIP()
+	if remoteAddr != "127.0.0.1" && remoteAddr != "::1" && remoteAddr != "localhost" {
+		return echo.NewHTTPError(http.StatusForbidden, "metadata health endpoint is restricted to localhost")
+	}
+
 	if s.healthChecker == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "metadata health checker not configured")
 	}
@@ -339,7 +343,7 @@ func (s *Server) handleScrub(c echo.Context) error {
 	// Scrub the content
 	result := scrubber.Scrub(req.Content)
 
-	s.logger.Debug("scrubbed content",
+	s.logger.Debug("scrub operation completed",
 		zap.Int("findings", result.TotalFindings),
 		zap.Duration("duration", result.Duration),
 	)
@@ -387,13 +391,13 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		projectPath = req.ProjectID
 	}
 
-	// Check for path traversal BEFORE cleaning (Clean removes .. sequences)
+	// Sanitize project path first, then check for traversal (CWE-22)
+	projectPath = filepath.Clean(projectPath)
+
+	// Check for path traversal AFTER cleaning to catch encoded/obfuscated sequences
 	if strings.Contains(projectPath, "..") {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid project_path: path traversal not allowed")
 	}
-
-	// Sanitize project path
-	projectPath = filepath.Clean(projectPath)
 
 	summary := req.Summary
 	if summary == "" {

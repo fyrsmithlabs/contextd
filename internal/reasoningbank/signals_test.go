@@ -217,8 +217,8 @@ func TestMemoryConfidence_InitialState(t *testing.T) {
 	mc := NewMemoryConfidence("mem_abc123")
 
 	assert.Equal(t, "mem_abc123", mc.MemoryID)
-	assert.Equal(t, 1.0, mc.Alpha) // Starts at 1
-	assert.Equal(t, 1.0, mc.Beta)  // Starts at 1
+	assert.Equal(t, 1.0, mc.Alpha)   // Starts at 1
+	assert.Equal(t, 1.0, mc.Beta)    // Starts at 1
 	assert.Equal(t, 0.5, mc.Score()) // 1/(1+1) = 0.5
 }
 

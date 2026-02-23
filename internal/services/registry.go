@@ -71,13 +71,13 @@ func NewRegistry(opts Options) Registry {
 	}
 }
 
-func (r *registry) Checkpoint() checkpoint.Service       { return r.checkpoint }
-func (r *registry) Remediation() remediation.Service     { return r.remediation }
-func (r *registry) Memory() *reasoningbank.Service       { return r.memory }
-func (r *registry) Repository() *repository.Service      { return r.repository }
-func (r *registry) Troubleshoot() *troubleshoot.Service  { return r.troubleshoot }
-func (r *registry) Hooks() *hooks.HookManager            { return r.hooks }
-func (r *registry) Distiller() *reasoningbank.Distiller  { return r.distiller }
-func (r *registry) Scrubber() secrets.Scrubber           { return r.scrubber }
-func (r *registry) Compression() *compression.Service    { return r.compression }
-func (r *registry) VectorStore() vectorstore.Store       { return r.vectorStore }
+func (r *registry) Checkpoint() checkpoint.Service      { return r.checkpoint }
+func (r *registry) Remediation() remediation.Service    { return r.remediation }
+func (r *registry) Memory() *reasoningbank.Service      { return r.memory }
+func (r *registry) Repository() *repository.Service     { return r.repository }
+func (r *registry) Troubleshoot() *troubleshoot.Service { return r.troubleshoot }
+func (r *registry) Hooks() *hooks.HookManager           { return r.hooks }
+func (r *registry) Distiller() *reasoningbank.Distiller { return r.distiller }
+func (r *registry) Scrubber() secrets.Scrubber          { return r.scrubber }
+func (r *registry) Compression() *compression.Service   { return r.compression }
+func (r *registry) VectorStore() vectorstore.Store      { return r.vectorStore }

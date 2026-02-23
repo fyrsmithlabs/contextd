@@ -46,9 +46,9 @@ func (r *SimpleReranker) Rerank(ctx context.Context, query string, docs []Docume
 
 	// Calculate scores for each document
 	type scoredDoc struct {
-		doc              ScoredDocument
-		rerankerScore    float32
-		combinedScore    float32
+		doc               ScoredDocument
+		rerankerScore     float32
+		combinedScore     float32
 		overlapPercentage float32
 	}
 
@@ -75,8 +75,8 @@ func (r *SimpleReranker) Rerank(ctx context.Context, query string, docs []Docume
 				RerankerScore: overlap,
 				OriginalRank:  i,
 			},
-			rerankerScore:    overlap,
-			combinedScore:    combinedScore,
+			rerankerScore:     overlap,
+			combinedScore:     combinedScore,
 			overlapPercentage: overlap,
 		}
 	}

@@ -89,7 +89,12 @@ func (s *Server) validateAndDeriveProjectPath(path, explicitTenantID string) (va
 
 	// Validate tenant_id was derived successfully
 	if tenantID == "" {
-		return "", "", "", fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+		return "", "", "", fmt.Errorf("tenant_id is required for data isolation. It is usually auto-detected from your git repository. Try running from within a git repository, or set tenant_id explicitly")
+	}
+
+	// Validate derived tenant_id format (CWE-287: prevent malformed tenant IDs)
+	if err := sanitize.ValidateTenantID(tenantID); err != nil {
+		return "", "", "", fmt.Errorf("derived tenant_id invalid: %w", err)
 	}
 
 	// Derive project_id from validated path
@@ -190,13 +195,8 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "checkpoint_save")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "checkpoint_save")
-			s.metrics.RecordInvocation(ctx, "checkpoint_save", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "checkpoint_save", &toolErr)()
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -259,13 +259,8 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "checkpoint_list")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "checkpoint_list")
-			s.metrics.RecordInvocation(ctx, "checkpoint_list", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "checkpoint_list", &toolErr)()
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -299,12 +294,16 @@ func (s *Server) registerCheckpointTools() {
 
 		results := make([]map[string]interface{}, 0, len(checkpoints))
 		for _, cp := range checkpoints {
+			// Scrub text fields uniformly (consistent with checkpoint_save/resume)
+			scrubbedSummary := s.scrubber.Scrub(cp.Summary).Scrubbed
+			scrubbedDesc := s.scrubber.Scrub(cp.Description).Scrubbed
+
 			results = append(results, map[string]interface{}{
 				"id":           cp.ID,
 				"session_id":   cp.SessionID,
 				"name":         cp.Name,
-				"description":  cp.Description,
-				"summary":      cp.Summary,
+				"description":  scrubbedDesc,
+				"summary":      scrubbedSummary,
 				"token_count":  cp.TokenCount,
 				"threshold":    cp.Threshold,
 				"auto_created": cp.AutoCreated,
@@ -329,13 +328,8 @@ func (s *Server) registerCheckpointTools() {
 		Name:        "checkpoint_resume",
 		Description: "Resume from a checkpoint at specified level (summary, context, or full)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointResumeInput) (*mcp.CallToolResult, checkpointResumeOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "checkpoint_resume")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "checkpoint_resume")
-			s.metrics.RecordInvocation(ctx, "checkpoint_resume", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "checkpoint_resume", &toolErr)()
 
 		// Validate tenant_id
 		if err := sanitize.ValidateTenantID(args.TenantID); err != nil {
@@ -445,13 +439,8 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "remediation_search")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "remediation_search")
-			s.metrics.RecordInvocation(ctx, "remediation_search", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "remediation_search", &toolErr)()
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -523,13 +512,8 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "remediation_record")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "remediation_record")
-			s.metrics.RecordInvocation(ctx, "remediation_record", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "remediation_record", &toolErr)()
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -594,13 +578,8 @@ func (s *Server) registerRemediationTools() {
 		Name:        "remediation_feedback",
 		Description: "Provide feedback on whether a remediation was helpful. Updates confidence score based on real-world success/failure.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationFeedbackInput) (*mcp.CallToolResult, remediationFeedbackOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "remediation_feedback")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "remediation_feedback")
-			s.metrics.RecordInvocation(ctx, "remediation_feedback", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "remediation_feedback", &toolErr)()
 
 		// Validate input
 		if args.RemediationID == "" {
@@ -616,7 +595,13 @@ func (s *Server) registerRemediationTools() {
 
 		// Validate tenant_id was derived successfully
 		if tenantID == "" {
-			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
+			toolErr = fmt.Errorf("tenant_id is required for data isolation. It is usually auto-detected from your git repository. Try running from within a git repository, or set tenant_id explicitly")
+			return nil, remediationFeedbackOutput{}, toolErr
+		}
+
+		// Validate derived tenant_id format (CWE-287: prevent malformed tenant IDs)
+		if err := sanitize.ValidateTenantID(tenantID); err != nil {
+			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
 			return nil, remediationFeedbackOutput{}, toolErr
 		}
 
@@ -643,14 +628,14 @@ func (s *Server) registerRemediationTools() {
 		if err != nil {
 			// Fallback if we can't fetch the updated remediation
 			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: fmt.Sprintf("Feedback recorded for remediation %s", args.RemediationID)},
-				},
-			}, remediationFeedbackOutput{
-				RemediationID: args.RemediationID,
-				Helpful:       args.Helpful,
-				NewConfidence: 0.0, // Unknown since get failed
-			}, nil
+					Content: []mcp.Content{
+						&mcp.TextContent{Text: fmt.Sprintf("Feedback recorded for remediation %s", args.RemediationID)},
+					},
+				}, remediationFeedbackOutput{
+					RemediationID: args.RemediationID,
+					Helpful:       args.Helpful,
+					NewConfidence: 0.0, // Unknown since get failed
+				}, nil
 		}
 
 		output := remediationFeedbackOutput{
@@ -727,13 +712,8 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "semantic_search",
 		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "semantic_search")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "semantic_search")
-			s.metrics.RecordInvocation(ctx, "semantic_search", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "semantic_search", &toolErr)()
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -849,13 +829,8 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_search",
 		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "repository_search")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "repository_search")
-			s.metrics.RecordInvocation(ctx, "repository_search", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "repository_search", &toolErr)()
 
 		// project_path is always required for tenant context (fail-closed security)
 		if args.ProjectPath == "" {
@@ -967,13 +942,8 @@ func (s *Server) registerRepositoryTools() {
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "repository_index")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "repository_index")
-			s.metrics.RecordInvocation(ctx, "repository_index", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "repository_index", &toolErr)()
 
 		// Path is required
 		if args.Path == "" {
@@ -994,7 +964,7 @@ func (s *Server) registerRepositoryTools() {
 			includePatterns = []string{"*"}
 		} else {
 			if err := sanitize.ValidateGlobPatterns(includePatterns); err != nil {
-				toolErr = fmt.Errorf("invalid include_patterns: %w", err)
+				toolErr = fmt.Errorf("invalid include_patterns: %w. Examples: *.go, **/*.ts, src/**/*.{js,ts}", err)
 				return nil, repositoryIndexOutput{}, toolErr
 			}
 		}
@@ -1015,7 +985,7 @@ func (s *Server) registerRepositoryTools() {
 			}
 		} else {
 			if err := sanitize.ValidateGlobPatterns(excludePatterns); err != nil {
-				toolErr = fmt.Errorf("invalid exclude_patterns: %w", err)
+				toolErr = fmt.Errorf("invalid exclude_patterns: %w. Examples: *.go, **/*.ts, src/**/*.{js,ts}", err)
 				return nil, repositoryIndexOutput{}, toolErr
 			}
 		}
@@ -1096,13 +1066,8 @@ func (s *Server) registerTroubleshootTools() {
 		Name:        "troubleshoot_diagnose",
 		Description: "Diagnose an error using AI and known patterns",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args troubleshootDiagnoseInput) (*mcp.CallToolResult, troubleshootDiagnoseOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "troubleshoot_diagnose")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "troubleshoot_diagnose")
-			s.metrics.RecordInvocation(ctx, "troubleshoot_diagnose", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "troubleshoot_diagnose", &toolErr)()
 
 		diagnosis, err := s.troubleshootSvc.Diagnose(ctx, args.ErrorMessage, args.ErrorContext)
 		if err != nil {
@@ -1136,9 +1101,9 @@ type memorySearchInput struct {
 }
 
 type memorySearchOutput struct {
-	Memories    []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
-	Count       int                      `json:"count" jsonschema:"Number of results"`
-	Metadata    map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
+	Memories []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
+	Count    int                      `json:"count" jsonschema:"Number of results"`
+	Metadata map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
 }
 
 type memoryRecordInput struct {
@@ -1202,17 +1167,12 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_search",
 		Description: "Search for relevant memories/strategies from past sessions",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_search")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_search")
-			s.metrics.RecordInvocation(ctx, "memory_search", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_search", &toolErr)()
 
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
 			return nil, memorySearchOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
@@ -1277,17 +1237,12 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_record",
 		Description: "Record a new memory/learning from the current session",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_record")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_record")
-			s.metrics.RecordInvocation(ctx, "memory_record", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_record", &toolErr)()
 
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
 			return nil, memoryRecordOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
@@ -1347,13 +1302,8 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_feedback",
 		Description: "Provide feedback on a memory to adjust its confidence",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryFeedbackInput) (*mcp.CallToolResult, memoryFeedbackOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_feedback")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_feedback")
-			s.metrics.RecordInvocation(ctx, "memory_feedback", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_feedback", &toolErr)()
 
 		if err := s.reasoningbankSvc.Feedback(ctx, args.MemoryID, args.Helpful); err != nil {
 			toolErr = fmt.Errorf("memory feedback failed: %w", err)
@@ -1385,13 +1335,8 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_outcome",
 		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_outcome")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_outcome")
-			s.metrics.RecordInvocation(ctx, "memory_outcome", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_outcome", &toolErr)()
 
 		// Record the outcome signal
 		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
@@ -1418,17 +1363,12 @@ func (s *Server) registerMemoryTools() {
 		Name:        "memory_consolidate",
 		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_consolidate")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_consolidate")
-			s.metrics.RecordInvocation(ctx, "memory_consolidate", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_consolidate", &toolErr)()
 
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
 			return nil, memoryConsolidateOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
@@ -1505,13 +1445,8 @@ func (s *Server) registerMemoryTools() {
 		Count     int      `json:"count"`
 		Message   string   `json:"message"`
 	}, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "memory_consolidate_session")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "memory_consolidate_session")
-			s.metrics.RecordInvocation(ctx, "memory_consolidate_session", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "memory_consolidate_session", &toolErr)()
 
 		type output struct {
 			MemoryIDs []string `json:"memory_ids"`
@@ -1520,7 +1455,7 @@ func (s *Server) registerMemoryTools() {
 		}
 
 		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required")
+			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
 			return nil, output{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
@@ -1618,13 +1553,8 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_create",
 		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "branch_create")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "branch_create")
-			s.metrics.RecordInvocation(ctx, "branch_create", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "branch_create", &toolErr)()
 
 		// Validate project_id if provided (CWE-287 authentication bypass protection)
 		if args.ProjectID != "" {
@@ -1667,13 +1597,8 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_return",
 		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "branch_return")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "branch_return")
-			s.metrics.RecordInvocation(ctx, "branch_return", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "branch_return", &toolErr)()
 
 		returnReq := folding.ReturnRequest{
 			BranchID: args.BranchID,
@@ -1704,13 +1629,8 @@ func (s *Server) registerFoldingTools() {
 		Name:        "branch_status",
 		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "branch_status")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "branch_status")
-			s.metrics.RecordInvocation(ctx, "branch_status", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "branch_status", &toolErr)()
 
 		var branch *folding.Branch
 		var err error

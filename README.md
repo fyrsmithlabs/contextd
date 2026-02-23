@@ -272,7 +272,7 @@ After installation, here's how to use contextd:
 
 ## Plugin Commands
 
-> **Note:** Plugin commands are now in `fyrsmithlabs/marketplace`. Install with `claude plugins add fyrsmithlabs/marketplace`
+> **Note:** As of v0.4.0, plugin commands are in `fyrsmithlabs/marketplace`. Install with `claude plugins add fyrsmithlabs/marketplace`
 
 | Command | Description |
 |---------|-------------|
@@ -306,7 +306,7 @@ After installation, here's how to use contextd:
 
 ## MCP Tools
 
-ContextD exposes these tools to Claude Code:
+ContextD exposes 25 tools to Claude Code, organized by category:
 
 ### Memory
 
@@ -316,6 +316,8 @@ ContextD exposes these tools to Claude Code:
 | `memory_record` | Save a new learning or strategy |
 | `memory_feedback` | Rate whether a memory was helpful |
 | `memory_outcome` | Report task success/failure after using a memory |
+| `memory_consolidate` | Merge related memories into refined summaries |
+| `memory_consolidate_session` | Consolidate specific memories by ID |
 
 ### Checkpoints
 
@@ -331,12 +333,14 @@ ContextD exposes these tools to Claude Code:
 |------|---------|
 | `remediation_search` | Find fixes for similar errors |
 | `remediation_record` | Record a new error fix |
+| `remediation_feedback` | Rate whether a fix was helpful |
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
 
-### Repository
+### Repository & Search
 
 | Tool | Purpose |
 |------|---------|
+| `semantic_search` | Smart search with semantic understanding + grep fallback |
 | `repository_index` | Index a codebase for semantic search |
 | `repository_search` | Semantic search over indexed code |
 
@@ -347,6 +351,20 @@ ContextD exposes these tools to Claude Code:
 | `branch_create` | Create isolated context branch with token budget |
 | `branch_return` | Return from branch with scrubbed results |
 | `branch_status` | Get branch status and budget usage |
+
+### Conversation
+
+| Tool | Purpose |
+|------|---------|
+| `conversation_index` | Index Claude Code conversation files |
+| `conversation_search` | Search past conversations for decisions and context |
+
+### Reflection
+
+| Tool | Purpose |
+|------|---------|
+| `reflect_report` | Generate self-reflection report on memories and patterns |
+| `reflect_analyze` | Analyze behavioral patterns across sessions |
 
 ---
 

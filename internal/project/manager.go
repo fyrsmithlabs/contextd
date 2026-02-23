@@ -27,8 +27,8 @@ type Manager interface {
 // manager implements Manager with in-memory storage.
 type manager struct {
 	mu       sync.RWMutex
-	projects map[string]*Project      // id -> project
-	byPath   map[string]*Project      // path -> project
+	projects map[string]*Project // id -> project
+	byPath   map[string]*Project // path -> project
 }
 
 // NewManager creates a new project manager with in-memory storage.

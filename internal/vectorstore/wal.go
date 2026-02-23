@@ -33,29 +33,29 @@ type WALEntry struct {
 	IDs          []string   // For delete operations
 	Timestamp    time.Time
 	Synced       bool
-	Checksum     []byte     // HMAC-SHA256 of entry content
-	RemoteState  string     // "unknown", "exists", "deleted"
-	SyncAttempts int        // Number of sync attempts
-	LastAttempt  time.Time  // When last sync attempted
-	SyncError    string     // Last error message (for debugging)
+	Checksum     []byte    // HMAC-SHA256 of entry content
+	RemoteState  string    // "unknown", "exists", "deleted"
+	SyncAttempts int       // Number of sync attempts
+	LastAttempt  time.Time // When last sync attempted
+	SyncError    string    // Last error message (for debugging)
 }
 
 // WAL manages a write-ahead log for pending sync operations.
 type WAL struct {
-	path     string            // .claude/contextd/wal/
-	mu       sync.Mutex        // Protects entries and file operations
-	entries  []WALEntry        // In-memory copy of WAL
-	hmacKey  []byte            // Cryptographically random key (NOT derived from path)
-	scrubber secrets.Scrubber  // gitleaks integration
-	keyPath  string            // .claude/contextd/wal/.hmac_key (0600 permissions)
+	path     string           // .claude/contextd/wal/
+	mu       sync.Mutex       // Protects entries and file operations
+	entries  []WALEntry       // In-memory copy of WAL
+	hmacKey  []byte           // Cryptographically random key (NOT derived from path)
+	scrubber secrets.Scrubber // gitleaks integration
+	keyPath  string           // .claude/contextd/wal/.hmac_key (0600 permissions)
 	logger   *zap.Logger
 }
 
 const (
-	maxEntrySize      = 10 * 1024 * 1024 // 10MB per entry
-	maxDocsPerEntry   = 10000            // Max documents per entry
-	maxOrphansToScan  = 10000            // Prevent infinite loops
-	hmacKeySize       = 32               // 256-bit HMAC key
+	maxEntrySize     = 10 * 1024 * 1024 // 10MB per entry
+	maxDocsPerEntry  = 10000            // Max documents per entry
+	maxOrphansToScan = 10000            // Prevent infinite loops
+	hmacKeySize      = 32               // 256-bit HMAC key
 )
 
 // NewWAL creates a new Write-Ahead Log.
@@ -67,13 +67,19 @@ func NewWAL(path string, scrubber secrets.Scrubber, logger *zap.Logger) (*WAL, e
 		return nil, fmt.Errorf("WAL: logger is required")
 	}
 
+	// Validate path for directory traversal
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return nil, fmt.Errorf("WAL: path contains directory traversal: %s", path)
+	}
+
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(path, 0700); err != nil {
+	if err := os.MkdirAll(cleanPath, 0700); err != nil {
 		return nil, fmt.Errorf("WAL: failed to create directory: %w", err)
 	}
 
 	w := &WAL{
-		path:     path,
+		path:     cleanPath,
 		entries:  make([]WALEntry, 0),
 		scrubber: scrubber,
 		logger:   logger,

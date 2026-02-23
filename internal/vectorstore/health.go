@@ -117,17 +117,17 @@ func (m *MockHealthChecker) WatchState(ctx context.Context, callback func(health
 
 // HealthMonitor monitors remote store connectivity.
 type HealthMonitor struct {
-	checker          HealthChecker     // Interface for DI (gRPC, HTTP, mock)
-	healthy          atomic.Bool       // Current health status
-	lastCheck        atomic.Value      // time.Time
-	checkInterval    time.Duration     // Configurable via FallbackConfig
-	callbackTimeout  time.Duration     // Timeout for individual callbacks (default: 5s)
-	mu               sync.RWMutex      // Protects callbacks slice
-	callbacks        []func(bool)      // Callbacks to notify on health change
-	callbackSem      chan struct{}     // Semaphore to limit concurrent callbacks
-	ctx              context.Context   // For graceful shutdown
-	cancel           context.CancelFunc
-	logger           *zap.Logger
+	checker         HealthChecker   // Interface for DI (gRPC, HTTP, mock)
+	healthy         atomic.Bool     // Current health status
+	lastCheck       atomic.Value    // time.Time
+	checkInterval   time.Duration   // Configurable via FallbackConfig
+	callbackTimeout time.Duration   // Timeout for individual callbacks (default: 5s)
+	mu              sync.RWMutex    // Protects callbacks slice
+	callbacks       []func(bool)    // Callbacks to notify on health change
+	callbackSem     chan struct{}   // Semaphore to limit concurrent callbacks
+	ctx             context.Context // For graceful shutdown
+	cancel          context.CancelFunc
+	logger          *zap.Logger
 }
 
 // NewHealthMonitor creates a new health monitor.

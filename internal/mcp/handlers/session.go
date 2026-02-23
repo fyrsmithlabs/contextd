@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
@@ -72,11 +74,15 @@ type ContextThresholdOutput struct {
 // SessionHandler handles session lifecycle tools.
 type SessionHandler struct {
 	registry services.Registry
+	logger   *zap.Logger
 }
 
 // NewSessionHandler creates a new session handler.
-func NewSessionHandler(registry services.Registry) *SessionHandler {
-	return &SessionHandler{registry: registry}
+func NewSessionHandler(registry services.Registry, logger *zap.Logger) *SessionHandler {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return &SessionHandler{registry: registry, logger: logger}
 }
 
 // Start handles the session_start tool.
@@ -177,7 +183,10 @@ func (h *SessionHandler) End(ctx context.Context, input json.RawMessage) (interf
 		ids, err := h.registry.Memory().FlushSession(ctx, req.ProjectID, req.SessionID)
 		if err != nil {
 			// Best-effort: don't fail session end on flush error
-			_ = err // TODO: add structured logging when handler has logger access
+			h.logger.Warn("failed to flush session buffer",
+				zap.String("project_id", req.ProjectID),
+				zap.String("session_id", req.SessionID),
+				zap.Error(err))
 		} else {
 			memoriesCreated += len(ids)
 		}

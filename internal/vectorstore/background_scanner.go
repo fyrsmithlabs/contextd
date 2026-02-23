@@ -27,17 +27,17 @@ type BackgroundScannerConfig struct {
 
 // BackgroundScanner performs periodic health checks in the background.
 type BackgroundScanner struct {
-	checker    *MetadataHealthChecker
-	config     *BackgroundScannerConfig
-	logger     *zap.Logger
+	checker *MetadataHealthChecker
+	config  *BackgroundScannerConfig
+	logger  *zap.Logger
 
 	mu         sync.RWMutex
 	lastHealth *MetadataHealth
 	lastError  error
 	running    bool
 
-	stopCh     chan struct{}
-	doneCh     chan struct{}
+	stopCh chan struct{}
+	doneCh chan struct{}
 }
 
 // NewBackgroundScanner creates a new background health scanner.

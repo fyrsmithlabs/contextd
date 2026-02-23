@@ -83,14 +83,14 @@ func (c *FallbackConfig) Validate() error {
 //
 // Thread-safe: All operations are protected by internal mutexes.
 type FallbackStore struct {
-	remote  Store          // Primary remote store (Qdrant)
-	local   Store          // Fallback local store (chromem)
-	health  *HealthMonitor // Health monitoring
-	sync    *SyncManager   // Background sync manager
-	wal     *WAL           // Write-ahead log
-	config  FallbackConfig // Configuration
-	logger  *zap.Logger    // Logger
-	mu      sync.RWMutex   // Protects mode switches
+	remote Store          // Primary remote store (Qdrant)
+	local  Store          // Fallback local store (chromem)
+	health *HealthMonitor // Health monitoring
+	sync   *SyncManager   // Background sync manager
+	wal    *WAL           // Write-ahead log
+	config FallbackConfig // Configuration
+	logger *zap.Logger    // Logger
+	mu     sync.RWMutex   // Protects mode switches
 }
 
 // NewFallbackStore creates a new FallbackStore wrapping remote and local stores.
@@ -171,21 +171,21 @@ func (fs *FallbackStore) validateTenantContext(ctx context.Context) (*TenantInfo
 // AddDocuments adds documents with fallback support.
 //
 // Write path (atomic with rollback):
-// 1. Scrub document content (handled by WAL)
-// 2. Check remote health
-// 3. IF HEALTHY:
-//    a. Write to REMOTE first
-//    b. Write to LOCAL (for query consistency)
-//    c. Record in WAL as SYNCED
-//    d. Return success
-// 4. IF UNHEALTHY:
-//    a. Record in WAL as PENDING (with checksum)
-//    b. Write to LOCAL
-//    c. Return success
-// 5. ON ANY FAILURE:
-//    a. Rollback: Delete from stores where written
-//    b. Remove incomplete WAL entry
-//    c. Return error
+//  1. Scrub document content (handled by WAL)
+//  2. Check remote health
+//  3. IF HEALTHY:
+//     a. Write to REMOTE first
+//     b. Write to LOCAL (for query consistency)
+//     c. Record in WAL as SYNCED
+//     d. Return success
+//  4. IF UNHEALTHY:
+//     a. Record in WAL as PENDING (with checksum)
+//     b. Write to LOCAL
+//     c. Return success
+//  5. ON ANY FAILURE:
+//     a. Rollback: Delete from stores where written
+//     b. Remove incomplete WAL entry
+//     c. Return error
 func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]string, error) {
 	// Validate tenant context (fail-closed)
 	tenant, err := fs.validateTenantContext(ctx)
@@ -272,16 +272,16 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 // Search performs similarity search with merge strategy.
 //
 // Read path (merge strategy):
-// 1. Check remote health
-// 2. IF HEALTHY:
-//    a. Search REMOTE (authoritative)
-//    b. Search LOCAL for pending (unsynced) documents
-//    c. Merge results (local wins for conflicts)
-//    d. Add metadata: {source: "merged", pending_count: N}
-// 3. IF UNHEALTHY:
-//    a. Search LOCAL only
-//    b. Add metadata: {source: "local", last_sync: timestamp, stale_warning: true}
-// 4. Return results with metadata
+//  1. Check remote health
+//  2. IF HEALTHY:
+//     a. Search REMOTE (authoritative)
+//     b. Search LOCAL for pending (unsynced) documents
+//     c. Merge results (local wins for conflicts)
+//     d. Add metadata: {source: "merged", pending_count: N}
+//  3. IF UNHEALTHY:
+//     a. Search LOCAL only
+//     b. Add metadata: {source: "local", last_sync: timestamp, stale_warning: true}
+//  4. Return results with metadata
 func (fs *FallbackStore) Search(ctx context.Context, query string, k int) ([]SearchResult, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()

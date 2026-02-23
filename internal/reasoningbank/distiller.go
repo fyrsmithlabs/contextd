@@ -1058,13 +1058,13 @@ func extractField(text, fieldLabel string) string {
 //
 // This method uses the configured LLM client to analyze the cluster members and create
 // a synthesized memory that captures their common themes and key insights. The process:
-//   1. Validates the cluster has at least 2 members and LLM client is configured
-//   2. Builds a consolidation prompt from cluster members
-//   3. Calls the LLM to synthesize the memories
-//   4. Parses the LLM response into a Memory struct
-//   5. Calculates consolidated confidence from source memories
-//   6. Stores the new consolidated memory
-//   7. Links source memories to the consolidated version
+//  1. Validates the cluster has at least 2 members and LLM client is configured
+//  2. Builds a consolidation prompt from cluster members
+//  3. Calls the LLM to synthesize the memories
+//  4. Parses the LLM response into a Memory struct
+//  5. Calculates consolidated confidence from source memories
+//  6. Stores the new consolidated memory
+//  7. Links source memories to the consolidated version
 //
 // The consolidated memory includes source attribution and links back to the original
 // memories via their ConsolidationID fields.
@@ -1173,11 +1173,12 @@ func (d *Distiller) MergeCluster(ctx context.Context, cluster *SimilarityCluster
 //   - Multiple memories agree (more sources = higher potential bonus)
 //
 // Formula:
-//   base = sum(confidence_i * weight_i) / sum(weight_i)
-//   where weight_i = usageCount_i + 1
 //
-//   consensus_bonus = (1 - normalized_std_dev) * min(num_sources / 10, 1.0) * 0.1
-//   final = base + consensus_bonus (capped at 1.0)
+//	base = sum(confidence_i * weight_i) / sum(weight_i)
+//	where weight_i = usageCount_i + 1
+//
+//	consensus_bonus = (1 - normalized_std_dev) * min(num_sources / 10, 1.0) * 0.1
+//	final = base + consensus_bonus (capped at 1.0)
 //
 // This ensures:
 //   - High agreement among many sources increases confidence

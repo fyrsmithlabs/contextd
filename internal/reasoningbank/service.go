@@ -55,6 +55,14 @@ const (
 	// multi-hop query performance by ensuring related memories are retrieved
 	// together.
 	conversationBoostFactor = 1.15
+
+	// consolidatedMemoryBoost is the score multiplier for consolidated memories.
+	consolidatedMemoryBoost float32 = 1.2
+
+	// consolidatedDescriptionPrefixes are the description prefixes that identify
+	// consolidated memories created by the distiller.
+	consolidatedPrefixSynthesized  = "Synthesized from"
+	consolidatedPrefixConsolidated = "Consolidated from"
 )
 
 // entityRegex extracts proper nouns (capitalized words) from queries.
@@ -118,7 +126,7 @@ type Service struct {
 	logger        *zap.Logger
 
 	// Telemetry
-	meter           metric.Meter
+	meter               metric.Meter
 	totalGauge          metric.Int64ObservableGauge
 	searchCounter       metric.Int64Counter
 	recordCounter       metric.Int64Counter
@@ -129,13 +137,16 @@ type Service struct {
 	confidenceHistogram metric.Float64Histogram
 
 	// Session granularity support
-	granularity MemoryGranularity       // "turn" (default) or "session"
-	bufferMgr   *SessionBufferManager   // Non-nil when granularity=session
-	summarizer  *SessionSummarizer      // Non-nil when granularity=session
+	granularity MemoryGranularity     // "turn" (default) or "session"
+	bufferMgr   *SessionBufferManager // Non-nil when granularity=session
+	summarizer  *SessionSummarizer    // Non-nil when granularity=session
 
 	// Stats tracking for statusline
 	statsMu        sync.RWMutex
 	lastConfidence float64
+
+	// initErr captures errors from functional options for deferred reporting in NewService.
+	initErr error
 }
 
 // Stats contains memory service statistics for statusline display.
@@ -191,8 +202,7 @@ func WithSessionGranularity(extractor FactExtractor, logger *zap.Logger, maxBuff
 		s.bufferMgr = NewSessionBufferManager(maxBufferedTurns)
 		summarizer, err := NewSessionSummarizer(extractor, logger)
 		if err != nil {
-			logger.Error("failed to create session summarizer, falling back to turn granularity",
-				zap.Error(err))
+			s.initErr = fmt.Errorf("failed to create session summarizer: %w", err)
 			s.granularity = GranularityTurn
 			s.bufferMgr = nil
 			return
@@ -219,6 +229,11 @@ func NewService(store vectorstore.Store, logger *zap.Logger, opts ...ServiceOpti
 	// Apply options
 	for _, opt := range opts {
 		opt(svc)
+	}
+
+	// Check for deferred errors from functional options
+	if svc.initErr != nil {
+		return nil, svc.initErr
 	}
 
 	// Default to in-memory signal store if not provided
@@ -264,6 +279,11 @@ func NewServiceWithStoreProvider(stores vectorstore.StoreProvider, defaultTenant
 	// Apply options
 	for _, opt := range opts {
 		opt(svc)
+	}
+
+	// Check for deferred errors from functional options
+	if svc.initErr != nil {
+		return nil, svc.initErr
 	}
 
 	// Default to in-memory signal store if not provided
@@ -435,6 +455,12 @@ func (s *Service) observeMemoryCount(ctx context.Context, observer metric.Int64O
 	return nil
 }
 
+// scoredMemory pairs a Memory with its adjusted relevance score during search.
+type scoredMemory struct {
+	memory Memory
+	score  float32
+}
+
 // Search retrieves memories by semantic similarity to the query.
 //
 // Returns memories with confidence >= MinConfidence, ordered by similarity score.
@@ -483,23 +509,19 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, fmt.Errorf("checking collection existence: %w", err)
 	}
 	if !exists {
-		// No memories yet for this project
 		s.logger.Debug("collection does not exist",
 			zap.String("collection", collectionName),
 			zap.String("project_id", projectID))
 		return []Memory{}, nil
 	}
 
-	// Search without store-level confidence filter (post-filter in service layer)
-	// This makes the service store-agnostic - works with any vectorstore implementation
-	// regardless of filter operator support ($gte, range queries, etc.)
-	// Use 3x multiplier to ensure enough results after filtering, with bounds
+	// Fetch candidates with over-provisioning to account for post-filtering
 	searchLimit := limit * 3
 	if searchLimit < 30 {
 		searchLimit = 30
 	}
 	if searchLimit > 200 {
-		searchLimit = 200 // Cap to prevent excessive fetching
+		searchLimit = 200
 	}
 
 	results, err := store.SearchInCollection(ctx, collectionName, query, searchLimit, nil)
@@ -508,39 +530,49 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
 
-	// Convert results to Memory structs, filter by confidence, and record usage signals
-	// We'll track both the memory and its score for re-ranking with consolidated memory boost
-	type scoredMemory struct {
-		memory Memory
-		score  float32
-	}
-	scoredMemories := make([]scoredMemory, 0, len(results))
-	seenIDs := make(map[string]struct{}, len(results)) // Deduplication: track seen memory IDs
-
-	const consolidatedMemoryBoost = 1.2 // 20% boost for consolidated memories
-
-	// Extract named entities from query for boosting (e.g., "Caroline" from "What is Caroline's identity?")
+	// Score, filter, and boost results
 	queryEntities := s.extractQueryEntities(query)
-	if len(queryEntities) > 0 {
-		s.logger.Debug("extracted query entities",
-			zap.Strings("entities", queryEntities),
-			zap.String("query", query))
+	isTemporalQuery := s.isTemporalQuery(query)
+	scoredMemories := s.scoreAndFilterResults(ctx, results, projectID, queryEntities, isTemporalQuery)
+
+	// Sort by boosted scores then apply reranking
+	sort.Slice(scoredMemories, func(i, j int) bool {
+		return scoredMemories[i].score > scoredMemories[j].score
+	})
+	scoredMemories = s.applyReranking(ctx, query, projectID, scoredMemories)
+
+	// Extract memories up to limit
+	memories := make([]Memory, 0, limit)
+	for i := 0; i < len(scoredMemories) && i < limit; i++ {
+		memories = append(memories, scoredMemories[i].memory)
 	}
 
-	// Check if query is temporal (mentions "recent", "yesterday", etc.)
-	// Temporal queries boost recent memories and penalize old ones
-	isTemporalQuery := s.isTemporalQuery(query)
-	if isTemporalQuery {
-		s.logger.Debug("detected temporal query",
-			zap.String("query", query))
-	}
+	s.recordSearchMetrics(ctx, projectID, startTime, memories)
+
+	s.logger.Debug("search completed",
+		zap.String("project_id", projectID),
+		zap.String("query", query),
+		zap.Int("limit", limit),
+		zap.Int("results", len(memories)))
+
+	return memories, nil
+}
+
+// scoreAndFilterResults converts raw search results to scored memories,
+// applying confidence filtering, deduplication, and relevance boosting.
+func (s *Service) scoreAndFilterResults(
+	ctx context.Context,
+	results []vectorstore.SearchResult,
+	projectID string,
+	queryEntities []string,
+	isTemporalQuery bool,
+) []scoredMemory {
+	scored := make([]scoredMemory, 0, len(results))
+	seenIDs := make(map[string]struct{}, len(results))
 
 	for _, result := range results {
-		// Deduplication: skip if we've already seen this memory ID
-		// This prevents duplicates from race conditions during memory updates (delete→add pattern)
+		// Deduplication: skip duplicates from race conditions during memory updates
 		if _, seen := seenIDs[result.ID]; seen {
-			s.logger.Debug("skipping duplicate memory",
-				zap.String("id", result.ID))
 			continue
 		}
 		seenIDs[result.ID] = struct{}{}
@@ -553,148 +585,104 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			continue
 		}
 
-		// Post-filter: skip memories below confidence threshold
-		if memory.Confidence < MinConfidence {
-			s.logger.Debug("skipping low-confidence memory",
-				zap.String("id", memory.ID),
-				zap.Float64("confidence", memory.Confidence),
-				zap.Float64("min_confidence", MinConfidence))
+		if memory.Confidence < MinConfidence || memory.State == MemoryStateArchived {
 			continue
 		}
 
-		// Filter out archived memories (they were consolidated into other memories)
-		if memory.State == MemoryStateArchived {
-			s.logger.Debug("skipping archived memory",
-				zap.String("id", memory.ID),
-				zap.String("consolidation_id", func() string {
-					if memory.ConsolidationID != nil {
-						return *memory.ConsolidationID
-					}
-					return ""
-				}()))
-			continue
-		}
+		score := s.applyScoreBoosting(memory, result.Score, queryEntities, isTemporalQuery)
 
-		// Apply boost to consolidated memories (synthesized knowledge from multiple sources)
-		score := result.Score
-		isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
-			(strings.Contains(memory.Description, "Synthesized from") ||
-				strings.Contains(memory.Description, "Consolidated from"))
-		if isConsolidated {
-			score *= consolidatedMemoryBoost
-			s.logger.Debug("applying consolidated memory boost",
-				zap.String("id", memory.ID),
-				zap.Float32("original_score", result.Score),
-				zap.Float32("boosted_score", score))
-		}
-
-		// Apply boost when memory mentions entities extracted from the query
-		// This improves precision for questions like "What is Caroline's identity?"
-		if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
-			score *= entityBoostFactor
-			s.logger.Debug("applying entity boost",
-				zap.String("id", memory.ID),
-				zap.Strings("matched_entities", queryEntities),
-				zap.Float32("boosted_score", score))
-		}
-
-		// Apply temporal weighting for time-sensitive queries
-		// Recent memories get boosted, old memories get penalized
-		if isTemporalQuery {
-			temporalMultiplier := s.getTemporalMultiplier(memory)
-			if temporalMultiplier != 1.0 {
-				score *= temporalMultiplier
-				s.logger.Debug("applying temporal weight",
-					zap.String("id", memory.ID),
-					zap.Float32("multiplier", temporalMultiplier),
-					zap.Float32("boosted_score", score))
-			}
-		}
-
-		// Record usage signal for this memory (positive = retrieved in search)
-		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
-		if err == nil {
-			if err := s.signalStore.StoreSignal(ctx, signal); err != nil {
+		// Record usage signal for this memory
+		signal, sigErr := NewSignal(memory.ID, projectID, SignalUsage, true, "")
+		if sigErr == nil {
+			if storeErr := s.signalStore.StoreSignal(ctx, signal); storeErr != nil {
 				s.logger.Warn("failed to record usage signal",
 					zap.String("memory_id", memory.ID),
-					zap.Error(err))
+					zap.Error(storeErr))
 			}
 		}
 
-		scoredMemories = append(scoredMemories, scoredMemory{
-			memory: *memory,
-			score:  score,
-		})
+		scored = append(scored, scoredMemory{memory: *memory, score: score})
 	}
 
-	// Re-sort by boosted scores (higher score = more relevant)
-	sort.Slice(scoredMemories, func(i, j int) bool {
-		return scoredMemories[i].score > scoredMemories[j].score
-	})
+	return scored
+}
 
-	// Apply reranking if available
-	if s.reranker != nil && len(scoredMemories) > 0 {
-		// Convert scoredMemories to Document format for reranker
-		docs := make([]reranker.Document, len(scoredMemories))
-		for i, sm := range scoredMemories {
-			docs[i] = reranker.Document{
-				ID:      sm.memory.ID,
-				Content: sm.memory.Content,
-				Score:   sm.score,
-			}
-		}
+// applyScoreBoosting applies consolidation, entity, and temporal boosts to a memory's score.
+func (s *Service) applyScoreBoosting(memory *Memory, baseScore float32, queryEntities []string, isTemporalQuery bool) float32 {
+	score := baseScore
 
-		// Rerank documents
-		rerankedDocs, err := s.reranker.Rerank(ctx, query, docs, len(docs))
-		if err != nil {
-			// Log error but continue with original ranking
-			s.logger.Warn("reranking failed, using original ranking",
-				zap.String("project_id", projectID),
-				zap.String("query", query),
-				zap.Error(err))
-		} else {
-			// Replace scoredMemories with reranked results
-			// Build lookup map for O(1) access instead of O(n²) nested loops
-			memoryMap := make(map[string]scoredMemory, len(scoredMemories))
-			for _, sm := range scoredMemories {
-				memoryMap[sm.memory.ID] = sm
-			}
+	// Boost consolidated memories (synthesized from multiple sources)
+	isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
+		(strings.Contains(memory.Description, consolidatedPrefixSynthesized) ||
+			strings.Contains(memory.Description, consolidatedPrefixConsolidated))
+	if isConsolidated {
+		score *= consolidatedMemoryBoost
+	}
 
-			// Map reranked docs back to scoredMemory structs
-			rerankedMemories := make([]scoredMemory, 0, len(rerankedDocs))
-			for i, rerankedDoc := range rerankedDocs {
-				sm, ok := memoryMap[rerankedDoc.ID]
-				if !ok {
-					// Log warning but continue - don't fail the whole search
-					s.logger.Warn("reranked document ID not found in original memories",
-						zap.String("id", rerankedDoc.ID))
-					continue
-				}
-				s.logger.Debug("reranking result",
-					zap.String("id", rerankedDoc.ID),
-					zap.Int("original_position", rerankedDoc.OriginalRank),
-					zap.Int("reranked_position", i),
-					zap.Float32("reranker_score", rerankedDoc.RerankerScore))
-				rerankedMemories = append(rerankedMemories, sm)
-			}
-			scoredMemories = rerankedMemories
+	// Boost memories mentioning entities from the query
+	if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
+		score *= entityBoostFactor
+	}
+
+	// Apply temporal weighting for time-sensitive queries
+	if isTemporalQuery {
+		if multiplier := s.getTemporalMultiplier(memory); multiplier != 1.0 {
+			score *= multiplier
 		}
 	}
 
-	// Extract memories up to limit
-	memories := make([]Memory, 0, limit)
-	for i := 0; i < len(scoredMemories) && i < limit; i++ {
-		memories = append(memories, scoredMemories[i].memory)
+	return score
+}
+
+// applyReranking uses the configured reranker to improve result ordering.
+// Falls back to the original order if reranking fails or no reranker is configured.
+func (s *Service) applyReranking(ctx context.Context, query, projectID string, scoredMemories []scoredMemory) []scoredMemory {
+	if s.reranker == nil || len(scoredMemories) == 0 {
+		return scoredMemories
 	}
 
-	// Track last confidence for statusline (use first result's confidence)
+	docs := make([]reranker.Document, len(scoredMemories))
+	for i, sm := range scoredMemories {
+		docs[i] = reranker.Document{
+			ID:      sm.memory.ID,
+			Content: sm.memory.Content,
+			Score:   sm.score,
+		}
+	}
+
+	rerankedDocs, err := s.reranker.Rerank(ctx, query, docs, len(docs))
+	if err != nil {
+		s.logger.Warn("reranking failed, using original ranking",
+			zap.String("project_id", projectID),
+			zap.String("query", query),
+			zap.Error(err))
+		return scoredMemories
+	}
+
+	// Build lookup map for O(1) access
+	memoryMap := make(map[string]scoredMemory, len(scoredMemories))
+	for _, sm := range scoredMemories {
+		memoryMap[sm.memory.ID] = sm
+	}
+
+	reranked := make([]scoredMemory, 0, len(rerankedDocs))
+	for _, doc := range rerankedDocs {
+		if sm, ok := memoryMap[doc.ID]; ok {
+			reranked = append(reranked, sm)
+		}
+	}
+	return reranked
+}
+
+// recordSearchMetrics records search-related telemetry metrics.
+func (s *Service) recordSearchMetrics(ctx context.Context, projectID string, startTime time.Time, memories []Memory) {
+	// Track last confidence for statusline
 	if len(memories) > 0 {
 		s.statsMu.Lock()
 		s.lastConfidence = memories[0].Confidence
 		s.statsMu.Unlock()
 	}
 
-	// Record search metric
 	if s.searchCounter != nil {
 		s.searchCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("project_id", projectID),
@@ -702,15 +690,12 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 		))
 	}
 
-	// Record search duration histogram
 	if s.searchDuration != nil {
-		duration := time.Since(startTime).Seconds()
-		s.searchDuration.Record(ctx, duration, metric.WithAttributes(
+		s.searchDuration.Record(ctx, time.Since(startTime).Seconds(), metric.WithAttributes(
 			attribute.String("project_id", projectID),
 		))
 	}
 
-	// Record confidence histogram for each returned memory
 	if s.confidenceHistogram != nil {
 		for _, mem := range memories {
 			s.confidenceHistogram.Record(ctx, mem.Confidence, metric.WithAttributes(
@@ -718,14 +703,6 @@ func (s *Service) Search(ctx context.Context, projectID, query string, limit int
 			))
 		}
 	}
-
-	s.logger.Debug("search completed",
-		zap.String("project_id", projectID),
-		zap.String("query", query),
-		zap.Int("limit", limit),
-		zap.Int("results", len(memories)))
-
-	return memories, nil
 }
 
 // SearchWithScores returns memories with their search relevance scores.
@@ -783,84 +760,22 @@ func (s *Service) SearchWithScores(ctx context.Context, projectID, query string,
 		return nil, fmt.Errorf("searching memories: %w", err)
 	}
 
-	// Convert results to ScoredMemory, applying dedup and filtering
-	type internalScored struct {
-		memory Memory
-		score  float32
-	}
-	internalResults := make([]internalScored, 0, len(results))
-	seenIDs := make(map[string]struct{}, len(results))
-
-	const consolidatedMemoryBoost = 1.2
-
-	// Extract named entities from query for boosting
+	// Reuse shared scoring/filtering logic
 	queryEntities := s.extractQueryEntities(query)
-
-	// Check if query is temporal
 	isTemporalQuery := s.isTemporalQuery(query)
-
-	for _, result := range results {
-		// Deduplication
-		if _, seen := seenIDs[result.ID]; seen {
-			continue
-		}
-		seenIDs[result.ID] = struct{}{}
-
-		memory, err := s.resultToMemory(result)
-		if err != nil {
-			continue
-		}
-
-		// Filter low confidence and archived
-		if memory.Confidence < MinConfidence {
-			continue
-		}
-		if memory.State == MemoryStateArchived {
-			continue
-		}
-
-		// Apply consolidated memory boost
-		score := result.Score
-		isConsolidated := memory.ConsolidationID == nil && memory.State == MemoryStateActive &&
-			(strings.Contains(memory.Description, "Synthesized from") ||
-				strings.Contains(memory.Description, "Consolidated from"))
-		if isConsolidated {
-			score *= consolidatedMemoryBoost
-		}
-
-		// Apply entity boost when memory mentions entities from query
-		if len(queryEntities) > 0 && s.memoryContainsEntity(memory, queryEntities) {
-			score *= entityBoostFactor
-		}
-
-		// Apply temporal weighting for time-sensitive queries
-		if isTemporalQuery {
-			score *= s.getTemporalMultiplier(memory)
-		}
-
-		// Record usage signal
-		signal, err := NewSignal(memory.ID, projectID, SignalUsage, true, "")
-		if err == nil {
-			_ = s.signalStore.StoreSignal(ctx, signal)
-		}
-
-		internalResults = append(internalResults, internalScored{
-			memory: *memory,
-			score:  score,
-		})
-	}
+	scored := s.scoreAndFilterResults(ctx, results, projectID, queryEntities, isTemporalQuery)
 
 	// Sort by score (descending)
-	sort.Slice(internalResults, func(i, j int) bool {
-		return internalResults[i].score > internalResults[j].score
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
 	})
 
 	// Convert to ScoredMemory and limit
 	scoredMemories := make([]ScoredMemory, 0, limit)
-	for i := 0; i < len(internalResults) && i < limit; i++ {
+	for i := 0; i < len(scored) && i < limit; i++ {
 		scoredMemories = append(scoredMemories, ScoredMemory{
-			Memory:    internalResults[i].memory,
-			Relevance: float64(internalResults[i].score),
+			Memory:    scored[i].memory,
+			Relevance: float64(scored[i].score),
 		})
 	}
 

@@ -124,7 +124,7 @@ func TestQdrantStore_LargePayload(t *testing.T) {
 		docs := make([]vectorstore.Document, 100)
 		for i := 0; i < 100; i++ {
 			docs[i] = vectorstore.Document{
-				ID:      string(rune('a' + (i / 26))) + string(rune('a' + (i % 26))) + "_batch_doc",
+				ID:      string(rune('a'+(i/26))) + string(rune('a'+(i%26))) + "_batch_doc",
 				Content: mediumContent,
 				Metadata: map[string]interface{}{
 					"batch": i,

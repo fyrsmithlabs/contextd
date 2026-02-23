@@ -215,6 +215,7 @@ Contextd provides these MCP tools to Claude Code:
 | `memory_record` | Saves a new learning | After solving problems |
 | `memory_feedback` | Rates memory helpfulness | When a memory helps/doesn't help |
 | `memory_outcome` | Reports task success | After completing a task |
+| `memory_consolidate` | Merges related memories | Periodic cleanup |
 
 ### Checkpoint Tools
 
@@ -230,6 +231,7 @@ Contextd provides these MCP tools to Claude Code:
 |------|--------------|-------------|
 | `remediation_search` | Finds fixes for similar errors | When debugging |
 | `remediation_record` | Records a new error fix | After fixing a bug |
+| `remediation_feedback` | Rates fix helpfulness | When a fix works/doesn't |
 | `troubleshoot_diagnose` | AI-powered diagnosis | Stuck on an error |
 
 ### Code Search Tools
@@ -247,6 +249,20 @@ Contextd provides these MCP tools to Claude Code:
 | `branch_create` | Creates isolated sub-task | Complex analysis |
 | `branch_return` | Returns with summary | Sub-task complete |
 | `branch_status` | Checks branch progress | Monitor long tasks |
+
+### Conversation Tools
+
+| Tool | What It Does | When Claude Uses It |
+|------|--------------|---------------------|
+| `conversation_index` | Indexes past conversations | Project onboarding |
+| `conversation_search` | Finds past decisions/context | Researching history |
+
+### Reflection Tools
+
+| Tool | What It Does | When to Use |
+|------|--------------|-------------|
+| `reflect_report` | Generates self-reflection report | End of day/sprint |
+| `reflect_analyze` | Analyzes behavioral patterns | Periodic review |
 
 ---
 
@@ -277,15 +293,12 @@ You don't need to manage this - Claude uses it automatically for complex tasks.
 
 ### Specialized Agents
 
-Contextd includes specialized agents for complex workflows:
+Contextd integrates with specialized agents for complex workflows:
 
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
-| `contextd-task-executor` | Standard task execution | Default workflows |
-| `task-orchestrator` | Multi-agent coordination | Large complex tasks |
-| `systematic-debugging` | Methodical bug investigation | Mysterious bugs |
-| `refactoring-agent` | Safe code refactoring | Restructuring code |
-| `architecture-analyzer` | Deep codebase analysis | Understanding architecture |
+| `contextd:orchestrator` | Multi-agent coordination with context-folding | Large complex tasks |
+| `contextd:task-agent` | Debugging, refactoring, and architecture analysis | General development |
 
 These agents leverage:
 - **ReasoningBank** - Cross-session learning
@@ -347,9 +360,9 @@ If you prefer manual setup, add to `~/.claude/settings.json`:
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
-        "-v", "${HOME}/.config/contextd-/root/.config/contextd",
-        "ghcr.io/fyrsmithlabs/contextd-latest",
-        "--mcp"
+        "-v", "${HOME}/.config/contextd:/root/.config/contextd",
+        "ghcr.io/fyrsmithlabs/contextd:latest",
+        "--mcp", "--no-http"
       ]
     }
   }

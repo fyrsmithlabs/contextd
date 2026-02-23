@@ -611,7 +611,7 @@ func TestCosineSimilarity_RealisticEmbeddings(t *testing.T) {
 	vec2 := make([]float32, 384)
 
 	for i := 0; i < 384; i++ {
-		vec1[i] = float32(i % 10) / 10.0
+		vec1[i] = float32(i%10) / 10.0
 		vec2[i] = vec1[i] + 0.1 // Slightly different
 	}
 
@@ -1990,18 +1990,18 @@ func TestMergeCluster_EmptyProjectID(t *testing.T) {
 // This function computes a weighted average of source memory confidences with a consensus bonus.
 func TestCalculateConsolidatedConfidence(t *testing.T) {
 	testCases := []struct {
-		name               string
-		memories           []*Memory
-		expectedMin        float64 // minimum expected confidence
-		expectedMax        float64 // maximum expected confidence
-		description        string
+		name        string
+		memories    []*Memory
+		expectedMin float64 // minimum expected confidence
+		expectedMax float64 // maximum expected confidence
+		description string
 	}{
 		{
-			name:               "empty slice",
-			memories:           []*Memory{},
-			expectedMin:        DistilledConfidence,
-			expectedMax:        DistilledConfidence,
-			description:        "empty slice should return default",
+			name:        "empty slice",
+			memories:    []*Memory{},
+			expectedMin: DistilledConfidence,
+			expectedMax: DistilledConfidence,
+			description: "empty slice should return default",
 		},
 		{
 			name: "single memory",

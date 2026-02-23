@@ -30,8 +30,8 @@ type OutputConfig struct {
 
 // SamplingConfig controls log volume reduction.
 type SamplingConfig struct {
-	Enabled bool            `koanf:"enabled"`
-	Tick    config.Duration `koanf:"tick"`
+	Enabled bool                                  `koanf:"enabled"`
+	Tick    config.Duration                       `koanf:"tick"`
 	Levels  map[zapcore.Level]LevelSamplingConfig `koanf:"levels"`
 }
 
@@ -100,10 +100,10 @@ func NewDefaultConfig() *Config {
 // DefaultLevelSamplingConfig returns default sampling config by level.
 func DefaultLevelSamplingConfig() map[zapcore.Level]LevelSamplingConfig {
 	return map[zapcore.Level]LevelSamplingConfig{
-		TraceLevel: {Initial: 1, Thereafter: 0},
+		TraceLevel:         {Initial: 1, Thereafter: 0},
 		zapcore.DebugLevel: {Initial: 10, Thereafter: 0},
-		zapcore.InfoLevel: {Initial: 100, Thereafter: 10},
-		zapcore.WarnLevel: {Initial: 100, Thereafter: 100},
+		zapcore.InfoLevel:  {Initial: 100, Thereafter: 10},
+		zapcore.WarnLevel:  {Initial: 100, Thereafter: 100},
 		// Error+ never sampled
 	}
 }

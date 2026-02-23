@@ -86,7 +86,7 @@ type SignalStore interface {
 // InMemorySignalStore is an in-memory implementation of SignalStore for testing.
 type InMemorySignalStore struct {
 	mu         sync.RWMutex
-	signals    map[string][]Signal      // memoryID -> signals
+	signals    map[string][]Signal // memoryID -> signals
 	aggregates map[string]*SignalAggregate
 	weights    map[string]*ProjectWeights
 }

@@ -30,7 +30,13 @@ var rootCmd = &cobra.Command{
 	Use:   "ctxd",
 	Short: "CLI for contextd HTTP server operations",
 	Long: `ctxd is a command-line interface for interacting with the contextd HTTP server.
-It provides commands for scrubbing secrets and checking server health.`,
+
+Available commands:
+  scrub    Scrub secrets from a file or stdin
+  health   Check contextd server health status
+
+Use "ctxd [command] --help" for more information about a command.
+Use --server to specify a custom server URL (default: http://localhost:9090).`,
 	Version: version,
 }
 

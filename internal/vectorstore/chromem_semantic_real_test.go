@@ -568,15 +568,15 @@ func TestChromemStore_SemanticReal_AllFixtures(t *testing.T) {
 
 // baselineMetrics represents the structure of baseline_metrics.json
 type baselineMetrics struct {
-	Version     string `json:"version"`
-	Model       string `json:"model"`
-	Description string `json:"description"`
+	Version     string  `json:"version"`
+	Model       string  `json:"model"`
+	Description string  `json:"description"`
 	Tolerance   float64 `json:"tolerance"`
 	TestCases   []struct {
 		Name    string `json:"name"`
 		Metrics struct {
-			NDCG        float64 `json:"ndcg"`
-			MRR         float64 `json:"mrr"`
+			NDCG         float64 `json:"ndcg"`
+			MRR          float64 `json:"mrr"`
 			PrecisionAtK float64 `json:"precision_at_k"`
 		} `json:"metrics"`
 	} `json:"test_cases"`

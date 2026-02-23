@@ -148,10 +148,10 @@ type SearchOptions struct {
 
 // SearchResult contains the results of a search operation.
 type SearchResult struct {
-	Query   string           `json:"query"`
-	Results []SearchHit      `json:"results"`
-	Total   int              `json:"total"`
-	Took    time.Duration    `json:"took"`
+	Query   string        `json:"query"`
+	Results []SearchHit   `json:"results"`
+	Total   int           `json:"total"`
+	Took    time.Duration `json:"took"`
 }
 
 // SearchHit represents a single search result.

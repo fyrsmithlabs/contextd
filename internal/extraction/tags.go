@@ -31,10 +31,10 @@ var DefaultTagRules = map[string][]string{
 	"performance":   {"optimize", "slow", "fast", "cache", "latency", "performance"},
 
 	// Architecture
-	"api":       {"api", "endpoint", "rest", "grpc", "graphql"},
-	"database":  {"database", "sql", "postgres", "mysql", "mongodb", "redis"},
-	"frontend":  {"frontend", "ui", "react", "vue", "angular", "css"},
-	"backend":   {"backend", "server", "service", "handler"},
+	"api":           {"api", "endpoint", "rest", "grpc", "graphql"},
+	"database":      {"database", "sql", "postgres", "mysql", "mongodb", "redis"},
+	"frontend":      {"frontend", "ui", "react", "vue", "angular", "css"},
+	"backend":       {"backend", "server", "service", "handler"},
 	"microservices": {"microservice", "service mesh", "istio"},
 }
 

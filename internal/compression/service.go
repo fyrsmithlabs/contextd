@@ -97,7 +97,8 @@ func (s *Service) Compress(ctx context.Context, content string, algorithm Algori
 	case AlgorithmHybrid:
 		compressor = s.hybrid
 	default:
-		compressor = s.extractive // Default to extractive
+		return nil, fmt.Errorf("unknown compression algorithm: %q (valid: %q, %q, %q)",
+			algorithm, AlgorithmExtractive, AlgorithmAbstractive, AlgorithmHybrid)
 	}
 
 	// Check capabilities
