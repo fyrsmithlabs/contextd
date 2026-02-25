@@ -25,7 +25,7 @@ type Config struct {
 
 // SamplingConfig controls trace sampling behavior.
 type SamplingConfig struct {
-	Rate           float64 `koanf:"rate"`            // 0.0-1.0, default 1.0
+	Rate           float64 `koanf:"rate"`             // 0.0-1.0, default 1.0
 	AlwaysOnErrors bool    `koanf:"always_on_errors"` // Always capture error traces
 }
 

@@ -214,7 +214,7 @@ func run() error {
 			zap.Error(err),
 		)
 		// Continue without embedder - some services may be degraded
-	} else {
+	} else if embeddingProvider != nil {
 		defer embeddingProvider.Close()
 
 		// Get provider dimension and update config
@@ -554,7 +554,7 @@ func run() error {
 				zap.Bool("troubleshoot", troubleshootSvc != nil),
 				zap.Bool("reasoningbank", reasoningbankSvc != nil),
 			)
-			return fmt.Errorf("MCP mode requires all services to be available")
+			return fmt.Errorf("some services failed to start. Common causes: vectorstore connection failed, embedding models not downloaded. Check logs above for details or run 'contextd --help' for troubleshooting")
 		}
 
 		mcpCfg := &mcp.Config{
@@ -646,8 +646,13 @@ func run() error {
 	combinedErrChan := make(chan error, 1)
 	if httpErrChan != nil {
 		go func() {
-			if err := <-httpErrChan; err != nil {
-				combinedErrChan <- err
+			select {
+			case err, ok := <-httpErrChan:
+				if ok && err != nil {
+					combinedErrChan <- err
+				}
+			case <-ctx.Done():
+				return
 			}
 		}()
 	}

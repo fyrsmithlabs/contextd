@@ -397,11 +397,11 @@ func TestSemanticSimilarity_VaryingSemanticDistances(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name          string
-		query         string
-		shouldFind    bool
-		description   string
-		semanticDist  string // exact, close, moderate, far
+		name         string
+		query        string
+		shouldFind   bool
+		description  string
+		semanticDist string // exact, close, moderate, far
 	}{
 		{
 			name:         "exact match",

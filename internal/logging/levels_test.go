@@ -36,9 +36,9 @@ func TestTraceLevelRegistration(t *testing.T) {
 
 func TestTraceLevelEnabler(t *testing.T) {
 	tests := []struct {
-		name          string
-		configLevel   zapcore.Level
-		logLevel      zapcore.Level
+		name           string
+		configLevel    zapcore.Level
+		logLevel       zapcore.Level
 		shouldBeLogged bool
 	}{
 		{"trace logged when trace enabled", TraceLevel, TraceLevel, true},

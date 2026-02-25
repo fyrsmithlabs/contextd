@@ -333,7 +333,7 @@ func TestBudgetUtilization(t *testing.T) {
 		{0, 100, 0},
 		{50, 100, 0.5},
 		{100, 100, 1.0},
-		{100, 0, 0}, // Edge case: zero total
+		{100, 0, 0},  // Edge case: zero total
 		{-1, 100, 0}, // Edge case: negative would give negative result
 	}
 

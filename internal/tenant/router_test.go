@@ -143,14 +143,14 @@ func TestRouter_GetSearchCollections(t *testing.T) {
 	r := NewRouter(false)
 
 	tests := []struct {
-		name          string
-		scope         Scope
-		collType      CollectionType
-		tenantID      string
-		teamID        string
-		projectID     string
-		expected      []string
-		expectError   bool
+		name        string
+		scope       Scope
+		collType    CollectionType
+		tenantID    string
+		teamID      string
+		projectID   string
+		expected    []string
+		expectError bool
 	}{
 		{
 			name:      "project scope - searches project, team, org",

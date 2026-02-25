@@ -160,7 +160,7 @@ func TestGetHealthIcon(t *testing.T) {
 
 		icon := getHealthIcon(status)
 
-		assert.Contains(t, icon, "\033[32m")  // Green color
+		assert.Contains(t, icon, "\033[32m")   // Green color
 		assert.Contains(t, icon, "\U0001f7e2") // Green circle
 	})
 
@@ -171,7 +171,7 @@ func TestGetHealthIcon(t *testing.T) {
 
 		icon := getHealthIcon(status)
 
-		assert.Contains(t, icon, "\033[31m")  // Red color
+		assert.Contains(t, icon, "\033[31m")   // Red color
 		assert.Contains(t, icon, "\U0001f534") // Red circle
 	})
 
@@ -185,7 +185,7 @@ func TestGetHealthIcon(t *testing.T) {
 
 		icon := getHealthIcon(status)
 
-		assert.Contains(t, icon, "\033[33m")  // Yellow color
+		assert.Contains(t, icon, "\033[33m")   // Yellow color
 		assert.Contains(t, icon, "\U0001f7e1") // Yellow circle
 	})
 }

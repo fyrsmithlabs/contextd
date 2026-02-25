@@ -175,17 +175,17 @@ func TestConfig_ValidateCallerSkip(t *testing.T) {
 
 func TestConfig_ValidateRedactionPattern(t *testing.T) {
 	tests := []struct {
-		name    string
-		enabled bool
+		name     string
+		enabled  bool
 		patterns []string
-		wantErr bool
-		errMsg  string
+		wantErr  bool
+		errMsg   string
 	}{
 		{
-			name:    "valid: redaction disabled",
-			enabled: false,
+			name:     "valid: redaction disabled",
+			enabled:  false,
 			patterns: []string{"[invalid("},
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
 			name:    "valid: redaction enabled with valid patterns",
@@ -197,24 +197,24 @@ func TestConfig_ValidateRedactionPattern(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid: redaction enabled with no patterns",
-			enabled: true,
+			name:     "valid: redaction enabled with no patterns",
+			enabled:  true,
 			patterns: []string{},
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
-			name:    "invalid: unclosed bracket in pattern",
-			enabled: true,
+			name:     "invalid: unclosed bracket in pattern",
+			enabled:  true,
 			patterns: []string{"[invalid("},
-			wantErr: true,
-			errMsg:  "invalid redaction pattern",
+			wantErr:  true,
+			errMsg:   "invalid redaction pattern",
 		},
 		{
-			name:    "invalid: bad regex syntax",
-			enabled: true,
+			name:     "invalid: bad regex syntax",
+			enabled:  true,
 			patterns: []string{"(?P<incomplete)"},
-			wantErr: true,
-			errMsg:  "invalid redaction pattern",
+			wantErr:  true,
+			errMsg:   "invalid redaction pattern",
 		},
 		{
 			name:    "invalid: pattern too long",

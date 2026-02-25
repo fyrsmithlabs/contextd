@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -59,13 +58,8 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_index",
 		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "conversation_index")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "conversation_index")
-			s.metrics.RecordInvocation(ctx, "conversation_index", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "conversation_index", &toolErr)()
 
 		// Validate project_path (CWE-22 path traversal protection)
 		if args.ProjectPath == "" {
@@ -135,13 +129,8 @@ func (s *Server) registerConversationTools() {
 		Name:        "conversation_search",
 		Description: "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationSearchInput) (*mcp.CallToolResult, conversationSearchOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "conversation_search")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "conversation_search")
-			s.metrics.RecordInvocation(ctx, "conversation_search", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "conversation_search", &toolErr)()
 
 		// Validate project_path (CWE-22 path traversal protection)
 		if args.ProjectPath == "" {

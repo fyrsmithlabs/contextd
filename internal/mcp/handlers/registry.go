@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
@@ -29,6 +31,7 @@ func NewRegistry(
 	troubleshootSvc *troubleshoot.Service,
 	svcRegistry services.Registry,
 	distiller *reasoningbank.Distiller,
+	logger *zap.Logger,
 ) *Registry {
 	// Create handlers
 	checkpointHandler := NewCheckpointHandler(checkpointSvc)
@@ -51,14 +54,14 @@ func NewRegistry(
 		"repository_index": repositoryHandler.Index,
 
 		// Troubleshoot tools
-		"troubleshoot":           troubleshootHandler.Diagnose,
-		"troubleshoot_pattern":   troubleshootHandler.SavePattern,
-		"troubleshoot_patterns":  troubleshootHandler.GetPatterns,
+		"troubleshoot":          troubleshootHandler.Diagnose,
+		"troubleshoot_pattern":  troubleshootHandler.SavePattern,
+		"troubleshoot_patterns": troubleshootHandler.GetPatterns,
 	}
 
 	// Add session tools if registry provided
 	if svcRegistry != nil {
-		sessionHandler := NewSessionHandler(svcRegistry)
+		sessionHandler := NewSessionHandler(svcRegistry, logger)
 		handlers["session_start"] = sessionHandler.Start
 		handlers["session_end"] = sessionHandler.End
 		handlers["context_threshold"] = sessionHandler.ContextThreshold

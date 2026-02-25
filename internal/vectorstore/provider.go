@@ -39,9 +39,9 @@ const envLocalMode = "CONTEXTD_LOCAL_MODE"
 //   - Testing environments
 //
 // For multi-tenant production deployments, you MUST:
-//   1. Wrap with AuthorizedStoreProvider with session-based authentication
-//   2. Implement tenant membership verification before granting store access
-//   3. Enable audit logging for all store access
+//  1. Wrap with AuthorizedStoreProvider with session-based authentication
+//  2. Implement tenant membership verification before granting store access
+//  3. Enable audit logging for all store access
 //
 // To acknowledge local-only mode and suppress warnings:
 //   - Set CONTEXTD_LOCAL_MODE=1 environment variable, OR
@@ -59,9 +59,9 @@ const envLocalMode = "CONTEXTD_LOCAL_MODE"
 //   - With LocalModeAcknowledged=true: Starts with warning (explicit override)
 //
 // Recommended production setup:
-//   1. Set CONTEXTD_PRODUCTION_MODE=1 in your deployment
-//   2. Implement AuthorizedStoreProvider wrapper (see example below)
-//   3. Never set CONTEXTD_LOCAL_MODE=1 in production
+//  1. Set CONTEXTD_PRODUCTION_MODE=1 in your deployment
+//  2. Implement AuthorizedStoreProvider wrapper (see example below)
+//  3. Never set CONTEXTD_LOCAL_MODE=1 in production
 //
 // Example AuthorizedStoreProvider pattern (NOT IMPLEMENTED - reference only):
 //
@@ -102,7 +102,7 @@ type ChromemStoreProvider struct {
 	compress   bool
 	vectorSize int
 
-	mu     sync.RWMutex            // protects stores map
+	mu     sync.RWMutex             // protects stores map
 	stores map[string]*ChromemStore // path -> *ChromemStore
 }
 

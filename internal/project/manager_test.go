@@ -10,10 +10,10 @@ func TestManager_Create(t *testing.T) {
 	mgr := NewManager()
 
 	tests := []struct {
-		name    string
+		name     string
 		projName string
-		path    string
-		wantErr bool
+		path     string
+		wantErr  bool
 	}{
 		{
 			name:     "valid project",

@@ -43,19 +43,19 @@ type FastEmbedProvider struct {
 
 // modelMapping maps friendly model names to fastembed model constants.
 var modelMapping = map[string]fastembed.EmbeddingModel{
-	"BAAI/bge-small-en-v1.5":                fastembed.BGESmallENV15,
-	"BAAI/bge-small-en":                     fastembed.BGESmallEN,
-	"BAAI/bge-base-en-v1.5":                 fastembed.BGEBaseENV15,
-	"BAAI/bge-base-en":                      fastembed.BGEBaseEN,
-	"BAAI/bge-small-zh-v1.5":                fastembed.BGESmallZH,
+	"BAAI/bge-small-en-v1.5":                 fastembed.BGESmallENV15,
+	"BAAI/bge-small-en":                      fastembed.BGESmallEN,
+	"BAAI/bge-base-en-v1.5":                  fastembed.BGEBaseENV15,
+	"BAAI/bge-base-en":                       fastembed.BGEBaseEN,
+	"BAAI/bge-small-zh-v1.5":                 fastembed.BGESmallZH,
 	"sentence-transformers/all-MiniLM-L6-v2": fastembed.AllMiniLML6V2,
 	// Also accept the fastembed model names directly
-	"fast-bge-small-en-v1.5":  fastembed.BGESmallENV15,
-	"fast-bge-small-en":       fastembed.BGESmallEN,
-	"fast-bge-base-en-v1.5":   fastembed.BGEBaseENV15,
-	"fast-bge-base-en":        fastembed.BGEBaseEN,
-	"fast-bge-small-zh-v1.5":  fastembed.BGESmallZH,
-	"fast-all-MiniLM-L6-v2":   fastembed.AllMiniLML6V2,
+	"fast-bge-small-en-v1.5": fastembed.BGESmallENV15,
+	"fast-bge-small-en":      fastembed.BGESmallEN,
+	"fast-bge-base-en-v1.5":  fastembed.BGEBaseENV15,
+	"fast-bge-base-en":       fastembed.BGEBaseEN,
+	"fast-bge-small-zh-v1.5": fastembed.BGESmallZH,
+	"fast-all-MiniLM-L6-v2":  fastembed.AllMiniLML6V2,
 }
 
 // modelDimensions maps fastembed models to their embedding dimensions.

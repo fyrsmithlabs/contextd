@@ -12,9 +12,9 @@ func TestHeuristicExtractor_Extract(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		messages []RawMessage
-		wantLen  int
+		name        string
+		messages    []RawMessage
+		wantLen     int
 		wantPattern string
 	}{
 		{

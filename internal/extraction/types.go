@@ -37,10 +37,10 @@ type Decision struct {
 // RawMessage is the interface expected from conversation.RawMessage.
 // We define it here to avoid circular imports.
 type RawMessage struct {
-	SessionID  string `json:"session_id"`
-	UUID       string `json:"uuid"`
-	Role       string `json:"role"`
-	Content    string `json:"content"`
+	SessionID string `json:"session_id"`
+	UUID      string `json:"uuid"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
 }
 
 // DecisionExtractor extracts decision candidates from messages.
@@ -82,11 +82,11 @@ type ExtractionConfig struct {
 
 // Config holds provider-specific configuration.
 type Config struct {
-	Model      string `json:"model,omitempty"`
-	APIKey     string `json:"api_key,omitempty"`
-	BaseURL    string `json:"base_url,omitempty"`
-	MaxTokens  int    `json:"max_tokens,omitempty"`
-	Timeout    int    `json:"timeout,omitempty"`
+	Model     string `json:"model,omitempty"`
+	APIKey    string `json:"api_key,omitempty"`
+	BaseURL   string `json:"base_url,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
+	Timeout   int    `json:"timeout,omitempty"`
 }
 
 // DefaultConfig returns a default extraction configuration.

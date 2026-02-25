@@ -13,34 +13,34 @@ import (
 
 // ConversationEntry represents a single entry in a Claude Code JSONL export.
 type ConversationEntry struct {
-	Type        string          `json:"type"`
-	UUID        string          `json:"uuid"`
-	ParentUUID  *string         `json:"parentUuid"`
-	SessionID   string          `json:"sessionId"`
-	Timestamp   time.Time       `json:"timestamp"`
-	Message     json.RawMessage `json:"message"`
-	UserType    string          `json:"userType"`
-	GitBranch   string          `json:"gitBranch"`
-	CWD         string          `json:"cwd"`
-	Summary     string          `json:"summary,omitempty"`
-	ToolResult  json.RawMessage `json:"toolUseResult,omitempty"`
+	Type       string          `json:"type"`
+	UUID       string          `json:"uuid"`
+	ParentUUID *string         `json:"parentUuid"`
+	SessionID  string          `json:"sessionId"`
+	Timestamp  time.Time       `json:"timestamp"`
+	Message    json.RawMessage `json:"message"`
+	UserType   string          `json:"userType"`
+	GitBranch  string          `json:"gitBranch"`
+	CWD        string          `json:"cwd"`
+	Summary    string          `json:"summary,omitempty"`
+	ToolResult json.RawMessage `json:"toolUseResult,omitempty"`
 }
 
 // MessageContent represents the content of a message.
 type MessageContent struct {
-	Role    string        `json:"role"`
-	Content interface{}   `json:"content"` // Can be string or []ContentBlock
-	Model   string        `json:"model,omitempty"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // Can be string or []ContentBlock
+	Model   string      `json:"model,omitempty"`
 }
 
 // ContentBlock represents a content block in assistant messages.
 type ContentBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ToolUse   *ToolUseBlock   `json:"tool_use,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
+	Type    string          `json:"type"`
+	Text    string          `json:"text,omitempty"`
+	ToolUse *ToolUseBlock   `json:"tool_use,omitempty"`
+	ID      string          `json:"id,omitempty"`
+	Name    string          `json:"name,omitempty"`
+	Input   json.RawMessage `json:"input,omitempty"`
 }
 
 // ToolUseBlock represents a tool use in content.
@@ -54,7 +54,7 @@ type ToolUseBlock struct {
 type ContextdToolCall struct {
 	Timestamp time.Time
 	SessionID string
-	Tool      string            // memory_search, memory_record, memory_feedback, etc.
+	Tool      string // memory_search, memory_record, memory_feedback, etc.
 	Input     map[string]interface{}
 	Success   bool
 	Output    string
@@ -62,20 +62,20 @@ type ContextdToolCall struct {
 
 // ConversationStats holds statistics about a conversation.
 type ConversationStats struct {
-	SessionID          string
-	StartTime          time.Time
-	EndTime            time.Time
-	Duration           time.Duration
-	UserMessages       int
-	AssistantMessages  int
-	ToolCalls          int
-	ContextdToolCalls  []ContextdToolCall
-	MemorySearches     int
-	MemoryRecords      int
-	MemoryFeedbacks    int
-	CheckpointSaves    int
-	CheckpointResumes  int
-	Errors             int
+	SessionID         string
+	StartTime         time.Time
+	EndTime           time.Time
+	Duration          time.Duration
+	UserMessages      int
+	AssistantMessages int
+	ToolCalls         int
+	ContextdToolCalls []ContextdToolCall
+	MemorySearches    int
+	MemoryRecords     int
+	MemoryFeedbacks   int
+	CheckpointSaves   int
+	CheckpointResumes int
+	Errors            int
 }
 
 // ParseConversation parses a JSONL conversation file.

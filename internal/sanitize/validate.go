@@ -38,7 +38,7 @@ var (
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{0,62}[a-z0-9]?$`)
 
 // dangerousPatternChars are characters that could cause ReDoS or shell injection in patterns.
-var dangerousPatternChars = regexp.MustCompile(`[;\|\$\x60\\]|\.{3,}|\*{3,}`)
+var dangerousPatternChars = regexp.MustCompile(`[;\|\$\x60\\<>&\(\)\{\}]|\.{3,}|\*{3,}`)
 
 // ValidatePath checks a path for security issues:
 //   - No directory traversal (..)
@@ -142,9 +142,9 @@ func ValidateTenantID(id string) error {
 		return fmt.Errorf("%w: empty", ErrInvalidTenantID)
 	}
 
-	// Check for path traversal characters
-	if strings.ContainsAny(id, "/\\..") {
-		return fmt.Errorf("%w: contains path characters", ErrInvalidTenantID)
+	// Check for path traversal
+	if strings.Contains(id, "..") || strings.ContainsAny(id, "/\\") {
+		return fmt.Errorf("%w: contains path traversal characters", ErrInvalidTenantID)
 	}
 
 	// Validate format
@@ -163,9 +163,9 @@ func ValidateTeamID(id string) error {
 		return nil
 	}
 
-	// Check for path traversal characters
-	if strings.ContainsAny(id, "/\\..") {
-		return fmt.Errorf("%w: contains path characters", ErrInvalidTeamID)
+	// Check for path traversal
+	if strings.Contains(id, "..") || strings.ContainsAny(id, "/\\") {
+		return fmt.Errorf("%w: contains path traversal characters", ErrInvalidTeamID)
 	}
 
 	// Validate format
@@ -184,9 +184,9 @@ func ValidateProjectID(id string) error {
 		return nil
 	}
 
-	// Check for path traversal characters
-	if strings.ContainsAny(id, "/\\..") {
-		return fmt.Errorf("%w: contains path characters", ErrInvalidProjectID)
+	// Check for path traversal
+	if strings.Contains(id, "..") || strings.ContainsAny(id, "/\\") {
+		return fmt.Errorf("%w: contains path traversal characters", ErrInvalidProjectID)
 	}
 
 	// Validate format
@@ -230,6 +230,26 @@ func ValidateGlobPatterns(patterns []string) error {
 			return fmt.Errorf("pattern[%d] %q: %w", i, p, err)
 		}
 	}
+	return nil
+}
+
+// ValidateRequiredID validates an identifier that must be non-empty.
+// Use in authorization contexts where empty IDs could bypass access controls.
+func ValidateRequiredID(id, fieldName string) error {
+	if id == "" {
+		return fmt.Errorf("%s is required and cannot be empty", fieldName)
+	}
+
+	// Check for path traversal
+	if strings.Contains(id, "..") || strings.ContainsAny(id, "/\\") {
+		return fmt.Errorf("invalid %s: contains path traversal characters", fieldName)
+	}
+
+	// Validate format (lowercase alphanumeric + underscores, 1-64 chars)
+	if !identifierPattern.MatchString(id) {
+		return fmt.Errorf("invalid %s: must be lowercase alphanumeric with underscores (1-64 chars)", fieldName)
+	}
+
 	return nil
 }
 

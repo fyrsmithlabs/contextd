@@ -82,13 +82,13 @@ type service struct {
 	logger *zap.Logger
 
 	// Telemetry
-	tracer           trace.Tracer
-	meter            metric.Meter
-	searchCounter    metric.Int64Counter
-	searchDuration   metric.Float64Histogram
-	recordCounter    metric.Int64Counter
-	feedbackCounter  metric.Int64Counter
-	errorCounter     metric.Int64Counter
+	tracer          trace.Tracer
+	meter           metric.Meter
+	searchCounter   metric.Int64Counter
+	searchDuration  metric.Float64Histogram
+	recordCounter   metric.Int64Counter
+	feedbackCounter metric.Int64Counter
+	errorCounter    metric.Int64Counter
 
 	mu     sync.RWMutex
 	closed bool

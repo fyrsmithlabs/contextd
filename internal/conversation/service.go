@@ -96,7 +96,7 @@ func sanitizeForCollectionName(s string) string {
 			result.WriteRune(r)
 		case r == '-' || r == ' ' || r == '_' || r == '.':
 			result.WriteRune('_')
-		// Skip other characters
+			// Skip other characters
 		}
 	}
 	// Use hash prefix when result is empty to avoid collisions between

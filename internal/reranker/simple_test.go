@@ -15,10 +15,10 @@ func TestSimpleRerankerRerank(t *testing.T) {
 		wantIDs   []string // Expected first N IDs
 	}{
 		{
-			name:  "empty documents",
-			query: "test query",
-			docs:  []Document{},
-			topK:  10,
+			name:      "empty documents",
+			query:     "test query",
+			docs:      []Document{},
+			topK:      10,
 			wantCount: 0,
 		},
 		{
@@ -67,8 +67,8 @@ func TestSimpleRerankerRerank(t *testing.T) {
 			wantCount: 2,
 		},
 		{
-			name:      "empty query tokens",
-			query:     "   ",
+			name:  "empty query tokens",
+			query: "   ",
 			docs: []Document{
 				{ID: "doc1", Content: "some content", Score: 0.9},
 			},
@@ -192,52 +192,52 @@ func TestTokenize(t *testing.T) {
 
 func TestCalculateTermOverlap(t *testing.T) {
 	tests := []struct {
-		name         string
-		queryTokens  []string
-		docTokens    []string
-		wantApprox   float32 // Approximate overlap percentage
+		name          string
+		queryTokens   []string
+		docTokens     []string
+		wantApprox    float32 // Approximate overlap percentage
 		wantTolerance float32
 	}{
 		{
-			name:        "perfect overlap",
-			queryTokens: []string{"error", "handling", "retry"},
-			docTokens:   []string{"error", "handling", "retry"},
-			wantApprox:  1.0,
+			name:          "perfect overlap",
+			queryTokens:   []string{"error", "handling", "retry"},
+			docTokens:     []string{"error", "handling", "retry"},
+			wantApprox:    1.0,
 			wantTolerance: 0.01,
 		},
 		{
-			name:        "partial overlap",
-			queryTokens: []string{"error", "handling", "retry"},
-			docTokens:   []string{"error", "handling"},
-			wantApprox:  0.67,
+			name:          "partial overlap",
+			queryTokens:   []string{"error", "handling", "retry"},
+			docTokens:     []string{"error", "handling"},
+			wantApprox:    0.67,
 			wantTolerance: 0.01,
 		},
 		{
-			name:        "no overlap",
-			queryTokens: []string{"error", "handling"},
-			docTokens:   []string{"success", "recovery"},
-			wantApprox:  0.0,
+			name:          "no overlap",
+			queryTokens:   []string{"error", "handling"},
+			docTokens:     []string{"success", "recovery"},
+			wantApprox:    0.0,
 			wantTolerance: 0.01,
 		},
 		{
-			name:        "empty query",
-			queryTokens: []string{},
-			docTokens:   []string{"error", "handling"},
-			wantApprox:  0.0,
+			name:          "empty query",
+			queryTokens:   []string{},
+			docTokens:     []string{"error", "handling"},
+			wantApprox:    0.0,
 			wantTolerance: 0.01,
 		},
 		{
-			name:        "empty document",
-			queryTokens: []string{"error", "handling"},
-			docTokens:   []string{},
-			wantApprox:  0.0,
+			name:          "empty document",
+			queryTokens:   []string{"error", "handling"},
+			docTokens:     []string{},
+			wantApprox:    0.0,
 			wantTolerance: 0.01,
 		},
 		{
-			name:        "single token",
-			queryTokens: []string{"error"},
-			docTokens:   []string{"error"},
-			wantApprox:  1.0,
+			name:          "single token",
+			queryTokens:   []string{"error"},
+			docTokens:     []string{"error"},
+			wantApprox:    1.0,
 			wantTolerance: 0.01,
 		},
 	}

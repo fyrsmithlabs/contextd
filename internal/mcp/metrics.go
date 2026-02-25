@@ -134,6 +134,27 @@ func (m *Metrics) DecrementActive(ctx context.Context, toolName string) {
 	}
 }
 
+// startMetrics begins tracking a tool invocation and returns a cleanup function.
+// The cleanup function reads the final value of *toolErr at defer time, ensuring
+// the error recorded reflects the actual outcome of the handler.
+//
+// Usage:
+//
+//	var toolErr error
+//	defer s.startMetrics(ctx, "tool_name", &toolErr)()
+func (s *Server) startMetrics(ctx context.Context, toolName string, toolErr *error) func() {
+	start := time.Now()
+	s.metrics.IncrementActive(ctx, toolName)
+	return func() {
+		s.metrics.DecrementActive(ctx, toolName)
+		var err error
+		if toolErr != nil {
+			err = *toolErr
+		}
+		s.metrics.RecordInvocation(ctx, toolName, time.Since(start), err)
+	}
+}
+
 // categorizeError categorizes an error into a reason string for metric labels.
 //
 // Error categories are matched in priority order (first match wins):

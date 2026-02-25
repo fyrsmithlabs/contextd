@@ -964,10 +964,10 @@ func TestCollectionNameFormat(t *testing.T) {
 	}
 
 	invalidChars := []string{
-		"Test_Project_codebase",  // uppercase
-		"test-project-codebase",  // hyphens
-		"test.project.codebase",  // dots
-		"test project codebase",  // spaces
+		"Test_Project_codebase", // uppercase
+		"test-project-codebase", // hyphens
+		"test.project.codebase", // dots
+		"test project codebase", // spaces
 	}
 
 	for _, name := range validNames {
@@ -1058,7 +1058,7 @@ func TestGrep_ValidPattern(t *testing.T) {
 	svc := NewService(&mockStore{})
 
 	opts := GrepOptions{
-		ProjectPath: tmpDir,
+		ProjectPath:   tmpDir,
 		CaseSensitive: false,
 	}
 

@@ -325,11 +325,14 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `memory_record` | ReasoningBank | Save new memory explicitly |
 | `memory_feedback` | ReasoningBank | Rate memory helpfulness |
 | `memory_outcome` | ReasoningBank | Report task success/failure after using memory |
+| `memory_consolidate` | ReasoningBank | Merge similar memories into refined summaries |
+| `memory_consolidate_session` | ReasoningBank | Flush session turns into session-level memories |
 | `checkpoint_save` | Checkpoint | Save context snapshot |
 | `checkpoint_list` | Checkpoint | List available checkpoints |
 | `checkpoint_resume` | Checkpoint | Resume from checkpoint |
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
+| `remediation_feedback` | Remediation | Rate whether a fix was helpful |
 | `semantic_search` | Repository | Smart search with semantic understanding + grep fallback |
 | `repository_index` | Repository | Index repo for semantic search |
 | `repository_search` | Repository | Semantic search over indexed code |

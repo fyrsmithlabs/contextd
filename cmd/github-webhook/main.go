@@ -13,23 +13,23 @@
 package main
 
 import (
-	"regexp"
 	"context"
-	"net"
-	"strings"
-	"sync"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/go-github/v57/github"
-	"golang.org/x/time/rate"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 
 	"github.com/fyrsmithlabs/contextd/internal/config"
 	"github.com/fyrsmithlabs/contextd/internal/logging"
@@ -178,7 +178,6 @@ func loadConfig() *Config {
 	}
 }
 
-
 // getRateLimiter returns a rate limiter for the given IP address.
 // Rate limit: 60 requests per minute per IP address.
 func (s *WebhookServer) getRateLimiter(ip string) *rate.Limiter {
@@ -285,23 +284,23 @@ func validatePREvent(e *github.PullRequestEvent) error {
 	if e.PullRequest == nil || e.PullRequest.Number == nil || *e.PullRequest.Number <= 0 {
 		return fmt.Errorf("invalid PR number")
 	}
-	
+
 	// Validate owner and repo names (alphanumeric, hyphens, underscores, dots)
-	
+
 	if e.Repo == nil || e.Repo.Owner == nil || e.Repo.Owner.Login == nil {
 		return fmt.Errorf("invalid repository owner")
 	}
 	if !validNameRegex.MatchString(*e.Repo.Owner.Login) {
 		return fmt.Errorf("invalid repository owner format")
 	}
-	
+
 	if e.Repo.Name == nil {
 		return fmt.Errorf("invalid repository name")
 	}
 	if !validNameRegex.MatchString(*e.Repo.Name) {
 		return fmt.Errorf("invalid repository name format")
 	}
-	
+
 	// Validate SHA format (40-character hex string)
 	if e.PullRequest.Head == nil || e.PullRequest.Head.SHA == nil {
 		return fmt.Errorf("invalid PR head SHA")
@@ -309,7 +308,7 @@ func validatePREvent(e *github.PullRequestEvent) error {
 	if !validSHARegex.MatchString(*e.PullRequest.Head.SHA) {
 		return fmt.Errorf("invalid SHA format")
 	}
-	
+
 	return nil
 }
 

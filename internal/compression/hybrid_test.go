@@ -168,7 +168,7 @@ func TestHybridCompressor_CodeContentCompression(t *testing.T) {
 
 	// Compression ratio should meet target (within tolerance)
 	// Note: Extractive compression on code can vary significantly based on content
-	minRatio := 1.5  // Allow more flexibility for small code samples
+	minRatio := 1.5 // Allow more flexibility for small code samples
 	assert.True(t, result.Metadata.CompressionRatio >= minRatio,
 		"compression ratio should be ≥ %.2f: got %.2f",
 		minRatio, result.Metadata.CompressionRatio)

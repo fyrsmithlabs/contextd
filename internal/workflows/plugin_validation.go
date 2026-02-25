@@ -8,7 +8,6 @@ import (
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-
 )
 
 // Type definitions moved to types.go
@@ -125,7 +124,7 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 	// Step 3.5: Run agent-based documentation validation if enabled
 	if config.UseAgentValidation && result.NeedsUpdate && len(categorized.PluginFiles) > 0 && result.SchemaValid {
 		logger.Info("Running agent-based documentation validation")
-		
+
 		// Use longer timeout for AI agent validation (5 minutes instead of 2)
 		agentCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
@@ -133,7 +132,7 @@ func PluginUpdateValidationWorkflow(ctx workflow.Context, config PluginUpdateVal
 				MaximumAttempts: 2, // Fewer retries for expensive AI calls
 			},
 		})
-		
+
 		var agentResult DocumentationValidationResult
 		err = workflow.ExecuteActivity(agentCtx, ValidateDocumentationActivity, DocumentationValidationInput{
 			Owner:       config.Owner,

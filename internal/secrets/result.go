@@ -3,12 +3,14 @@ package secrets
 import "time"
 
 // Result contains the scrubbing result.
+// Security: Never log Result.Scrubbed or Result.Original content directly (CWE-532).
+// Only log metadata fields (TotalFindings, Duration, ByRule).
 type Result struct {
 	// Original is the original input content
 	Original string `json:"-"`
 
 	// Scrubbed is the content with secrets redacted
-	Scrubbed string `json:"scrubbed"`
+	Scrubbed string `json:"-"`
 
 	// Findings contains the detected secrets (without actual values)
 	Findings []Finding `json:"findings,omitempty"`
@@ -24,6 +26,7 @@ type Result struct {
 }
 
 // Finding represents a detected secret.
+// Security: StartIndex/EndIndex are internal-only to prevent leaking positional info (CWE-200).
 type Finding struct {
 	// RuleID identifies which rule matched
 	RuleID string `json:"rule_id"`
@@ -34,14 +37,14 @@ type Finding struct {
 	// Severity indicates the importance
 	Severity string `json:"severity"`
 
-	// StartIndex is the start position in original content
-	StartIndex int `json:"start_index"`
+	// StartIndex is the start position in original content (internal use only)
+	StartIndex int `json:"-"`
 
-	// EndIndex is the end position in original content
-	EndIndex int `json:"end_index"`
+	// EndIndex is the end position in original content (internal use only)
+	EndIndex int `json:"-"`
 
-	// Line is the line number (1-indexed)
-	Line int `json:"line,omitempty"`
+	// Line is the line number (1-indexed, internal use only)
+	Line int `json:"-"`
 
 	// Match is NOT included to avoid leaking the secret
 }

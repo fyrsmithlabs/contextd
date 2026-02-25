@@ -118,19 +118,7 @@ func TestProductionHardening_PathInjection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			wal, err := NewWAL(tc.path, scrubber, logger)
 			if tc.shouldFail {
-				// Path validation should fail during load()
-				if wal != nil {
-					// If WAL was created, load() should fail
-					ctx := context.Background()
-					entry := WALEntry{
-						ID:        "test",
-						Operation: "add",
-						Docs:      []Document{{ID: "1", Content: "test"}},
-						Timestamp: time.Now(),
-					}
-					err = wal.WriteEntry(ctx, entry)
-					assert.Error(t, err, tc.description)
-				}
+				assert.Error(t, err, tc.description)
 			} else {
 				assert.NoError(t, err, tc.description)
 				if wal != nil {

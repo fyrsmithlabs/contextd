@@ -12,6 +12,8 @@ contextd exposes its functionality through the Model Context Protocol (MCP). Thi
   - [memory_record](#memory_record)
   - [memory_feedback](#memory_feedback)
   - [memory_outcome](#memory_outcome)
+  - [memory_consolidate](#memory_consolidate)
+  - [memory_consolidate_session](#memory_consolidate_session)
 - [Checkpoint Tools](#checkpoint-tools)
   - [checkpoint_save](#checkpoint_save)
   - [checkpoint_list](#checkpoint_list)
@@ -19,6 +21,7 @@ contextd exposes its functionality through the Model Context Protocol (MCP). Thi
 - [Remediation Tools](#remediation-tools)
   - [remediation_search](#remediation_search)
   - [remediation_record](#remediation_record)
+  - [remediation_feedback](#remediation_feedback)
 - [Context-Folding Tools](#context-folding-tools)
   - [branch_create](#branch_create)
   - [branch_return](#branch_return)
@@ -41,15 +44,15 @@ contextd exposes its functionality through the Model Context Protocol (MCP). Thi
 
 ## Overview
 
-ContextD provides 20 MCP tools organized into seven categories:
+ContextD provides 25 MCP tools organized into seven categories:
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| **Memory** | `memory_search`, `memory_record`, `memory_feedback`, `memory_outcome` | Cross-session learning and strategies |
+| **Memory** | `memory_search`, `memory_record`, `memory_feedback`, `memory_outcome`, `memory_consolidate`, `memory_consolidate_session` | Cross-session learning and strategies |
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context persistence and recovery |
-| **Remediation** | `remediation_search`, `remediation_record` | Error pattern tracking and fixes |
+| **Remediation** | `remediation_search`, `remediation_record`, `remediation_feedback` | Error pattern tracking and fixes |
 | **Context-Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-task execution with token budgets |
-| **Repository** | `repository_index`, `repository_search`, `semantic_search` | Code indexing and semantic search |
+| **Repository** | `semantic_search`, `repository_index`, `repository_search` | Code indexing and semantic search |
 | **Conversation** | `conversation_index`, `conversation_search` | Claude Code conversation indexing and search |
 | **Utility** | `troubleshoot_diagnose`, `reflect_report`, `reflect_analyze` | Diagnostics and self-reflection |
 
@@ -230,6 +233,60 @@ Report whether a task succeeded after using a memory.
 1. **After task completion**: Once you've finished a task using a memory's strategy
 2. **Both success and failure**: Report outcomes whether the task succeeded or failed
 3. **Before session end**: Ideally report outcomes before the session ends for best tracking
+
+---
+
+### memory_consolidate
+
+Merge similar memories to reduce redundancy and improve knowledge quality.
+
+**Use Case**: Periodically clean up your memory base by merging related memories into refined summaries.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project identifier |
+| `similarity_threshold` | float | No | Minimum similarity for consolidation (0-1, default: 0.8) |
+| `dry_run` | boolean | No | Preview without making changes (default: false) |
+| `max_clusters` | integer | No | Max clusters per run (0 = no limit) |
+
+#### Response
+
+```json
+{
+  "created_memories": ["mem_new1", "mem_new2"],
+  "archived_memories": ["mem_old1", "mem_old2", "mem_old3"],
+  "skipped_count": 5,
+  "total_processed": 20,
+  "duration_seconds": 2.5
+}
+```
+
+---
+
+### memory_consolidate_session
+
+Flush and summarize a session's buffered turns into session-level memories. Only effective when granularity is set to `session`.
+
+**Use Case**: At the end of a session, consolidate turn-level learnings into higher-level session memories.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project identifier |
+| `session_id` | string | Yes | Session ID to flush |
+
+#### Response
+
+```json
+{
+  "memory_ids": ["mem_abc", "mem_def"],
+  "count": 2,
+  "message": "Session sess_xyz flushed: 2 memories created"
+}
+```
 
 ---
 
@@ -437,6 +494,33 @@ Record a new remediation after fixing an error.
   "title": "Fix Docker build cache issue",
   "category": "build",
   "confidence": 0.5
+}
+```
+
+---
+
+### remediation_feedback
+
+Provide feedback on whether a remediation was helpful. Updates the confidence score based on real-world results.
+
+**Use Case**: After trying a remediation fix, report whether it actually worked. This improves future search ranking.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `remediation_id` | string | Yes | ID of the remediation to rate |
+| `helpful` | boolean | Yes | `true` if the fix worked, `false` otherwise |
+| `tenant_id` | string | No | Tenant identifier (auto-derived from git if not provided) |
+| `project_path` | string | No | Project path (used to auto-derive tenant_id) |
+
+#### Response
+
+```json
+{
+  "remediation_id": "rem_abc123",
+  "new_confidence": 0.65,
+  "helpful": true
 }
 ```
 

@@ -355,7 +355,7 @@ func TestService_CollectionName(t *testing.T) {
 			tenantID:    "租户",
 			projectPath: "/path/项目",
 			// Each unicode string gets a unique hash, so we test the pattern not exact value
-			want:        "", // Special case: verify in test body
+			want: "", // Special case: verify in test body
 		},
 	}
 
@@ -377,8 +377,8 @@ func TestService_CollectionName(t *testing.T) {
 
 func TestSanitizeForCollectionName(t *testing.T) {
 	tests := []struct {
-		input       string
-		want        string
+		input          string
+		want           string
 		wantHashPrefix bool // When true, verify starts with "h_" instead of exact match
 	}{
 		{"simple", "simple", false},
@@ -388,8 +388,8 @@ func TestSanitizeForCollectionName(t *testing.T) {
 		{"UPPERCASE", "uppercase", false},
 		{"mix123", "mix123", false},
 		{"special@#$chars", "specialchars", false},
-		{"", "", true},        // Empty string gets hash
-		{"!@#$%", "", true},   // All special chars gets hash
+		{"", "", true},      // Empty string gets hash
+		{"!@#$%", "", true}, // All special chars gets hash
 		{"test__double", "test__double", false},
 	}
 

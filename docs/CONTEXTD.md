@@ -45,6 +45,8 @@ go build -o contextd ./cmd/contextd
 | `memory_record` | Save new learning from current session |
 | `memory_feedback` | Rate memory helpfulness (adjusts confidence) |
 | `memory_outcome` | Report task success after using memory |
+| `memory_consolidate` | Merge related memories into refined summaries |
+| `memory_consolidate_session` | Consolidate specific memories by ID |
 
 ### Checkpoint
 | Tool | Purpose |
@@ -58,13 +60,14 @@ go build -o contextd ./cmd/contextd
 |------|---------|
 | `remediation_search` | Find fixes for error patterns |
 | `remediation_record` | Record a new error fix |
+| `remediation_feedback` | Rate whether a fix was helpful |
 
 ### Repository & Search
 | Tool | Purpose |
 |------|---------|
+| `semantic_search` | Smart search with semantic understanding + grep fallback |
 | `repository_index` | Index repository for semantic search |
 | `repository_search` | Semantic search over indexed code |
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
 
 ### Context Folding
 | Tool | Purpose |
@@ -84,7 +87,7 @@ go build -o contextd ./cmd/contextd
 |------|---------|
 | `troubleshoot_diagnose` | AI-powered error diagnosis |
 | `reflect_report` | Generate self-reflection report on memories |
-| `reflect_analyze` | Analyze behavioral patterns in memories
+| `reflect_analyze` | Analyze behavioral patterns in memories |
 
 ---
 

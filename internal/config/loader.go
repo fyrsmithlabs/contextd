@@ -349,7 +349,7 @@ func applyDefaults(cfg *Config) {
 func loadProductionConfig() ProductionConfig {
 	prodMode := os.Getenv("CONTEXTD_PRODUCTION_MODE") == "1"
 	localMode := os.Getenv("CONTEXTD_LOCAL_MODE") == "1"
-	
+
 	return ProductionConfig{
 		Enabled:               prodMode,
 		LocalModeAcknowledged: localMode,

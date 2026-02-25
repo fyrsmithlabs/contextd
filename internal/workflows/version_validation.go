@@ -10,7 +10,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-
 )
 
 // Type definitions moved to types.go

@@ -25,7 +25,7 @@ func parseValidationResponse(agentOutput string) (*DocumentationValidationResult
 	// Extract JSON from markdown code blocks if present
 	jsonPattern := regexp.MustCompile("(?s)```json\\s*(.+?)\\s*```")
 	matches := jsonPattern.FindStringSubmatch(agentOutput)
-	
+
 	var jsonStr string
 	if len(matches) > 1 {
 		jsonStr = matches[1]
@@ -50,14 +50,14 @@ func sanitizeMarkdown(s string) string {
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	s = strings.ReplaceAll(s, `"`, "&quot;")
 	s = strings.ReplaceAll(s, "'", "&#39;")
-	
+
 	// Escape markdown link syntax to prevent javascript: URLs
 	s = strings.ReplaceAll(s, "[", `\[`)
 	s = strings.ReplaceAll(s, "]", `\]`)
-	
+
 	// Escape backticks to prevent code injection
 	s = strings.ReplaceAll(s, "`", "\\`")
-	
+
 	return s
 }
 

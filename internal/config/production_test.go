@@ -88,7 +88,7 @@ func TestProductionConfig_Validate_PassesWhenDisabled(t *testing.T) {
 func TestProductionConfig_LocalModeBypassesAuthAndTLS(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
-	
+
 	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
 	os.Setenv("CONTEXTD_LOCAL_MODE", "1")
 
@@ -111,7 +111,7 @@ func TestProductionConfig_LocalModeBypassesAuthAndTLS(t *testing.T) {
 func TestProductionConfig_LoadWithFile_PreservesYAMLConfig(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
-	
+
 	// Set HOME for test
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -123,14 +123,14 @@ func TestProductionConfig_LoadWithFile_PreservesYAMLConfig(t *testing.T) {
 	_ = os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config.yaml"
 	defer os.Remove(configPath)
-	
+
 	yamlContent := `production:
   enabled: true
   require_authentication: false
   require_tls: false
   allow_no_isolation: false
 `
-	
+
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestProductionConfig_LoadWithFile_PreservesYAMLConfig(t *testing.T) {
 func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	defer os.Unsetenv("CONTEXTD_LOCAL_MODE")
-	
+
 	// Set HOME for test
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -166,11 +166,11 @@ func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 	_ = os.MkdirAll(tmpDir, 0700)
 	configPath := tmpDir + "/test_config2.yaml"
 	defer os.Remove(configPath)
-	
+
 	yamlContent := `production:
   enabled: false
 `
-	
+
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestProductionConfig_EnvOverridesYAML(t *testing.T) {
 	defer os.Unsetenv("CONTEXTD_PRODUCTION_MODE")
 	os.Setenv("CONTEXTD_PRODUCTION_MODE", "1")
 	os.Setenv("CONTEXTD_LOCAL_MODE", "1")
-	
+
 	cfg, err := LoadWithFile(configPath)
 	if err != nil {
 		t.Fatalf("LoadWithFile failed: %v", err)

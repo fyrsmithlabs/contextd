@@ -24,10 +24,10 @@ type TestMetrics struct {
 	testFailCounter metric.Int64Counter
 
 	// Histograms
-	suiteDuration          metric.Float64Histogram
-	memorySearchLatency    metric.Float64Histogram
-	checkpointSaveLatency  metric.Float64Histogram
-	checkpointLoadLatency  metric.Float64Histogram
+	suiteDuration         metric.Float64Histogram
+	memorySearchLatency   metric.Float64Histogram
+	checkpointSaveLatency metric.Float64Histogram
+	checkpointLoadLatency metric.Float64Histogram
 
 	// Gauges (using callbacks for real-time values)
 	mu                sync.RWMutex

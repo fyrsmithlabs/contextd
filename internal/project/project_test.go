@@ -8,10 +8,10 @@ import (
 
 func TestNewProject(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		projName string
-		path    string
-		wantErr bool
+		path     string
+		wantErr  bool
 	}{
 		{
 			name:     "valid project",

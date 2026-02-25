@@ -120,16 +120,16 @@ func (cb *CircuitBreaker) State() string {
 
 // SyncManager manages background synchronization from local to remote store.
 type SyncManager struct {
-	wal      *WAL
-	local    Store
-	remote   Store
-	health   *HealthMonitor
-	syncCh   chan struct{}     // Bounded channel for backpressure
-	ctx      context.Context   // For graceful shutdown
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup    // Wait for goroutines on shutdown
-	cb       *CircuitBreaker
-	logger   *zap.Logger
+	wal    *WAL
+	local  Store
+	remote Store
+	health *HealthMonitor
+	syncCh chan struct{}   // Bounded channel for backpressure
+	ctx    context.Context // For graceful shutdown
+	cancel context.CancelFunc
+	wg     sync.WaitGroup // Wait for goroutines on shutdown
+	cb     *CircuitBreaker
+	logger *zap.Logger
 }
 
 // NewSyncManager creates a SyncManager with bounded channels and shutdown support.

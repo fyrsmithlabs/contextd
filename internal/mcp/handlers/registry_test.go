@@ -6,7 +6,7 @@ import (
 
 func TestRegistry_SessionTools(t *testing.T) {
 	// Create registry with session tools (services.Registry provided)
-	reg := NewRegistry(nil, nil, nil, nil, &mockRegistry{}, nil)
+	reg := NewRegistry(nil, nil, nil, nil, &mockRegistry{}, nil, nil)
 
 	tools := reg.ListTools()
 
@@ -27,7 +27,7 @@ func TestRegistry_SessionTools(t *testing.T) {
 
 func TestRegistry_SessionTools_NilRegistry(t *testing.T) {
 	// Create registry without session tools (no services.Registry)
-	reg := NewRegistry(nil, nil, nil, nil, nil, nil)
+	reg := NewRegistry(nil, nil, nil, nil, nil, nil, nil)
 
 	tools := reg.ListTools()
 

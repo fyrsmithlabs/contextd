@@ -308,6 +308,31 @@ func TestValidateGlobPattern(t *testing.T) {
 			pattern: "*****.go",
 			wantErr: ErrInvalidPattern,
 		},
+		{
+			name:    "contains angle bracket left",
+			pattern: "*.go < /dev/null",
+			wantErr: ErrInvalidPattern,
+		},
+		{
+			name:    "contains angle bracket right",
+			pattern: "*.go > /tmp/out",
+			wantErr: ErrInvalidPattern,
+		},
+		{
+			name:    "contains ampersand",
+			pattern: "*.go & echo done",
+			wantErr: ErrInvalidPattern,
+		},
+		{
+			name:    "contains parentheses",
+			pattern: "*.go()",
+			wantErr: ErrInvalidPattern,
+		},
+		{
+			name:    "contains braces",
+			pattern: "*.{go,rs}",
+			wantErr: ErrInvalidPattern,
+		},
 	}
 
 	for _, tt := range tests {
@@ -330,12 +355,61 @@ func TestValidateGlobPattern(t *testing.T) {
 	}
 }
 
+func TestValidateRequiredID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		field   string
+		wantErr bool
+	}{
+		{
+			name:    "valid id",
+			id:      "my_project",
+			field:   "project_id",
+			wantErr: false,
+		},
+		{
+			name:    "empty rejected",
+			id:      "",
+			field:   "team_id",
+			wantErr: true,
+		},
+		{
+			name:    "path traversal rejected",
+			id:      "../bad",
+			field:   "tenant_id",
+			wantErr: true,
+		},
+		{
+			name:    "uppercase rejected",
+			id:      "BadFormat",
+			field:   "project_id",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRequiredID(tt.id, tt.field)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateRequiredID() expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ValidateRequiredID() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestSanitizeAndValidateTenantID(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		want     string
-		wantErr  bool
+		name    string
+		input   string
+		want    string
+		wantErr bool
 	}{
 		{
 			name:    "valid lowercase",

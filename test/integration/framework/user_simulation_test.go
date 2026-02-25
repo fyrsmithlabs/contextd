@@ -22,14 +22,14 @@ type UserSimulationConfig struct {
 
 // SimulationStats tracks statistics from the simulation.
 type SimulationStats struct {
-	TotalOperations     int64
-	MemoriesRecorded    int64
-	MemoriesSearched    int64
-	CheckpointsSaved    int64
-	CheckpointsResumed  int64
-	FeedbackGiven       int64
-	Errors              int64
-	AvgOperationTimeMs  float64
+	TotalOperations    int64
+	MemoriesRecorded   int64
+	MemoriesSearched   int64
+	CheckpointsSaved   int64
+	CheckpointsResumed int64
+	FeedbackGiven      int64
+	Errors             int64
+	AvgOperationTimeMs float64
 }
 
 // TestUserSimulation runs a multi-developer simulation to stress test contextd.

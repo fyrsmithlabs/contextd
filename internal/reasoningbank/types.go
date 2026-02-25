@@ -10,13 +10,13 @@ import (
 
 // Common errors for ReasoningBank operations.
 var (
-	ErrMemoryNotFound      = errors.New("memory not found")
-	ErrInvalidMemory       = errors.New("invalid memory")
-	ErrEmptyTitle          = errors.New("memory title cannot be empty")
-	ErrEmptyContent        = errors.New("memory content cannot be empty")
-	ErrInvalidConfidence   = errors.New("confidence must be between 0.0 and 1.0")
-	ErrInvalidOutcome      = errors.New("outcome must be 'success' or 'failure'")
-	ErrEmptyProjectID      = errors.New("project ID cannot be empty")
+	ErrMemoryNotFound    = errors.New("memory not found")
+	ErrInvalidMemory     = errors.New("invalid memory")
+	ErrEmptyTitle        = errors.New("memory title cannot be empty")
+	ErrEmptyContent      = errors.New("memory content cannot be empty")
+	ErrInvalidConfidence = errors.New("confidence must be between 0.0 and 1.0")
+	ErrInvalidOutcome    = errors.New("outcome must be 'success' or 'failure'")
+	ErrEmptyProjectID    = errors.New("project ID cannot be empty")
 )
 
 // Outcome represents the result type of a memory.

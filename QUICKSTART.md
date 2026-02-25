@@ -22,7 +22,7 @@ Install the Claude Code plugin and let it handle everything:
 
 ```bash
 # 1. Add the plugin
-claude plugins add fyrsmithlabs/contextd
+claude plugins add fyrsmithlabs/marketplace
 
 # 2. Run auto-setup in Claude Code
 /contextd:install
@@ -95,20 +95,32 @@ ctxd mcp status     # Verify configuration
 
 After adding the config, restart Claude Code. These MCP tools become available:
 
-| Tool | Purpose |
-|------|---------|
-| `memory_search` | Find relevant past strategies |
-| `memory_record` | Save new memories |
-| `memory_feedback` | Rate memory helpfulness |
-| `memory_outcome` | Report task success/failure |
-| `checkpoint_save` | Save context snapshot |
-| `checkpoint_list` | List available checkpoints |
-| `checkpoint_resume` | Resume from checkpoint |
-| `remediation_search` | Find error fix patterns |
-| `remediation_record` | Record new fixes |
-| `troubleshoot_diagnose` | Diagnose errors with AI |
-| `repository_index` | Index repo for semantic search |
-| `repository_search` | Semantic search over indexed code |
+| Category | Tool | Purpose |
+|----------|------|---------|
+| Memory | `memory_search` | Find relevant past strategies |
+| | `memory_record` | Save new memories |
+| | `memory_feedback` | Rate memory helpfulness |
+| | `memory_outcome` | Report task success/failure |
+| | `memory_consolidate` | Merge related memories |
+| Checkpoint | `checkpoint_save` | Save context snapshot |
+| | `checkpoint_list` | List available checkpoints |
+| | `checkpoint_resume` | Resume from checkpoint |
+| Remediation | `remediation_search` | Find error fix patterns |
+| | `remediation_record` | Record new fixes |
+| | `remediation_feedback` | Rate fix helpfulness |
+| | `troubleshoot_diagnose` | AI-powered error diagnosis |
+| Search | `semantic_search` | Smart search with grep fallback |
+| | `repository_index` | Index repo for semantic search |
+| | `repository_search` | Search indexed code by meaning |
+| Context | `branch_create` | Isolate sub-tasks with token budgets |
+| | `branch_return` | Return results from branch |
+| | `branch_status` | Check branch progress |
+| Conversation | `conversation_index` | Index past conversations |
+| | `conversation_search` | Search conversation history |
+| Reflection | `reflect_report` | Generate self-reflection report |
+| | `reflect_analyze` | Analyze behavioral patterns |
+
+See [MCP Tools API Reference](docs/api/mcp-tools.md) for full documentation.
 
 ## Data Location
 

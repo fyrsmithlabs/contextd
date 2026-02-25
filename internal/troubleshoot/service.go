@@ -209,8 +209,8 @@ func (s *Service) Diagnose(ctx context.Context, errorMsg, errorContext string) (
 	}
 
 	// 3. Query AI for hypothesis generation (if available)
-	hypotheses := []Hypothesis{}    // Initialize as empty slice, not nil (for JSON encoding)
-	recommendations := []string{}   // Initialize as empty slice, not nil (for JSON encoding)
+	hypotheses := []Hypothesis{}  // Initialize as empty slice, not nil (for JSON encoding)
+	recommendations := []string{} // Initialize as empty slice, not nil (for JSON encoding)
 	var aiRootCause string
 
 	if s.aiClient != nil {

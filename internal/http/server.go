@@ -4,6 +4,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -207,10 +208,21 @@ func (s *Server) handleHealth(c echo.Context) error {
 }
 
 // handleMetadataHealth returns detailed metadata integrity information.
-// NOTE: This endpoint exposes collection hashes which are internal identifiers.
-// In production, protect this endpoint with authentication/authorization or use
-// a reverse proxy to restrict access. The /health endpoint provides summary info only.
+// Restricted to localhost connections only to prevent internal metadata exposure.
 func (s *Server) handleMetadataHealth(c echo.Context) error {
+	// Restrict to localhost only (CWE-200: prevent internal metadata exposure)
+	// Use c.Request().RemoteAddr directly instead of c.RealIP() which trusts
+	// X-Forwarded-For/X-Real-IP headers that can be spoofed by clients.
+	host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+	if err != nil {
+		// RemoteAddr without port (shouldn't happen with net/http, but be safe)
+		host = c.Request().RemoteAddr
+	}
+	remoteIP := net.ParseIP(host)
+	if remoteIP == nil || !remoteIP.IsLoopback() {
+		return echo.NewHTTPError(http.StatusForbidden, "metadata health endpoint is restricted to localhost")
+	}
+
 	if s.healthChecker == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "metadata health checker not configured")
 	}
@@ -339,7 +351,7 @@ func (s *Server) handleScrub(c echo.Context) error {
 	// Scrub the content
 	result := scrubber.Scrub(req.Content)
 
-	s.logger.Debug("scrubbed content",
+	s.logger.Debug("scrub operation completed",
 		zap.Int("findings", result.TotalFindings),
 		zap.Duration("duration", result.Duration),
 	)
@@ -387,12 +399,12 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		projectPath = req.ProjectID
 	}
 
-	// Check for path traversal BEFORE cleaning (Clean removes .. sequences)
+	// Check for path traversal BEFORE cleaning (CWE-22) - filepath.Clean resolves
+	// ".." sequences, so checking after clean is ineffective (e.g. "/var/../../etc/passwd"
+	// becomes "/etc/passwd" which no longer contains "..").
 	if strings.Contains(projectPath, "..") {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid project_path: path traversal not allowed")
 	}
-
-	// Sanitize project path
 	projectPath = filepath.Clean(projectPath)
 
 	summary := req.Summary

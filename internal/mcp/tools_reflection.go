@@ -29,17 +29,17 @@ type reflectReportInput struct {
 }
 
 type reflectReportOutput struct {
-	ReportID      string                        `json:"report_id" jsonschema:"Report identifier"`
-	ProjectID     string                        `json:"project_id" jsonschema:"Project analyzed"`
-	GeneratedAt   time.Time                     `json:"generated_at" jsonschema:"Report generation time"`
-	PeriodDays    int                           `json:"period_days" jsonschema:"Days analyzed"`
-	Summary       string                        `json:"summary" jsonschema:"High-level summary"`
-	Statistics    reflection.ReportStatistics   `json:"statistics" jsonschema:"Numerical statistics"`
-	PatternCount  int                           `json:"pattern_count" jsonschema:"Number of patterns identified"`
-	InsightCount  int                           `json:"insight_count" jsonschema:"Number of insights generated"`
-	Format        string                        `json:"format" jsonschema:"Output format used"`
-	FormattedText string                        `json:"formatted_text,omitempty" jsonschema:"Formatted report (for text/markdown)"`
-	ReportPath    string                        `json:"report_path,omitempty" jsonschema:"Path where report was saved (if project_path provided)"`
+	ReportID      string                      `json:"report_id" jsonschema:"Report identifier"`
+	ProjectID     string                      `json:"project_id" jsonschema:"Project analyzed"`
+	GeneratedAt   time.Time                   `json:"generated_at" jsonschema:"Report generation time"`
+	PeriodDays    int                         `json:"period_days" jsonschema:"Days analyzed"`
+	Summary       string                      `json:"summary" jsonschema:"High-level summary"`
+	Statistics    reflection.ReportStatistics `json:"statistics" jsonschema:"Numerical statistics"`
+	PatternCount  int                         `json:"pattern_count" jsonschema:"Number of patterns identified"`
+	InsightCount  int                         `json:"insight_count" jsonschema:"Number of insights generated"`
+	Format        string                      `json:"format" jsonschema:"Output format used"`
+	FormattedText string                      `json:"formatted_text,omitempty" jsonschema:"Formatted report (for text/markdown)"`
+	ReportPath    string                      `json:"report_path,omitempty" jsonschema:"Path where report was saved (if project_path provided)"`
 }
 
 type reflectAnalyzeInput struct {
@@ -71,13 +71,8 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_report",
 		Description: "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectReportInput) (*mcp.CallToolResult, reflectReportOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "reflect_report")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "reflect_report")
-			s.metrics.RecordInvocation(ctx, "reflect_report", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "reflect_report", &toolErr)()
 
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
@@ -201,13 +196,8 @@ func (s *Server) registerReflectionTools() {
 		Name:        "reflect_analyze",
 		Description: "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectAnalyzeInput) (*mcp.CallToolResult, reflectAnalyzeOutput, error) {
-		start := time.Now()
-		s.metrics.IncrementActive(ctx, "reflect_analyze")
 		var toolErr error
-		defer func() {
-			s.metrics.DecrementActive(ctx, "reflect_analyze")
-			s.metrics.RecordInvocation(ctx, "reflect_analyze", time.Since(start), toolErr)
-		}()
+		defer s.startMetrics(ctx, "reflect_analyze", &toolErr)()
 
 		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
