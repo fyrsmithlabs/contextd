@@ -67,19 +67,30 @@ func NewWAL(path string, scrubber secrets.Scrubber, logger *zap.Logger) (*WAL, e
 		return nil, fmt.Errorf("WAL: logger is required")
 	}
 
-	// Validate path for directory traversal
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
+	// Check for path traversal BEFORE cleaning (CWE-22) - filepath.Clean resolves
+	// ".." sequences, so checking after clean is ineffective (e.g. "/tmp/../etc/passwd"
+	// becomes "/etc/passwd" which no longer contains "..").
+	if strings.Contains(path, "..") {
 		return nil, fmt.Errorf("WAL: path contains directory traversal: %s", path)
 	}
+	cleanPath := filepath.Clean(path)
 
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(cleanPath, 0700); err != nil {
+	// Defense-in-depth: resolve to absolute and verify no ".." survived.
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("WAL: failed to resolve absolute path: %w", err)
+	}
+	if strings.Contains(absPath, "..") {
+		return nil, fmt.Errorf("WAL: resolved path contains directory traversal: %s", absPath)
+	}
+
+	// Create directory if it doesn't exist (use validated absolute path)
+	if err := os.MkdirAll(absPath, 0700); err != nil {
 		return nil, fmt.Errorf("WAL: failed to create directory: %w", err)
 	}
 
 	w := &WAL{
-		path:     cleanPath,
+		path:     absPath,
 		entries:  make([]WALEntry, 0),
 		scrubber: scrubber,
 		logger:   logger,

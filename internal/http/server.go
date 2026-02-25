@@ -4,6 +4,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -210,8 +211,15 @@ func (s *Server) handleHealth(c echo.Context) error {
 // Restricted to localhost connections only to prevent internal metadata exposure.
 func (s *Server) handleMetadataHealth(c echo.Context) error {
 	// Restrict to localhost only (CWE-200: prevent internal metadata exposure)
-	remoteAddr := c.RealIP()
-	if remoteAddr != "127.0.0.1" && remoteAddr != "::1" && remoteAddr != "localhost" {
+	// Use c.Request().RemoteAddr directly instead of c.RealIP() which trusts
+	// X-Forwarded-For/X-Real-IP headers that can be spoofed by clients.
+	host, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+	if err != nil {
+		// RemoteAddr without port (shouldn't happen with net/http, but be safe)
+		host = c.Request().RemoteAddr
+	}
+	remoteIP := net.ParseIP(host)
+	if remoteIP == nil || !remoteIP.IsLoopback() {
 		return echo.NewHTTPError(http.StatusForbidden, "metadata health endpoint is restricted to localhost")
 	}
 
@@ -391,13 +399,13 @@ func (s *Server) handleThreshold(c echo.Context) error {
 		projectPath = req.ProjectID
 	}
 
-	// Sanitize project path first, then check for traversal (CWE-22)
-	projectPath = filepath.Clean(projectPath)
-
-	// Check for path traversal AFTER cleaning to catch encoded/obfuscated sequences
+	// Check for path traversal BEFORE cleaning (CWE-22) - filepath.Clean resolves
+	// ".." sequences, so checking after clean is ineffective (e.g. "/var/../../etc/passwd"
+	// becomes "/etc/passwd" which no longer contains "..").
 	if strings.Contains(projectPath, "..") {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid project_path: path traversal not allowed")
 	}
+	projectPath = filepath.Clean(projectPath)
 
 	summary := req.Summary
 	if summary == "" {
