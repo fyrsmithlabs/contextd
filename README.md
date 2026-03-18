@@ -448,11 +448,11 @@ No manual configuration needed for single-user deployments.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
-| `VECTORSTORE_PATH` | `~/.config/contextd/vectorstore` | Data storage path |
+| `CONTEXTD_VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
+| `CONTEXTD_VECTORSTORE_CHROMEM_PATH` | `~/.config/contextd/vectorstore` | Data storage path |
 | `QDRANT_HOST` | `localhost` | Qdrant host (if using qdrant) |
 | `QDRANT_PORT` | `6334` | Qdrant gRPC port |
-| `EMBEDDING_PROVIDER` | `fastembed` | Embedding provider |
+| `EMBEDDINGS_PROVIDER` | `fastembed` | Embedding provider |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 
 ### Using External Qdrant
@@ -476,7 +476,7 @@ Configure in `~/.claude/settings.json`:
       "command": "contextd",
       "args": ["--mcp", "--no-http"],
       "env": {
-        "VECTORSTORE_PROVIDER": "qdrant",
+        "CONTEXTD_VECTORSTORE_PROVIDER": "qdrant",
         "QDRANT_HOST": "localhost",
         "QDRANT_PORT": "6334"
       }
@@ -583,11 +583,18 @@ ctxd migrate             # Migrate data from Qdrant to chromem
 
 ## Building from Source
 
+**Requirements:**
+- Go 1.25+
+- CGO enabled (required for FastEmbed/ONNX local embeddings)
+- A C compiler (gcc or clang) -- on macOS, install Xcode Command Line Tools (`xcode-select --install`); on Linux, install `build-essential` or equivalent
+
+CGO is required because the FastEmbed embedding provider uses ONNX Runtime via cgo bindings. All `make build` and `make go-install` targets set `CGO_ENABLED=1` automatically.
+
 ```bash
 git clone https://github.com/fyrsmithlabs/contextd.git
 cd contextd
 
-# Build with FastEmbed (requires CGO)
+# Build with FastEmbed (CGO_ENABLED=1 is set by the Makefile)
 make build
 
 # Or install to $GOPATH/bin
@@ -601,6 +608,7 @@ make test
 
 ## Documentation
 
+- [Full Documentation Index](docs/README.md) - Browse all documentation by category
 - [Docker Setup](docs/DOCKER.md) - Running contextd in Docker
 - [Configuration](docs/configuration.md) - Full configuration reference
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
