@@ -28,8 +28,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 ### Prerequisites
 
 - **Go 1.25+** - Required for building
-- **Docker** - For running the full stack
-- **Qdrant** - Vector database (included in Docker image)
+- **Docker** - Optional, for container-based development
 
 ### Quick Setup
 
@@ -54,26 +53,25 @@ go build -o contextd ./cmd/contextd
 
 ### Running Locally
 
-ContextD requires Qdrant for vector storage. The easiest approach is to use Docker:
+ContextD uses **chromem** as its default embedded vector store -- no external database is needed. Just build and run:
 
 ```bash
-# Start Qdrant
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.12.1
-
 # Run ContextD
 go run ./cmd/contextd
 ```
+
+Data is stored locally in `~/.config/contextd/vectorstore/` by default.
 
 ### Environment Variables
 
 See [docs/configuration.md](docs/configuration.md) for all options. Key development settings:
 
 ```bash
-export QDRANT_HOST=localhost
-export QDRANT_PORT=6334
 export EMBEDDINGS_PROVIDER=fastembed
 export OTEL_ENABLE=false  # Disable telemetry for local dev
 ```
+
+**Optional:** To use external Qdrant instead of the embedded chromem store, set `VECTORSTORE_PROVIDER=qdrant` and configure `QDRANT_HOST`/`QDRANT_PORT`.
 
 ### IDE Setup
 
@@ -95,7 +93,7 @@ contextd/
 │   ├── reasoningbank/      # Cross-session memory
 │   ├── checkpoint/         # Context snapshots
 │   ├── remediation/        # Error pattern tracking
-│   ├── vectorstore/        # Qdrant interface
+│   ├── vectorstore/        # Vector store (chromem default, Qdrant optional)
 │   ├── embeddings/         # Embedding providers
 │   ├── secrets/            # Secret scrubbing (gitleaks)
 │   ├── compression/        # Context compression

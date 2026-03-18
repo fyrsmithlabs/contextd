@@ -104,24 +104,15 @@ This automatically:
 ### Option 2: Homebrew (macOS/Linux)
 
 ```bash
-# Add the tap and install
-brew tap fyrsmithlabs/contextd https://github.com/fyrsmithlabs/contextd
-brew install contextd
+# Install from the tap (builds from source, requires Go and onnxruntime)
+brew install fyrsmithlabs/tap/contextd
 ```
+
+**Note:** The Homebrew formula builds from source and requires Go and onnxruntime as dependencies. If you prefer a pre-built binary, use [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest) instead.
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
 
-### Option 3: Chocolatey (Windows)
-
-```powershell
-choco install contextd
-```
-
-Then add the MCP configuration (see [Configuration](#configuration) below).
-
-**Note:** Windows builds use pure Go (no CGO). Local ONNX embeddings are not available; configure a remote embedding provider or use the default.
-
-### Option 4: Download Binary
+### Option 3: Download Binary
 
 Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
 
@@ -142,6 +133,8 @@ mv contextd ~/.local/bin/       # User install
 # OR
 sudo mv contextd /usr/local/bin/  # System install
 ```
+
+**Note:** Windows builds use pure Go (no CGO). Local ONNX embeddings are not available; configure a remote embedding provider or use the default.
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
 
