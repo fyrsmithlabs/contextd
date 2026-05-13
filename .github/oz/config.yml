@@ -1,0 +1,8 @@
+version: 1
+self_improvement:
+  reviewers:
+    - dahendel
+  base_branch: auto
+triage:
+  prior_triage_labels:
+    - triaged
