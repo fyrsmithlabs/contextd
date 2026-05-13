@@ -225,7 +225,7 @@ func TestRepositorySearch_ContentMode_DefaultIsMinimal(t *testing.T) {
 // TestRepositorySearch_ContentMode_OutputIncludesMode tests that output includes content_mode used
 func TestRepositorySearch_ContentMode_OutputIncludesMode(t *testing.T) {
 	output := semanticSearchOutput{
-		Results:     []map[string]interface{}{},
+		Results:     []semanticSearchRow{},
 		Count:       0,
 		Query:       "test query",
 		Source:      "semantic",
