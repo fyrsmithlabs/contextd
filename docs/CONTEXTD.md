@@ -65,9 +65,8 @@ go build -o contextd ./cmd/contextd
 ### Repository & Search
 | Tool | Purpose |
 |------|---------|
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Smart search over indexed code; pass `collection_name` (from `repository_index`) to bypass project-path derivation and use `content_mode` payload control. |
 | `repository_index` | Index repository for semantic search |
-| `repository_search` | Semantic search over indexed code |
 
 ### Context Folding
 | Tool | Purpose |

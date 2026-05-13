@@ -52,7 +52,7 @@ After restarting Claude Code, the following tools should be available:
 - `memory_search`, `memory_record`, `memory_feedback`
 - `checkpoint_save`, `checkpoint_list`, `checkpoint_resume`
 - `remediation_search`, `remediation_record`
-- `repository_index`, `repository_search`
+- `repository_index`, `semantic_search`
 - `troubleshoot_diagnose`
 
 ---
@@ -307,8 +307,7 @@ docker run --rm -v contextd-data:/data alpine chown -R 1000:1000 /data
 | `remediation_search` | Find fixes for error patterns |
 | `remediation_record` | Record a new error fix |
 | `repository_index` | Index repository for semantic search |
-| `repository_search` | Semantic search over indexed code |
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Smart search over indexed code with optional `collection_name` and `content_mode` (merged behavior of the former `repository_search`). |
 | `branch_create` | Create isolated context branch with token budget |
 | `branch_return` | Return from branch with scrubbed results |
 | `branch_status` | Check branch status and budget usage |

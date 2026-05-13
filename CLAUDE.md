@@ -333,9 +333,8 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
 | `remediation_feedback` | Remediation | Rate whether a fix was helpful |
-| `semantic_search` | Repository | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Repository | Smart search over indexed code. Without `collection_name`, derives collection from `project_path` and falls back to grep. With `collection_name` (from `repository_index`), searches that collection directly with optional `content_mode` (minimal/preview/full). |
 | `repository_index` | Repository | Index repo for semantic search |
-| `repository_search` | Repository | Semantic search over indexed code |
 | `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
 | `branch_create` | Context-Folding | Create isolated context branch with token budget |
 | `branch_return` | Context-Folding | Return from branch with scrubbed results |

@@ -238,9 +238,8 @@ Contextd provides these MCP tools to Claude Code:
 
 | Tool | What It Does | When Claude Uses It |
 |------|--------------|---------------------|
-| `semantic_search` | Meaning-based code search | Before reading files |
+| `semantic_search` | Meaning-based code search (pass `collection_name` for indexed-only lookup, otherwise grep fallback) | Before reading files / finding code patterns |
 | `repository_index` | Indexes codebase | Project onboarding |
-| `repository_search` | Searches indexed code | Finding code patterns |
 
 ### Context Folding Tools
 

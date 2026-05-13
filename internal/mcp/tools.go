@@ -655,18 +655,22 @@ func (s *Server) registerRemediationTools() {
 // ===== REPOSITORY TOOLS =====
 
 type semanticSearchInput struct {
-	Query       string `json:"query" jsonschema:"required,Search query (natural language or pattern)"`
-	ProjectPath string `json:"project_path" jsonschema:"required,Project path to search within"`
-	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
-	Branch      string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	Query          string `json:"query" jsonschema:"required,Search query (natural language or pattern)"`
+	ProjectPath    string `json:"project_path,omitempty" jsonschema:"Project path to search within (required unless collection_name is provided)"`
+	CollectionName string `json:"collection_name,omitempty" jsonschema:"Collection name from repository_index output. When set, bypasses project-path to collection derivation and disables grep fallback."`
+	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content payload size when collection_name is set: minimal (default), preview, or full. Ignored without collection_name."`
 }
 
 type semanticSearchOutput struct {
-	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count   int                      `json:"count" jsonschema:"Number of results returned"`
-	Query   string                   `json:"query" jsonschema:"Original search query"`
-	Source  string                   `json:"source" jsonschema:"Source of results (semantic or grep)"`
+	Results     []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
+	Count       int                      `json:"count" jsonschema:"Number of results returned"`
+	Query       string                   `json:"query" jsonschema:"Original search query"`
+	Source      string                   `json:"source" jsonschema:"Source of results (semantic or grep)"`
+	Branch      string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	ContentMode string                   `json:"content_mode,omitempty" jsonschema:"Content mode used (only when collection_name is set)"`
 }
 
 type repositoryIndexInput struct {
@@ -688,32 +692,30 @@ type repositoryIndexOutput struct {
 	MaxFileSize     int64    `json:"max_file_size" jsonschema:"Max file size used"`
 }
 
-type repositorySearchInput struct {
-	Query          string `json:"query" jsonschema:"required,Semantic search query"`
-	ProjectPath    string `json:"project_path,omitempty" jsonschema:"Project path to search within (optional if collection_name provided)"`
-	CollectionName string `json:"collection_name,omitempty" jsonschema:"Collection name from repository_index (preferred - avoids tenant_id derivation issues)"`
-	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
-	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
-	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
-	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content mode: minimal (default), preview, or full"`
-}
-
-type repositorySearchOutput struct {
-	Results     []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count       int                      `json:"count" jsonschema:"Number of results returned"`
-	Query       string                   `json:"query" jsonschema:"Original search query"`
-	Branch      string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
-	ContentMode string                   `json:"content_mode" jsonschema:"Content mode used"`
-}
-
 func (s *Server) registerRepositoryTools() {
 	// semantic_search
+	//
+	// Two modes:
+	//   1. project_path mode (default): derives the collection from project_path
+	//      and falls back to grep if semantic search returns nothing. Use when
+	//      you don't already know the collection name (e.g. ad-hoc searches).
+	//   2. collection_name mode: when collection_name is provided (typically
+	//      from repository_index output), skips path-based collection lookup
+	//      and the grep fallback. Adds content_mode (minimal/preview/full) to
+	//      control payload size. Use after explicitly indexing a repo.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "semantic_search",
-		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
+		Description: "Semantic code search with optional grep fallback. Pass collection_name (from repository_index) for direct collection lookup with content_mode control, or pass project_path for derivation with grep fallback.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "semantic_search", &toolErr)()
+
+		// project_path is always required for tenant context derivation
+		// (fail-closed security). collection_name alone is not enough.
+		if args.ProjectPath == "" {
+			toolErr = fmt.Errorf("project_path is required for tenant context")
+			return nil, semanticSearchOutput{}, toolErr
+		}
 
 		// Validate and derive tenant context from project path
 		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
@@ -722,18 +724,25 @@ func (s *Server) registerRepositoryTools() {
 			return nil, semanticSearchOutput{}, err
 		}
 
-		opts := repository.SearchOptions{
-			ProjectPath: validPath,
-			TenantID:    tenantID,
-			Branch:      args.Branch,
-			Limit:       args.Limit,
-		}
-
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
 		if err != nil {
 			toolErr = err
 			return nil, semanticSearchOutput{}, err
+		}
+
+		// collection_name mode: bypass path-derived collection lookup and grep
+		// fallback. Honor content_mode to keep payloads small.
+		if args.CollectionName != "" {
+			return s.semanticSearchInCollection(ctx, args, validPath, tenantID, &toolErr)
+		}
+
+		// project_path mode: derived collection + grep fallback.
+		opts := repository.SearchOptions{
+			ProjectPath: validPath,
+			TenantID:    tenantID,
+			Branch:      args.Branch,
+			Limit:       args.Limit,
 		}
 
 		// 1. Try Semantic Search
@@ -820,119 +829,6 @@ func (s *Server) registerRepositoryTools() {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s (source: %s)", output.Count, args.Query, output.Source)},
-			},
-		}, output, nil
-	})
-
-	// repository_search
-	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name:        "repository_search",
-		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
-		var toolErr error
-		defer s.startMetrics(ctx, "repository_search", &toolErr)()
-
-		// project_path is always required for tenant context (fail-closed security)
-		if args.ProjectPath == "" {
-			toolErr = fmt.Errorf("project_path is required for tenant context")
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Validate project path and derive tenant context (CWE-22 path traversal protection)
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
-		if err != nil {
-			toolErr = err
-			return nil, repositorySearchOutput{}, err
-		}
-
-		opts := repository.SearchOptions{
-			CollectionName: args.CollectionName,
-			ProjectPath:    validPath,
-			TenantID:       tenantID,
-			Branch:         args.Branch,
-			Limit:          args.Limit,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
-		if err != nil {
-			toolErr = fmt.Errorf("repository search failed: %w", err)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Content mode constants
-		const (
-			previewMaxRunes = 200
-			previewEllipsis = "..."
-		)
-
-		// Determine content mode (default: minimal)
-		contentMode := args.ContentMode
-		if contentMode == "" {
-			contentMode = "minimal"
-		}
-
-		// Validate content_mode enum value
-		switch contentMode {
-		case "minimal", "preview", "full":
-			// Valid content mode
-		default:
-			toolErr = fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Convert to output format based on content mode
-		outputResults := make([]map[string]interface{}, 0, len(results))
-		for _, r := range results {
-			result := map[string]interface{}{
-				"file_path": r.FilePath,
-				"score":     r.Score,
-				"branch":    r.Branch,
-			}
-
-			// Scrub content once before use (only if needed)
-			var scrubbedContent string
-			if contentMode == "full" || contentMode == "preview" {
-				scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
-			}
-
-			switch contentMode {
-			case "full":
-				// Full mode: include complete content and metadata
-				result["content"] = scrubbedContent
-				result["metadata"] = r.Metadata
-			case "preview":
-				// Preview mode: include first 200 characters (UTF-8 safe)
-				preview := scrubbedContent
-				runes := []rune(preview)
-				if len(runes) > previewMaxRunes {
-					preview = string(runes[:previewMaxRunes]) + previewEllipsis
-				}
-				result["content_preview"] = preview
-			case "minimal":
-				// Minimal mode: no content added - just file_path, score, branch
-			}
-
-			outputResults = append(outputResults, result)
-		}
-
-		output := repositorySearchOutput{
-			Results:     outputResults,
-			Count:       len(outputResults),
-			Query:       args.Query,
-			Branch:      args.Branch,
-			ContentMode: contentMode,
-		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s", output.Count, args.Query)},
 			},
 		}, output, nil
 	})
@@ -1042,6 +938,97 @@ func (s *Server) registerRepositoryTools() {
 			},
 		}, output, nil
 	})
+}
+
+// semanticSearchInCollection executes semantic_search when an explicit
+// collection_name is provided. It routes directly to repositorySvc.Search via
+// the CollectionName option (which uses SearchInCollection under the hood),
+// skips the grep fallback, and honors content_mode for payload sizing.
+func (s *Server) semanticSearchInCollection(ctx context.Context, args semanticSearchInput, validPath, tenantID string, toolErr *error) (*mcp.CallToolResult, semanticSearchOutput, error) {
+	opts := repository.SearchOptions{
+		CollectionName: args.CollectionName,
+		ProjectPath:    validPath,
+		TenantID:       tenantID,
+		Branch:         args.Branch,
+		Limit:          args.Limit,
+	}
+
+	results, err := s.repositorySvc.Search(ctx, args.Query, opts)
+	if err != nil {
+		*toolErr = fmt.Errorf("repository search failed: %w", err)
+		return nil, semanticSearchOutput{}, *toolErr
+	}
+
+	// Content mode constants
+	const (
+		previewMaxRunes = 200
+		previewEllipsis = "..."
+	)
+
+	// Determine content mode (default: minimal)
+	contentMode := args.ContentMode
+	if contentMode == "" {
+		contentMode = "minimal"
+	}
+
+	// Validate content_mode enum value
+	switch contentMode {
+	case "minimal", "preview", "full":
+		// Valid content mode
+	default:
+		*toolErr = fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+		return nil, semanticSearchOutput{}, *toolErr
+	}
+
+	// Convert to output format based on content mode
+	outputResults := make([]map[string]interface{}, 0, len(results))
+	for _, r := range results {
+		result := map[string]interface{}{
+			"file_path": r.FilePath,
+			"score":     r.Score,
+			"branch":    r.Branch,
+		}
+
+		// Scrub content once before use (only if needed)
+		var scrubbedContent string
+		if contentMode == "full" || contentMode == "preview" {
+			scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
+		}
+
+		switch contentMode {
+		case "full":
+			// Full mode: include complete content and metadata
+			result["content"] = scrubbedContent
+			result["metadata"] = r.Metadata
+		case "preview":
+			// Preview mode: include first 200 characters (UTF-8 safe)
+			preview := scrubbedContent
+			runes := []rune(preview)
+			if len(runes) > previewMaxRunes {
+				preview = string(runes[:previewMaxRunes]) + previewEllipsis
+			}
+			result["content_preview"] = preview
+		case "minimal":
+			// Minimal mode: no content added - just file_path, score, branch
+		}
+
+		outputResults = append(outputResults, result)
+	}
+
+	output := semanticSearchOutput{
+		Results:     outputResults,
+		Count:       len(outputResults),
+		Query:       args.Query,
+		Source:      "semantic",
+		Branch:      args.Branch,
+		ContentMode: contentMode,
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s", output.Count, args.Query)},
+		},
+	}, output, nil
 }
 
 // ===== TROUBLESHOOT TOOLS =====

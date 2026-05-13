@@ -1,16 +1,28 @@
 package mcp
 
 import (
+	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
+	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
+	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
+	"github.com/fyrsmithlabs/contextd/internal/remediation"
+	"github.com/fyrsmithlabs/contextd/internal/repository"
+	"github.com/fyrsmithlabs/contextd/internal/secrets"
 	"github.com/fyrsmithlabs/contextd/internal/tenant"
+	"github.com/fyrsmithlabs/contextd/internal/troubleshoot"
+	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 // TestRepositoryTools_TenantIDConsistency is a regression test for GitHub issue #19.
-// Bug: repository_search used "default" tenant ID while repository_index used
-// tenant.GetTenantIDForPath(), causing collection name mismatch.
+// Bug: repository_search (now merged into semantic_search) used "default" tenant ID
+// while repository_index used tenant.GetTenantIDForPath(), causing collection name
+// mismatch.
 // Fix: Both tools now use tenant.GetTenantIDForPath() for consistent collection naming.
 func TestRepositoryTools_TenantIDConsistency(t *testing.T) {
 	testCases := []struct {
@@ -47,7 +59,7 @@ func TestRepositoryTools_TenantIDConsistency(t *testing.T) {
 				indexTenantID = tenant.GetTenantIDForPath(tc.projectPath)
 			}
 
-			// Simulate repository_search tenant ID resolution (after fix)
+			// Simulate semantic_search tenant ID resolution (after fix)
 			searchTenantID := tc.tenantID
 			if searchTenantID == "" {
 				searchTenantID = tenant.GetTenantIDForPath(tc.projectPath)
@@ -56,14 +68,14 @@ func TestRepositoryTools_TenantIDConsistency(t *testing.T) {
 			// Both should produce the same tenant ID
 			if tc.wantSame {
 				assert.Equal(t, indexTenantID, searchTenantID,
-					"repository_index and repository_search must use consistent tenant IDs (regression test for #19)")
+					"repository_index and semantic_search must use consistent tenant IDs (regression test for #19)")
 			}
 		})
 	}
 }
 
 // TestRepositoryTools_CollectionNameConsistency verifies that collection names
-// are generated consistently between repository_index and repository_search.
+// are generated consistently between repository_index and semantic_search.
 func TestRepositoryTools_CollectionNameConsistency(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -101,10 +113,11 @@ func TestRepositoryTools_CollectionNameConsistency(t *testing.T) {
 
 // TestRepositorySearch_ContentMode_Minimal tests that minimal mode returns only file_path, score, branch
 func TestRepositorySearch_ContentMode_Minimal(t *testing.T) {
-	input := repositorySearchInput{
-		Query:       "test query",
-		ProjectPath: "/home/user/project",
-		ContentMode: "minimal",
+	input := semanticSearchInput{
+		Query:          "test query",
+		ProjectPath:    "/home/user/project",
+		CollectionName: "tenant_project_codebase",
+		ContentMode:    "minimal",
 	}
 
 	// Verify ContentMode field exists and is set correctly
@@ -134,10 +147,11 @@ func TestRepositorySearch_ContentMode_Minimal(t *testing.T) {
 
 // TestRepositorySearch_ContentMode_Preview tests that preview mode includes content_preview (max 200 chars)
 func TestRepositorySearch_ContentMode_Preview(t *testing.T) {
-	input := repositorySearchInput{
-		Query:       "test query",
-		ProjectPath: "/home/user/project",
-		ContentMode: "preview",
+	input := semanticSearchInput{
+		Query:          "test query",
+		ProjectPath:    "/home/user/project",
+		CollectionName: "tenant_project_codebase",
+		ContentMode:    "preview",
 	}
 
 	assert.Equal(t, "preview", input.ContentMode)
@@ -159,10 +173,11 @@ func TestRepositorySearch_ContentMode_Preview(t *testing.T) {
 
 // TestRepositorySearch_ContentMode_Full tests that full mode includes complete content and metadata
 func TestRepositorySearch_ContentMode_Full(t *testing.T) {
-	input := repositorySearchInput{
-		Query:       "test query",
-		ProjectPath: "/home/user/project",
-		ContentMode: "full",
+	input := semanticSearchInput{
+		Query:          "test query",
+		ProjectPath:    "/home/user/project",
+		CollectionName: "tenant_project_codebase",
+		ContentMode:    "full",
 	}
 
 	assert.Equal(t, "full", input.ContentMode)
@@ -188,9 +203,10 @@ func TestRepositorySearch_ContentMode_Full(t *testing.T) {
 
 // TestRepositorySearch_ContentMode_DefaultIsMinimal tests that empty content_mode defaults to minimal
 func TestRepositorySearch_ContentMode_DefaultIsMinimal(t *testing.T) {
-	input := repositorySearchInput{
-		Query:       "test query",
-		ProjectPath: "/home/user/project",
+	input := semanticSearchInput{
+		Query:          "test query",
+		ProjectPath:    "/home/user/project",
+		CollectionName: "tenant_project_codebase",
 		// ContentMode intentionally not set
 	}
 
@@ -208,10 +224,11 @@ func TestRepositorySearch_ContentMode_DefaultIsMinimal(t *testing.T) {
 
 // TestRepositorySearch_ContentMode_OutputIncludesMode tests that output includes content_mode used
 func TestRepositorySearch_ContentMode_OutputIncludesMode(t *testing.T) {
-	output := repositorySearchOutput{
+	output := semanticSearchOutput{
 		Results:     []map[string]interface{}{},
 		Count:       0,
 		Query:       "test query",
+		Source:      "semantic",
 		ContentMode: "minimal",
 	}
 
@@ -365,4 +382,153 @@ func decodeRune(s string) (rune, int) {
 		}
 	}
 	return '\uFFFD', 1
+}
+
+// recordingVectorStore wraps mockVectorStore and records the collection name
+// passed to SearchInCollection so tests can verify routing.
+type recordingVectorStore struct {
+	mockVectorStore
+
+	mu                       sync.Mutex
+	lastSearchCollection     string
+	searchInCollectionCalled bool
+	resultsToReturn          []vectorstore.SearchResult
+}
+
+func (r *recordingVectorStore) SearchInCollection(ctx context.Context, collectionName string, query string, k int, filters map[string]interface{}) ([]vectorstore.SearchResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.searchInCollectionCalled = true
+	r.lastSearchCollection = collectionName
+	return r.resultsToReturn, nil
+}
+
+func (r *recordingVectorStore) CollectionExists(ctx context.Context, collectionName string) (bool, error) {
+	return true, nil
+}
+
+// newTestServer builds a Server backed by a recordingVectorStore for routing tests.
+func newTestServer(t *testing.T, store *recordingVectorStore) *Server {
+	t.Helper()
+	logger := zap.NewNop()
+
+	checkpointSvc, err := checkpoint.NewServiceWithStore(checkpoint.DefaultServiceConfig(), store, logger)
+	require.NoError(t, err)
+
+	remediationSvc, err := remediation.NewService(remediation.DefaultServiceConfig(), store, logger)
+	require.NoError(t, err)
+
+	repositorySvc := repository.NewService(store)
+	troubleshootSvc, err := troubleshoot.NewService(&mockTroubleshootStore{}, logger, nil)
+	require.NoError(t, err)
+	reasoningbankSvc, err := reasoningbank.NewService(store, logger)
+	require.NoError(t, err)
+	scrubber := secrets.MustNew(secrets.DefaultConfig())
+
+	cfg := &Config{Name: "test-server", Version: "1.0.0", Logger: logger}
+	server, err := NewServer(cfg, checkpointSvc, remediationSvc, repositorySvc, troubleshootSvc, reasoningbankSvc, nil, nil, scrubber)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+	return server
+}
+
+// TestSemanticSearch_CollectionNameBypass verifies that semantic_search routes
+// to SearchInCollection with the explicit collection_name when provided,
+// instead of deriving the collection from project_path. This is the merged
+// behavior from the removed repository_search tool.
+func TestSemanticSearch_CollectionNameBypass(t *testing.T) {
+	store := &recordingVectorStore{}
+	server := newTestServer(t, store)
+
+	// project_path is still required for tenant context (fail-closed),
+	// but collection_name should be used as-is for the search target.
+	args := semanticSearchInput{
+		Query:          "find auth handler",
+		ProjectPath:    "/home/testuser/projects/contextd",
+		CollectionName: "explicit_collection_codebase",
+		ContentMode:    "minimal",
+	}
+
+	ctx := context.Background()
+	var toolErr error
+	_, output, err := server.semanticSearchInCollection(ctx, args, args.ProjectPath, tenant.GetTenantIDForPath(args.ProjectPath), &toolErr)
+	require.NoError(t, err)
+
+	assert.True(t, store.searchInCollectionCalled, "SearchInCollection must be invoked")
+	assert.Equal(t, "explicit_collection_codebase", store.lastSearchCollection,
+		"explicit collection_name should be used verbatim, not a path-derived name")
+	assert.Equal(t, "minimal", output.ContentMode, "content_mode must be echoed in output")
+	assert.Equal(t, "semantic", output.Source, "collection_name path is always 'semantic' source")
+}
+
+// TestSemanticSearch_ProjectPathDerivation verifies that without collection_name
+// the collection is derived from project_path (default semantic_search behavior).
+func TestSemanticSearch_ProjectPathDerivation(t *testing.T) {
+	// Service.Search derives a collection like "{sanitized_tenant}_{project}_codebase".
+	// We assert the lookup hits SearchInCollection with a derived name that is
+	// distinct from any user-provided string.
+	store := &recordingVectorStore{}
+	repositorySvc := repository.NewService(store)
+
+	tenantID := tenant.GetTenantIDForPath("/home/testuser/projects/myproject")
+	ctx := vectorstore.ContextWithTenant(context.Background(), &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: "myproject",
+	})
+
+	opts := repository.SearchOptions{
+		ProjectPath: "/home/testuser/projects/myproject",
+		TenantID:    tenantID,
+		Limit:       5,
+	}
+	_, err := repositorySvc.Search(ctx, "test query", opts)
+	require.NoError(t, err)
+
+	assert.True(t, store.searchInCollectionCalled, "SearchInCollection must still be hit")
+	assert.Contains(t, store.lastSearchCollection, "myproject",
+		"derived collection name should include the project name")
+	assert.Contains(t, store.lastSearchCollection, "codebase",
+		"derived collection name should follow the '<tenant>_<project>_codebase' convention")
+}
+
+// TestSemanticSearch_CollectionNamePassthrough verifies the SearchOptions
+// CollectionName field is honored end-to-end (mirrors the SearchInCollection
+// path now exercised by semantic_search with collection_name set).
+func TestSemanticSearch_CollectionNamePassthrough(t *testing.T) {
+	store := &recordingVectorStore{}
+	repositorySvc := repository.NewService(store)
+
+	tenantID := tenant.GetTenantIDForPath("/home/testuser/projects/contextd")
+	ctx := vectorstore.ContextWithTenant(context.Background(), &vectorstore.TenantInfo{
+		TenantID:  tenantID,
+		ProjectID: "contextd",
+	})
+
+	opts := repository.SearchOptions{
+		CollectionName: "my_indexed_collection",
+		ProjectPath:    "/home/testuser/projects/contextd",
+		TenantID:       tenantID,
+		Limit:          5,
+	}
+	_, err := repositorySvc.Search(ctx, "test query", opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, "my_indexed_collection", store.lastSearchCollection,
+		"explicit CollectionName must bypass path-based derivation")
+}
+
+// TestSemanticSearchInput_FieldsBackwardCompatible verifies that the merged
+// semantic_search input keeps the original semantic_search field set intact
+// while adding optional collection_name and content_mode.
+func TestSemanticSearchInput_FieldsBackwardCompatible(t *testing.T) {
+	// Old call shape: query + project_path only. Must still construct/compile.
+	in := semanticSearchInput{
+		Query:       "test",
+		ProjectPath: "/some/path",
+		Limit:       10,
+	}
+	assert.Empty(t, in.CollectionName, "collection_name must be optional")
+	assert.Empty(t, in.ContentMode, "content_mode must be optional")
+	assert.Equal(t, "test", in.Query)
+	assert.Equal(t, "/some/path", in.ProjectPath)
 }

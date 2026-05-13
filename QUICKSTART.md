@@ -109,9 +109,8 @@ After adding the config, restart Claude Code. These MCP tools become available:
 | | `remediation_record` | Record new fixes |
 | | `remediation_feedback` | Rate fix helpfulness |
 | | `troubleshoot_diagnose` | AI-powered error diagnosis |
-| Search | `semantic_search` | Smart search with grep fallback |
+| Search | `semantic_search` | Smart search with grep fallback; pass `collection_name` (from `repository_index`) for indexed-only lookup with `content_mode` control |
 | | `repository_index` | Index repo for semantic search |
-| | `repository_search` | Search indexed code by meaning |
 | Context | `branch_create` | Isolate sub-tasks with token budgets |
 | | `branch_return` | Return results from branch |
 | | `branch_status` | Check branch progress |

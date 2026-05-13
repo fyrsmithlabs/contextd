@@ -28,7 +28,6 @@ contextd exposes its functionality through the Model Context Protocol (MCP). Thi
   - [branch_status](#branch_status)
 - [Repository Tools](#repository-tools)
   - [repository_index](#repository_index)
-  - [repository_search](#repository_search)
   - [semantic_search](#semantic_search)
 - [Conversation Tools](#conversation-tools)
   - [conversation_index](#conversation_index)
@@ -44,7 +43,7 @@ contextd exposes its functionality through the Model Context Protocol (MCP). Thi
 
 ## Overview
 
-ContextD provides 25 MCP tools organized into seven categories:
+ContextD provides 24 MCP tools organized into seven categories:
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
@@ -52,7 +51,7 @@ ContextD provides 25 MCP tools organized into seven categories:
 | **Checkpoint** | `checkpoint_save`, `checkpoint_list`, `checkpoint_resume` | Context persistence and recovery |
 | **Remediation** | `remediation_search`, `remediation_record`, `remediation_feedback` | Error pattern tracking and fixes |
 | **Context-Folding** | `branch_create`, `branch_return`, `branch_status` | Isolated sub-task execution with token budgets |
-| **Repository** | `semantic_search`, `repository_index`, `repository_search` | Code indexing and semantic search |
+| **Repository** | `semantic_search`, `repository_index` | Code indexing and semantic search |
 | **Conversation** | `conversation_index`, `conversation_search` | Claude Code conversation indexing and search |
 | **Utility** | `troubleshoot_diagnose`, `reflect_report`, `reflect_analyze` | Diagnostics and self-reflection |
 
@@ -739,25 +738,28 @@ Fallback exclusions if no ignore files found:
 
 ---
 
-### repository_search
+### semantic_search
 
-Semantic search over indexed repository code in _codebase collection.
+Smart search over a project's code. Has two modes:
 
-**Use Case**: Find code by meaning rather than exact keyword match. Prefer using `collection_name` from `repository_index` output.
+1. **project_path mode** (default): derives the collection from `project_path` and falls back to grep if semantic search returns no matches.
+2. **collection_name mode**: when `collection_name` (from `repository_index` output) is supplied, queries that collection directly and disables the grep fallback. Use `content_mode` to control response payload size. This mode subsumes the former `repository_search` tool.
+
+**Use Case**: Primary search tool. Use plain `project_path` for ad-hoc exploration with grep fallback. Pass `collection_name` after `repository_index` for deterministic indexed-only lookups with payload control.
 
 #### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | string | Yes | Semantic search query |
-| `project_path` | string | Yes | Project path to search within (required for tenant context) |
-| `collection_name` | string | No | Collection name from `repository_index` (preferred - avoids tenant_id derivation issues) |
-| `tenant_id` | string | No | Tenant identifier (auto-derived from project_path if not provided) |
+| `query` | string | Yes | Search query (natural language or pattern) |
+| `project_path` | string | Yes | Project path (always required for tenant context, even when `collection_name` is set) |
+| `collection_name` | string | No | Collection name from `repository_index` output. When set, bypasses project-path-derived collection lookup and disables grep fallback. |
+| `tenant_id` | string | No | Tenant identifier (auto-derived from `project_path` if not provided) |
 | `branch` | string | No | Filter by branch (empty = all branches) |
 | `limit` | integer | No | Maximum results (default: 10) |
-| `content_mode` | string | No | Content mode: `"minimal"` (default), `"preview"`, or `"full"` |
+| `content_mode` | string | No | Content mode (only used when `collection_name` is set): `"minimal"` (default), `"preview"`, or `"full"` |
 
-#### Content Modes
+#### Content Modes (collection_name mode only)
 
 | Mode | Description | Response Fields |
 |------|-------------|----------------|
@@ -767,80 +769,7 @@ Semantic search over indexed repository code in _codebase collection.
 
 #### Response
 
-**Minimal mode (default):**
-```json
-{
-  "results": [
-    {
-      "file_path": "cmd/main.go",
-      "score": 0.89,
-      "branch": "main"
-    }
-  ],
-  "count": 1,
-  "query": "entry point",
-  "branch": "main",
-  "content_mode": "minimal"
-}
-```
-
-**Preview mode:**
-```json
-{
-  "results": [
-    {
-      "file_path": "cmd/main.go",
-      "content_preview": "func main() {\n\tctx := context.Background()\n\t// Initialize config\n\tcfg, err := config.Load()\n\tif err != nil {\n\t\tlog.Fatal(\"config load failed\", zap.Error(err))\n\t}\n...",
-      "score": 0.89,
-      "branch": "main"
-    }
-  ],
-  "count": 1,
-  "query": "entry point",
-  "branch": "main",
-  "content_mode": "preview"
-}
-```
-
-**Full mode:**
-```json
-{
-  "results": [
-    {
-      "file_path": "cmd/main.go",
-      "content": "func main() { ... }",
-      "score": 0.89,
-      "branch": "main",
-      "metadata": {}
-    }
-  ],
-  "count": 1,
-  "query": "entry point",
-  "branch": "main",
-  "content_mode": "full"
-}
-```
-
----
-
-### semantic_search
-
-Smart search that uses semantic understanding, falling back to grep if needed.
-
-**Use Case**: Primary search tool. Tries to understand intent first, falls back to text search if no semantic matches found.
-
-#### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | Yes | Search query (natural language or pattern) |
-| `project_path` | string | Yes | Project path to search within |
-| `tenant_id` | string | No | Tenant identifier |
-| `branch` | string | No | Filter by branch |
-| `limit` | integer | No | Maximum results (default: 10) |
-
-#### Response
-
+**project_path mode (grep fallback enabled):**
 ```json
 {
   "results": [
@@ -854,6 +783,63 @@ Smart search that uses semantic understanding, falling back to grep if needed.
   "count": 1,
   "query": "search function",
   "source": "semantic"
+}
+```
+
+**collection_name mode, minimal (default):**
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "score": 0.89,
+      "branch": "main"
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "source": "semantic",
+  "branch": "main",
+  "content_mode": "minimal"
+}
+```
+
+**collection_name mode, preview:**
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "content_preview": "func main() {\n\tctx := context.Background()\n\t// Initialize config\n\tcfg, err := config.Load()\n\tif err != nil {\n\t\tlog.Fatal(\"config load failed\", zap.Error(err))\n\t}\n...",
+      "score": 0.89,
+      "branch": "main"
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "source": "semantic",
+  "branch": "main",
+  "content_mode": "preview"
+}
+```
+
+**collection_name mode, full:**
+```json
+{
+  "results": [
+    {
+      "file_path": "cmd/main.go",
+      "content": "func main() { ... }",
+      "score": 0.89,
+      "branch": "main",
+      "metadata": {}
+    }
+  ],
+  "count": 1,
+  "query": "entry point",
+  "source": "semantic",
+  "branch": "main",
+  "content_mode": "full"
 }
 ```
 

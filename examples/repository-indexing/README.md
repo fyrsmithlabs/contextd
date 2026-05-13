@@ -150,9 +150,11 @@ If no semantic results above `min_similarity`, contextd automatically tries grep
 
 ---
 
-### repository_search
+### repository_search (removed)
 
-Alias for `semantic_search` - same functionality.
+`repository_search` has been merged into `semantic_search`. Pass `collection_name`
+(from `repository_index` output) and an optional `content_mode` to `semantic_search`
+to get the old behavior (direct collection lookup, no grep fallback, payload sizing).
 
 ---
 
