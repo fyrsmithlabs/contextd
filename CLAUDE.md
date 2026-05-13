@@ -285,7 +285,7 @@ cmd/contextd/          # Entry point (stdio MCP server + HTTP server)
 cmd/ctxd/              # CLI binary for manual operations
 internal/
 ├── mcp/               # MCP server + tool handlers
-├── http/              # HTTP API server (scrub, threshold, status endpoints)
+├── http/              # HTTP API server (health, metrics, status endpoints)
 ├── reasoningbank/     # Cross-session memory (82% coverage)
 ├── checkpoint/        # Context snapshots
 ├── remediation/       # Error patterns
@@ -353,7 +353,7 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 2. **Core Services** - vectorstore, embeddings, checkpoint, remediation, repository, troubleshoot, project, secrets
 3. **MCP Integration** - simplified server, tool handlers, scrubbing
 4. **ReasoningBank** - memory package, MCP tools, distiller stub
-5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/scrub`, `/api/v1/threshold`, `/api/v1/status` endpoints; `ctxd` CLI binary
+5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/status` endpoint plus `/health` and `/metrics`; `ctxd` CLI binary
 6. **Documentation** - CONTEXTD.md briefing doc, spec updates for new architecture, Claude Code hook setup guide
 
 ---

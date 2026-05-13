@@ -43,7 +43,7 @@ func (m *HTTPMetrics) init() {
 	// Total requests by endpoint, method, and status
 	m.requestsTotal, err = m.meter.Int64Counter(
 		"contextd.http.requests_total",
-		metric.WithDescription("Total HTTP requests labeled by method (GET, POST), endpoint (/api/v1/scrub, etc.), and status code. Use rate() for request throughput."),
+		metric.WithDescription("Total HTTP requests labeled by method (GET, POST), endpoint (/api/v1/status, etc.), and status code. Use rate() for request throughput."),
 		metric.WithUnit("{request}"),
 	)
 	if err != nil {
@@ -145,9 +145,10 @@ func (m *HTTPMetrics) MetricsMiddleware() echo.MiddlewareFunc {
 // metric cardinality explosion.
 //
 // Current behavior: Returns path as-is because contextd uses only fixed routes:
-//   - /api/v1/scrub
-//   - /api/v1/threshold
 //   - /api/v1/status
+//   - /api/v1/health/metadata
+//   - /health
+//   - /metrics
 //
 // Future expansion guide:
 // If parameterized routes are added, implement normalization like:
