@@ -1,0 +1,152 @@
+{
+  "labels": {
+    "triaged": {
+      "color": "0E8A16",
+      "description": "Initial triage has been completed for this issue"
+    },
+    "bug": {
+      "color": "D73A4A",
+      "description": "Something is not working as expected"
+    },
+    "enhancement": {
+      "color": "A2EEEF",
+      "description": "New feature or improvement request"
+    },
+    "feature": {
+      "color": "A2EEEF",
+      "description": "A larger feature scoped as a single deliverable"
+    },
+    "documentation": {
+      "color": "0075CA",
+      "description": "Documentation or guidance update"
+    },
+    "task": {
+      "color": "C5DEF5",
+      "description": "Discrete task that contributes to a larger effort"
+    },
+    "epic": {
+      "color": "5319E7",
+      "description": "Multi-issue initiative tracked over several PRs"
+    },
+    "benchmark": {
+      "color": "BFD4F2",
+      "description": "Performance benchmarking work"
+    },
+    "testing": {
+      "color": "FEF2C0",
+      "description": "Tests, coverage, or integration test work"
+    },
+    "question": {
+      "color": "D876E3",
+      "description": "Further information is requested"
+    },
+    "needs-info": {
+      "color": "D93F0B",
+      "description": "Issue needs more information before it can be triaged confidently"
+    },
+    "duplicate": {
+      "color": "CFD3D7",
+      "description": "Issue is a duplicate of an existing one"
+    },
+    "wontfix": {
+      "color": "FFFFFF",
+      "description": "Will not be worked on"
+    },
+    "invalid": {
+      "color": "E4E669",
+      "description": "Report does not appear actionable"
+    },
+    "help wanted": {
+      "color": "008672",
+      "description": "Extra attention is needed"
+    },
+    "good first issue": {
+      "color": "7057FF",
+      "description": "Good for newcomers"
+    },
+    "repro:high": {
+      "color": "B60205",
+      "description": "Report looks highly reproducible from the available information"
+    },
+    "repro:medium": {
+      "color": "FBCA04",
+      "description": "Report looks partially reproducible but has some uncertainty"
+    },
+    "repro:low": {
+      "color": "0E8A16",
+      "description": "Report looks difficult to reproduce from the available information"
+    },
+    "repro:unknown": {
+      "color": "CFD3D7",
+      "description": "Not enough information to estimate reproducibility"
+    },
+    "P0": {
+      "color": "B60205",
+      "description": "Critical priority — must ship immediately"
+    },
+    "P1": {
+      "color": "D93F0B",
+      "description": "High priority — ship in the next milestone"
+    },
+    "P2": {
+      "color": "FBCA04",
+      "description": "Normal priority"
+    },
+    "P3": {
+      "color": "C2E0C6",
+      "description": "Low priority — backlog"
+    },
+    "priority: high": {
+      "color": "D93F0B",
+      "description": "High priority work item"
+    },
+    "vectorstore": {
+      "color": "1D76DB",
+      "description": "Vector store package (chromem, Qdrant, isolation)"
+    },
+    "reasoningbank": {
+      "color": "1D76DB",
+      "description": "Cross-session memory and ReasoningBank service"
+    },
+    "workstate": {
+      "color": "1D76DB",
+      "description": "Work state capture and semantic search"
+    },
+    "temporal": {
+      "color": "1D76DB",
+      "description": "Temporal workflows and automation"
+    },
+    "cli": {
+      "color": "1D76DB",
+      "description": "ctxd CLI binary and command surface"
+    },
+    "config": {
+      "color": "1D76DB",
+      "description": "Koanf configuration and settings"
+    },
+    "security": {
+      "color": "B60205",
+      "description": "Secrets, scrubbing, isolation, or other security work"
+    },
+    "performance": {
+      "color": "FBCA04",
+      "description": "Latency, throughput, or memory optimization"
+    },
+    "workflow": {
+      "color": "7057FF",
+      "description": "Internal workflow automation or CI/CD"
+    },
+    "skills-first": {
+      "color": "5319E7",
+      "description": "Skills-first architecture work"
+    },
+    "phase-a": {
+      "color": "C5DEF5",
+      "description": "Phase A roadmap items"
+    },
+    "roadmap": {
+      "color": "BFD4F2",
+      "description": "Roadmap planning item"
+    }
+  }
+}

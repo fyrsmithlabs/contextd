@@ -1,0 +1,41 @@
+# Syntax follows CODEOWNERS conventions: later rules take precedence.
+# NOTE: This file is advisory only — GitHub does not enforce it.
+
+# --- Default owner ---
+* @dahendel
+
+# --- Entry points and CLI ---
+/cmd/ @dahendel
+
+# --- Core services ---
+/internal/mcp/ @dahendel
+/internal/reasoningbank/ @dahendel
+/internal/checkpoint/ @dahendel
+/internal/remediation/ @dahendel
+/internal/repository/ @dahendel
+/internal/vectorstore/ @dahendel
+/internal/secrets/ @dahendel
+/internal/compression/ @dahendel
+/internal/hooks/ @dahendel
+/internal/http/ @dahendel
+/internal/workflows/ @dahendel
+/internal/services/ @dahendel
+/internal/config/ @dahendel
+/internal/logging/ @dahendel
+/internal/telemetry/ @dahendel
+
+# --- Public API ---
+/pkg/ @dahendel
+
+# --- Deployment and infra ---
+/deploy/ @dahendel
+/Dockerfile @dahendel
+
+# --- Documentation and specs ---
+/docs/ @dahendel
+/README.md @dahendel
+/CLAUDE.md @dahendel
+
+# --- Workflow and automation ---
+/.github/ @dahendel
+/.agents/ @dahendel
