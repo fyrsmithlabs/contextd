@@ -1208,10 +1208,30 @@ type memorySearchInput struct {
 	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 5)"`
 }
 
+// memorySearchRow is a typed result row for memory_search. Replaces the
+// previous map[string]interface{} payload so the SDK can derive a proper
+// output schema (HANDLER-GUIDE.md §4.4).
+type memorySearchRow struct {
+	ID         string   `json:"id" jsonschema:"Memory ID"`
+	Title      string   `json:"title" jsonschema:"Memory title"`
+	Content    string   `json:"content" jsonschema:"Scrubbed memory content"`
+	Outcome    string   `json:"outcome" jsonschema:"Outcome type (success or failure)"`
+	Confidence float64  `json:"confidence" jsonschema:"Memory confidence score (0-1)"`
+	Relevance  float64  `json:"relevance" jsonschema:"Search relevance score (0-1)"`
+	Tags       []string `json:"tags,omitempty" jsonschema:"Memory tags"`
+}
+
+// memorySearchMetadata mirrors reasoningbank.SearchMetadata for the wire.
+type memorySearchMetadata struct {
+	SuggestedRefinements []string `json:"suggested_refinements" jsonschema:"Recommended search terms from results"`
+	QueryCoverage        float64  `json:"query_coverage" jsonschema:"How well results matched the query (0-1)"`
+	EntityMatches        int      `json:"entity_matches" jsonschema:"Count of distinct entities in results"`
+}
+
 type memorySearchOutput struct {
-	Memories []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
-	Count    int                      `json:"count" jsonschema:"Number of results"`
-	Metadata map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
+	Memories []memorySearchRow    `json:"memories" jsonschema:"Matching memories"`
+	Count    int                  `json:"count" jsonschema:"Number of results"`
+	Metadata memorySearchMetadata `json:"metadata" jsonschema:"Search metadata for iterative refinement"`
 }
 
 type memoryRecordInput struct {
@@ -1232,8 +1252,9 @@ type memoryRecordOutput struct {
 }
 
 type memoryFeedbackInput struct {
-	MemoryID string `json:"memory_id" jsonschema:"required,Memory ID to provide feedback on"`
-	Helpful  bool   `json:"helpful" jsonschema:"required,Whether the memory was helpful"`
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier (tenant + project scope)"`
+	MemoryID  string `json:"memory_id" jsonschema:"required,Memory ID to provide feedback on"`
+	Helpful   bool   `json:"helpful" jsonschema:"required,Whether the memory was helpful"`
 }
 
 type memoryFeedbackOutput struct {
@@ -1243,6 +1264,7 @@ type memoryFeedbackOutput struct {
 }
 
 type memoryOutcomeInput struct {
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier (tenant + project scope)"`
 	MemoryID  string `json:"memory_id" jsonschema:"required,ID of the memory that was used"`
 	Succeeded bool   `json:"succeeded" jsonschema:"required,Whether the task succeeded after using this memory"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"Optional session ID for correlation"`
@@ -1269,68 +1291,84 @@ type memoryConsolidateOutput struct {
 	DurationSeconds  float64  `json:"duration_seconds" jsonschema:"Time taken for consolidation operation"`
 }
 
+// memoryConsolidateSessionInput / memoryConsolidateSessionOutput replace
+// the previous anonymous-struct args/return on the memory_consolidate_session
+// handler (HANDLER-GUIDE.md §3.1).
+type memoryConsolidateSessionInput struct {
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
+	SessionID string `json:"session_id" jsonschema:"required,Session ID to flush"`
+}
+
+type memoryConsolidateSessionOutput struct {
+	MemoryIDs []string `json:"memory_ids" jsonschema:"IDs of memories created from the session"`
+	Count     int      `json:"count" jsonschema:"Number of session memories created"`
+	Message   string   `json:"message" jsonschema:"Human-readable summary"`
+}
+
 func (s *Server) registerMemoryTools() {
-	// memory_search
+	// memory_search — pure read; ReadOnlyHint + closed-world.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_search",
-		Description: "Search for relevant memories/strategies from past sessions",
+		Description: "Search for relevant memories from past sessions scoped to project_id.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_search", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memorySearchOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memorySearchOutput{}, toolErr
+		// For memory tools project_id serves as both tenant and project scope.
+		// Pass it as the explicit tenantID *and* projectID; tenantCtx validates
+		// both and sets the resulting TenantInfo on ctx for the vectorstore.
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memorySearchOutput{}, err
 		}
 
 		limit := args.Limit
 		if limit <= 0 {
 			limit = 5
 		}
-
-		// Add tenant context to Go context for vectorstore operations
-		// For memory tools, ProjectID serves as both tenant and project scope
-		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, memorySearchOutput{}, toolErr
+		if limit > 100 {
+			limit = 100
 		}
 
-		scoredMemories, metadata, err := s.reasoningbankSvc.SearchWithMetadata(ctx, args.ProjectID, args.Query, limit)
+		scoredMemories, metadata, err := s.reasoningbankSvc.SearchWithMetadata(ctx, rt.ProjectID, args.Query, limit)
 		if err != nil {
 			toolErr = fmt.Errorf("memory search failed: %w", err)
 			return nil, memorySearchOutput{}, toolErr
 		}
 
-		results := make([]map[string]interface{}, 0, len(scoredMemories))
+		rows := make([]memorySearchRow, 0, len(scoredMemories))
 		for _, sm := range scoredMemories {
-			results = append(results, map[string]interface{}{
-				"id":         sm.Memory.ID,
-				"title":      sm.Memory.Title,
-				"content":    s.scrubber.Scrub(sm.Memory.Content).Scrubbed,
-				"outcome":    sm.Memory.Outcome,
-				"confidence": sm.Memory.Confidence,
-				"relevance":  sm.Relevance, // Search similarity score (0.0-1.0)
-				"tags":       sm.Memory.Tags,
+			content := sm.Memory.Content
+			if s.scrubber != nil {
+				content = s.scrubber.Scrub(content).Scrubbed
+			}
+			rows = append(rows, memorySearchRow{
+				ID:         sm.Memory.ID,
+				Title:      sm.Memory.Title,
+				Content:    content,
+				Outcome:    string(sm.Memory.Outcome),
+				Confidence: sm.Memory.Confidence,
+				Relevance:  sm.Relevance,
+				Tags:       sm.Memory.Tags,
 			})
 		}
 
-		// Convert metadata to map for output
-		metadataMap := map[string]interface{}{
-			"suggested_refinements": metadata.SuggestedRefinements,
-			"query_coverage":        metadata.QueryCoverage,
-			"entity_matches":        metadata.EntityMatches,
+		md := memorySearchMetadata{}
+		if metadata != nil {
+			md.SuggestedRefinements = metadata.SuggestedRefinements
+			md.QueryCoverage = metadata.QueryCoverage
+			md.EntityMatches = metadata.EntityMatches
 		}
 
 		output := memorySearchOutput{
-			Memories: results,
-			Count:    len(results),
-			Metadata: metadataMap,
+			Memories: rows,
+			Count:    len(rows),
+			Metadata: md,
 		}
 
 		return &mcp.CallToolResult{
@@ -1340,22 +1378,22 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_record
+	// memory_record — append-only write; not destructive.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_record",
-		Description: "Record a new memory/learning from the current session",
+		Description: "Record a new memory/learning from the current session.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrFalse(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_record", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memoryRecordOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memoryRecordOutput{}, toolErr
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryRecordOutput{}, err
 		}
 
 		outcome := reasoningbank.OutcomeSuccess
@@ -1363,13 +1401,13 @@ func (s *Server) registerMemoryTools() {
 			outcome = reasoningbank.OutcomeFailure
 		}
 
-		memory, err := reasoningbank.NewMemory(args.ProjectID, args.Title, args.Content, outcome, args.Tags)
+		memory, err := reasoningbank.NewMemory(rt.ProjectID, args.Title, args.Content, outcome, args.Tags)
 		if err != nil {
 			toolErr = fmt.Errorf("invalid memory: %w", err)
 			return nil, memoryRecordOutput{}, toolErr
 		}
 
-		// Set optional session fields for session-level buffering
+		// Set optional session fields for session-level buffering.
 		if args.SessionID != "" {
 			memory.SessionID = args.SessionID
 			if args.SessionDate != "" {
@@ -1377,13 +1415,6 @@ func (s *Server) registerMemoryTools() {
 					memory.SessionDate = &sd
 				}
 			}
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		if err := s.reasoningbankSvc.Record(ctx, memory); err != nil {
@@ -1405,20 +1436,33 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_feedback
+	// memory_feedback — mutating write (overwrites confidence).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_feedback",
-		Description: "Provide feedback on a memory to adjust its confidence",
+		Description: "Provide feedback on a memory to adjust its confidence score.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryFeedbackInput) (*mcp.CallToolResult, memoryFeedbackOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_feedback", &toolErr)()
+
+		// project_id is required so the mutating write is tenant-scoped — this
+		// closes the data-leak risk where Feedback previously ran on whatever
+		// (or no) tenant context happened to be on ctx.
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryFeedbackOutput{}, err
+		}
+		_ = rt // tenant scope is enforced via ctx; service uses memory_id directly.
 
 		if err := s.reasoningbankSvc.Feedback(ctx, args.MemoryID, args.Helpful); err != nil {
 			toolErr = fmt.Errorf("memory feedback failed: %w", err)
 			return nil, memoryFeedbackOutput{}, toolErr
 		}
 
-		// Get updated memory to return new confidence
 		memory, err := s.reasoningbankSvc.Get(ctx, args.MemoryID)
 		if err != nil {
 			toolErr = fmt.Errorf("failed to get updated memory: %w", err)
@@ -1438,15 +1482,24 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_outcome
+	// memory_outcome — mutating write (overwrites confidence).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_outcome",
-		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
+		Description: "Report whether a task succeeded after using a memory, updating its confidence.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_outcome", &toolErr)()
 
-		// Record the outcome signal
+		ctx, _, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryOutcomeOutput{}, err
+		}
+
 		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
 		if err != nil {
 			toolErr = fmt.Errorf("memory outcome failed: %w", err)
@@ -1466,63 +1519,54 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_consolidate
+	// memory_consolidate — mutating write (merges/archives existing memories).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_consolidate",
-		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
+		Description: "Consolidate similar memories above the similarity threshold into synthesized refined summaries.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_consolidate", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memoryConsolidateOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memoryConsolidateOutput{}, toolErr
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryConsolidateOutput{}, err
 		}
 
-		// Check if distiller is available
 		if s.distiller == nil {
 			toolErr = fmt.Errorf("memory consolidation not available: distiller not configured")
 			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
-		// Apply default similarity threshold if not specified
 		threshold := args.SimilarityThreshold
 		if threshold == 0 {
-			threshold = 0.8 // Default as specified in spec
+			threshold = 0.8 // Default per spec.
 		}
 
-		// Build consolidation options
 		opts := reasoningbank.ConsolidationOptions{
 			SimilarityThreshold: threshold,
 			DryRun:              args.DryRun,
 			MaxClustersPerRun:   args.MaxClusters,
 		}
 
-		// Execute consolidation
-		result, err := s.distiller.Consolidate(ctx, args.ProjectID, opts)
+		result, err := s.distiller.Consolidate(ctx, rt.ProjectID, opts)
 		if err != nil {
 			toolErr = fmt.Errorf("consolidation failed: %w", err)
 			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
-		// Convert duration to seconds
-		durationSeconds := result.Duration.Seconds()
-
-		// Build output
 		output := memoryConsolidateOutput{
 			CreatedMemories:  result.CreatedMemories,
 			ArchivedMemories: result.ArchivedMemories,
 			SkippedCount:     result.SkippedCount,
 			TotalProcessed:   result.TotalProcessed,
-			DurationSeconds:  durationSeconds,
+			DurationSeconds:  result.Duration.Seconds(),
 		}
 
-		// Build result message
 		resultMsg := fmt.Sprintf("Consolidation complete: created %d, archived %d, skipped %d, processed %d memories (%.2fs)",
 			len(output.CreatedMemories),
 			len(output.ArchivedMemories),
@@ -1541,50 +1585,33 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_consolidate_session
+	// memory_consolidate_session — mutating write; named struct args.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_consolidate_session",
-		Description: "Flush and summarize a session's buffered turns into session-level memories. Only effective when granularity is set to 'session'.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct {
-		ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
-		SessionID string `json:"session_id" jsonschema:"required,Session ID to flush"`
-	}) (*mcp.CallToolResult, struct {
-		MemoryIDs []string `json:"memory_ids"`
-		Count     int      `json:"count"`
-		Message   string   `json:"message"`
-	}, error) {
+		Description: "Flush a session's buffered turns into session-level memories (granularity=session).",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateSessionInput) (*mcp.CallToolResult, memoryConsolidateSessionOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_consolidate_session", &toolErr)()
 
-		type output struct {
-			MemoryIDs []string `json:"memory_ids"`
-			Count     int      `json:"count"`
-			Message   string   `json:"message"`
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryConsolidateSessionOutput{}, err
 		}
 
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, output{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, output{}, toolErr
-		}
 		if args.SessionID == "" {
 			toolErr = fmt.Errorf("session_id is required")
-			return nil, output{}, toolErr
+			return nil, memoryConsolidateSessionOutput{}, toolErr
 		}
 
-		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, output{}, toolErr
-		}
-
-		ids, err := s.reasoningbankSvc.FlushSession(ctx, args.ProjectID, args.SessionID)
+		ids, err := s.reasoningbankSvc.FlushSession(ctx, rt.ProjectID, args.SessionID)
 		if err != nil {
 			toolErr = fmt.Errorf("session flush failed: %w", err)
-			return nil, output{}, toolErr
+			return nil, memoryConsolidateSessionOutput{}, toolErr
 		}
 
 		if ids == nil {
@@ -1592,7 +1619,7 @@ func (s *Server) registerMemoryTools() {
 		}
 
 		msg := fmt.Sprintf("Session %s flushed: %d memories created", args.SessionID, len(ids))
-		out := output{
+		out := memoryConsolidateSessionOutput{
 			MemoryIDs: ids,
 			Count:     len(ids),
 			Message:   msg,
