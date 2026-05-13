@@ -138,6 +138,21 @@ func run() error {
 		}
 	}
 
+	// Register the package-level default tenant resolver. Callers that don't
+	// plumb explicit TenantInfo (typical solo-dev usage) get sensible defaults
+	// from $USER/git config and the current working directory. ProjectID is
+	// still enforced as the isolation floor downstream.
+	vectorstore.SetDefaultTenantResolver(func() *vectorstore.TenantInfo {
+		tenantID, projectID := tenant.DefaultsForPath("")
+		if tenantID == "" || projectID == "" {
+			return nil
+		}
+		return &vectorstore.TenantInfo{
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		}
+	})
+
 	// ============================================================================
 	// Initialize Telemetry (using config values)
 	// ============================================================================

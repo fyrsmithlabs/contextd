@@ -154,16 +154,18 @@ contextd uses **payload-based tenant isolation** as the default multi-tenant str
 
 ### Tenant Context
 
-All operations require tenant context via Go's `context.Context`:
+Solo devs do not need to set anything — contextd derives `TenantID` from
+`$USER`/git config and `ProjectID` from the current working directory.
+Multi-tenant SaaS callers may still set `TenantInfo` explicitly:
 
 ```go
 import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
 
-// Create tenant-scoped context (REQUIRED for all operations)
+// Explicit tenant context (wins over defaults)
 ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-    TenantID:  "org-123",      // Required: Organization/user identifier
-    TeamID:    "platform",     // Optional: Team scope
-    ProjectID: "contextd",     // Optional: Project scope
+    TenantID:  "org-123",      // Optional: organization/user identifier
+    TeamID:    "platform",     // Optional: team scope, no default
+    ProjectID: "contextd",     // Required floor for per-repo isolation
 })
 
 // All operations automatically filtered by tenant
@@ -172,49 +174,54 @@ results, err := store.Search(ctx, "query", 10)
 
 ### Isolation Modes
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `PayloadIsolation` | Single collection with metadata filtering | **Default, recommended** |
-| `FilesystemIsolation` | Separate database per tenant/project | Legacy, migration path available |
-| `NoIsolation` | No tenant filtering | **Testing only** |
+Select at deploy time via `CONTEXTD_ISOLATION_MODE` (or
+`vectorstore.isolation_mode` in config):
+
+| Mode         | Description                                            | Use Case                              |
+|--------------|--------------------------------------------------------|----------------------------------------|
+| `payload`    | Single collection with metadata filtering              | **Default** — solo devs and most teams |
+| `filesystem` | Separate database directory per tenant/project         | On-prem / regulated isolation         |
+| `none`       | No tenant filtering                                    | **Testing only**                       |
 
 ### Security Guarantees
 
-| Behavior | Description |
-|----------|-------------|
-| **Fail-closed** | Missing tenant context returns `ErrMissingTenant`, not empty results |
-| **Filter injection blocked** | User-provided `tenant_id`/`team_id`/`project_id` filters are rejected with `ErrTenantFilterInUserFilters` |
-| **Metadata enforced** | Tenant fields always set from authenticated context, never from user input |
+| Behavior                       | Description                                                                                                |
+|--------------------------------|------------------------------------------------------------------------------------------------------------|
+| **Fail-closed (project)**      | Missing `ProjectID` after defaulting returns `ErrMissingProject` — never silent cross-repo bleed           |
+| **Default resolver opt-in**    | Soft defaults only apply when `vectorstore.SetDefaultTenantResolver` was called; library tests retain `ErrMissingTenant` |
+| **Filter injection blocked**   | User-provided `tenant_id`/`team_id`/`project_id` filters are rejected with `ErrTenantFilterInUserFilters`   |
+| **Metadata enforced**          | Tenant fields always set from authenticated context, never from user input                                 |
 
 ### Configuration
 
-```go
-// PayloadIsolation is the default - no explicit config needed
-config := vectorstore.ChromemConfig{
-    Path:              "/data/vectorstore",
-    DefaultCollection: "memories",
-    VectorSize:        384,
-    // Isolation: vectorstore.NewPayloadIsolation(), // Default if not specified
-}
+```bash
+# Pick isolation strategy explicitly (default: payload)
+export CONTEXTD_ISOLATION_MODE=payload      # solo devs / teams
+export CONTEXTD_ISOLATION_MODE=filesystem   # regulated / on-prem
+export CONTEXTD_ISOLATION_MODE=none         # tests only
+```
 
-// Or explicitly set isolation mode
-config.Isolation = vectorstore.NewPayloadIsolation()    // Recommended
-config.Isolation = vectorstore.NewFilesystemIsolation() // Legacy
-config.Isolation = vectorstore.NewNoIsolation()         // Testing only!
+```yaml
+vectorstore:
+  provider: chromem
+  isolation_mode: payload   # payload | filesystem | none
 ```
 
 ### Key Types
 
-| Type | Purpose |
-|------|---------|
-| `TenantInfo` | Holds TenantID, TeamID, ProjectID |
-| `ContextWithTenant()` | Adds tenant info to context |
-| `TenantFromContext()` | Extracts tenant info (returns `ErrMissingTenant` if absent) |
-| `ApplyTenantFilters()` | Merges user filters with tenant filters, rejects injection attempts |
-| `IsolationMode` | Interface for isolation strategies |
+| Type                          | Purpose                                                                                |
+|-------------------------------|----------------------------------------------------------------------------------------|
+| `TenantInfo`                  | Holds TenantID, TeamID, ProjectID                                                       |
+| `ContextWithTenant()`         | Adds tenant info to context                                                             |
+| `TenantFromContext()`         | Extracts tenant info; falls back to registered default resolver before erroring         |
+| `SetDefaultTenantResolver()`  | Installs a process-wide resolver for soft defaults (wired in `cmd/contextd`)            |
+| `ErrMissingTenant`            | No tenant info and no resolvable default                                                |
+| `ErrMissingProject`           | Tenant resolved but ProjectID floor not met                                             |
+| `IsolationMode`               | Interface for isolation strategies                                                      |
 
 ### See Also
 
+- Tenancy spec: `docs/spec/tenancy/SPEC.md`
 - Security spec: `docs/spec/vector-storage/security.md`
 - Migration guide: `docs/migration/payload-filtering.md`
 - Package docs: `internal/vectorstore/README.md`

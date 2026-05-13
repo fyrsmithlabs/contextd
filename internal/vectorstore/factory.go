@@ -181,7 +181,16 @@ func NewStore(cfg *config.Config, embedder Embedder, logger *zap.Logger, opts ..
 		return nil, err
 	}
 
-	// Apply options (e.g., isolation mode)
+	// Apply isolation mode from config (if set), then any explicit options.
+	// Options run last so callers (e.g. tests) can override the configured mode.
+	if mode := cfg.VectorStore.IsolationMode; mode != "" {
+		iso, modeErr := IsolationModeFromString(mode)
+		if modeErr != nil {
+			store.Close()
+			return nil, fmt.Errorf("vectorstore isolation_mode: %w", modeErr)
+		}
+		store.SetIsolationMode(iso)
+	}
 	for _, opt := range opts {
 		opt(store)
 	}
