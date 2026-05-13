@@ -3,13 +3,12 @@ package http
 
 // StatusResponse is the response body for GET /api/v1/status.
 type StatusResponse struct {
-	Status      string             `json:"status"`
-	Version     string             `json:"version,omitempty"`
-	Services    map[string]string  `json:"services"`
-	Counts      StatusCounts       `json:"counts"`
-	Context     *ContextStatus     `json:"context,omitempty"`
-	Compression *CompressionStatus `json:"compression,omitempty"`
-	Memory      *MemoryStatus      `json:"memory,omitempty"`
+	Status   string            `json:"status"`
+	Version  string            `json:"version,omitempty"`
+	Services map[string]string `json:"services"`
+	Counts   StatusCounts      `json:"counts"`
+	Context  *ContextStatus    `json:"context,omitempty"`
+	Memory   *MemoryStatus     `json:"memory,omitempty"`
 }
 
 // StatusCounts contains count information for various resources.
@@ -22,13 +21,6 @@ type StatusCounts struct {
 type ContextStatus struct {
 	UsagePercent     int  `json:"usage_percent"`
 	ThresholdWarning bool `json:"threshold_warning"`
-}
-
-// CompressionStatus contains compression metrics.
-type CompressionStatus struct {
-	LastRatio       float64 `json:"last_ratio"`
-	LastQuality     float64 `json:"last_quality"`
-	OperationsTotal int64   `json:"operations_total"`
 }
 
 // MemoryStatus contains memory/reasoning bank metrics.

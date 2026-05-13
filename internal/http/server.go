@@ -164,7 +164,7 @@ type HealthResponse struct {
 	Metadata *MetadataHealthStatus `json:"metadata,omitempty"` // Optional metadata health
 }
 
-// StatusResponse, StatusCounts, ContextStatus, CompressionStatus, and MemoryStatus
+// StatusResponse, StatusCounts, ContextStatus, and MemoryStatus
 // are defined in types.go to enable reuse across packages.
 
 // Note: Checkpoint request/response types removed (CVE-2025-CONTEXTD-001 fix).
@@ -287,13 +287,6 @@ func (s *Server) handleStatus(c echo.Context) error {
 		services["scrubber"] = "unavailable"
 	}
 
-	// Check compression service
-	if s.registry.Compression() != nil {
-		services["compression"] = "ok"
-	} else {
-		services["compression"] = "unavailable"
-	}
-
 	// Get counts via VectorStore collections using shared helper
 	checkpoints, memories := CountFromCollections(ctx, s.registry.VectorStore())
 	counts := StatusCounts{
@@ -307,16 +300,6 @@ func (s *Server) handleStatus(c echo.Context) error {
 		Version:  s.config.Version,
 		Services: services,
 		Counts:   counts,
-	}
-
-	// Add compression stats if available
-	if s.registry.Compression() != nil {
-		compStats := s.registry.Compression().Stats()
-		resp.Compression = &CompressionStatus{
-			LastRatio:       compStats.LastRatio,
-			LastQuality:     compStats.LastQuality,
-			OperationsTotal: compStats.OperationsTotal,
-		}
 	}
 
 	// Add memory stats if available

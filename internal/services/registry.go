@@ -2,7 +2,6 @@ package services
 
 import (
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
-	"github.com/fyrsmithlabs/contextd/internal/compression"
 	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
@@ -23,7 +22,6 @@ type Registry interface {
 	Hooks() *hooks.HookManager
 	Distiller() *reasoningbank.Distiller
 	Scrubber() secrets.Scrubber
-	Compression() *compression.Service
 	VectorStore() vectorstore.Store
 }
 
@@ -37,7 +35,6 @@ type Options struct {
 	Hooks        *hooks.HookManager
 	Distiller    *reasoningbank.Distiller
 	Scrubber     secrets.Scrubber
-	Compression  *compression.Service
 	VectorStore  vectorstore.Store
 }
 
@@ -51,7 +48,6 @@ type registry struct {
 	hooks        *hooks.HookManager
 	distiller    *reasoningbank.Distiller
 	scrubber     secrets.Scrubber
-	compression  *compression.Service
 	vectorStore  vectorstore.Store
 }
 
@@ -66,7 +62,6 @@ func NewRegistry(opts Options) Registry {
 		hooks:        opts.Hooks,
 		distiller:    opts.Distiller,
 		scrubber:     opts.Scrubber,
-		compression:  opts.Compression,
 		vectorStore:  opts.VectorStore,
 	}
 }
@@ -79,5 +74,4 @@ func (r *registry) Troubleshoot() *troubleshoot.Service { return r.troubleshoot 
 func (r *registry) Hooks() *hooks.HookManager           { return r.hooks }
 func (r *registry) Distiller() *reasoningbank.Distiller { return r.distiller }
 func (r *registry) Scrubber() secrets.Scrubber          { return r.scrubber }
-func (r *registry) Compression() *compression.Service   { return r.compression }
 func (r *registry) VectorStore() vectorstore.Store      { return r.vectorStore }

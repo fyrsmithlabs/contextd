@@ -132,20 +132,6 @@ func TestFormatStatusline(t *testing.T) {
 		assert.Contains(t, result, "C:0.85")
 	})
 
-	t.Run("includes compression ratio when available", func(t *testing.T) {
-		status := &StatusResponse{
-			Status:   "ok",
-			Services: map[string]string{"memory": "ok"},
-			Counts:   StatusCounts{Memories: 5, Checkpoints: 2},
-			Compression: &CompressionStatus{
-				LastRatio: 2.5,
-			},
-		}
-
-		result := formatStatusline(status)
-
-		assert.Contains(t, result, "F:2.5x")
-	})
 }
 
 func TestGetHealthIcon(t *testing.T) {
