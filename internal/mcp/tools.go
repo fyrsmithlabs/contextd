@@ -70,8 +70,102 @@ func deriveProjectID(path string) (string, error) {
 	return projectID, nil
 }
 
+// resolvedTenant carries the validated, derived IDs that a handler typically
+// also passes to the underlying service request.
+type resolvedTenant struct {
+	ValidPath string
+	TenantID  string
+	TeamID    string
+	ProjectID string
+}
+
+// tenantCtx is the canonical helper for resolving tenant context inside MCP
+// tool handlers. It folds the previous validateAndDeriveProjectPath +
+// withTenantContext pair into a single call:
+//
+//  1. Validates projectPath (when provided) via sanitize.ValidateProjectPath.
+//  2. Derives tenantID from the path (git remote → git user → $USER → "local")
+//     when no explicit value is supplied.
+//  3. Derives projectID from the path basename when no explicit value is
+//     supplied. When both projectPath and an explicit projectID are empty
+//     the resulting context omits projectID - this is appropriate for
+//     team/org-scoped operations but means the caller is opting out of the
+//     project isolation floor.
+//  4. Validates and sanitizes all three identifiers (CWE-287 hardening).
+//  5. Returns a context carrying the resulting TenantInfo for vectorstore ops.
+//
+// Callers pass empty strings for IDs they want auto-derived.
+//
+// The returned context is always safe to use; on error the original ctx is
+// returned unchanged so deferred metrics can still pull request context. The
+// resolvedTenant carries the validated IDs that the caller typically also
+// threads into service request structs.
+func (s *Server) tenantCtx(ctx context.Context, projectPath, tenantID, teamID, projectID string) (context.Context, resolvedTenant, error) {
+	resolved := resolvedTenant{}
+
+	// Validate path if provided.
+	if projectPath != "" {
+		var err error
+		resolved.ValidPath, err = sanitize.ValidateProjectPath(projectPath)
+		if err != nil {
+			return ctx, resolved, fmt.Errorf("invalid project_path: %w", err)
+		}
+	}
+
+	// Derive tenantID from path if not explicit. Falls back through git
+	// remote → git user → $USER → "local" so solo devs never see ErrMissingTenant.
+	if tenantID == "" {
+		if resolved.ValidPath != "" {
+			tenantID = tenant.GetTenantIDForPath(resolved.ValidPath)
+		} else {
+			tenantID = tenant.GetDefaultTenantID()
+		}
+	}
+	if tenantID == "" {
+		return ctx, resolved, fmt.Errorf("tenant_id could not be derived; pass tenant_id explicitly or run from within a git repository")
+	}
+	if err := sanitize.ValidateTenantID(tenantID); err != nil {
+		return ctx, resolved, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+	resolved.TenantID = tenantID
+
+	// Derive projectID from path if not explicit. Empty projectID is a valid
+	// choice for team/org-scoped operations; downstream isolation enforces the
+	// project floor only when no TenantInfo is on the context at all.
+	if projectID == "" && resolved.ValidPath != "" {
+		derived, err := deriveProjectID(resolved.ValidPath)
+		if err != nil {
+			return ctx, resolved, err
+		}
+		projectID = derived
+	}
+	if projectID != "" {
+		if err := sanitize.ValidateProjectID(projectID); err != nil {
+			return ctx, resolved, fmt.Errorf("invalid project_id: %w", err)
+		}
+	}
+	resolved.ProjectID = projectID
+
+	// Team is optional but must validate when present.
+	if err := sanitize.ValidateTeamID(teamID); err != nil {
+		return ctx, resolved, fmt.Errorf("invalid team_id: %w", err)
+	}
+	resolved.TeamID = teamID
+
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  resolved.TenantID,
+		TeamID:    resolved.TeamID,
+		ProjectID: resolved.ProjectID,
+	})
+	return ctx, resolved, nil
+}
+
 // validateAndDeriveProjectPath validates a project path and derives tenant context info.
 // Returns the validated path, tenant ID, and project ID, or an error.
+//
+// Deprecated: Prefer tenantCtx for new handlers - it folds path validation,
+// derivation, sanitisation, and context wrapping into one call. Existing
+// callers below are tracked for migration in a follow-up PR.
 func (s *Server) validateAndDeriveProjectPath(path, explicitTenantID string) (validPath, tenantID, projectID string, err error) {
 	// Validate project path if provided
 	if path != "" {
@@ -198,8 +292,8 @@ func (s *Server) registerCheckpointTools() {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_save", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context (validates path, derives tenant/project, sets ctx).
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, checkpointSaveOutput{}, err
@@ -207,10 +301,10 @@ func (s *Server) registerCheckpointTools() {
 
 		saveReq := &checkpoint.SaveRequest{
 			SessionID:   args.SessionID,
-			TenantID:    tenantID,
+			TenantID:    rt.TenantID,
 			TeamID:      "", // Empty team is allowed
-			ProjectID:   projectID,
-			ProjectPath: validPath,
+			ProjectID:   rt.ProjectID,
+			ProjectPath: rt.ValidPath,
 			Name:        args.Name,
 			Description: args.Description,
 			Summary:     args.Summary,
@@ -220,13 +314,6 @@ func (s *Server) registerCheckpointTools() {
 			Threshold:   args.Threshold,
 			AutoCreated: args.AutoCreated,
 			Metadata:    args.Metadata,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = err
-			return nil, checkpointSaveOutput{}, err
 		}
 
 		cp, err := s.checkpointSvc.Save(ctx, saveReq)
@@ -262,8 +349,8 @@ func (s *Server) registerCheckpointTools() {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_list", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context (validates path, derives tenant/project, sets ctx).
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, checkpointListOutput{}, err
@@ -271,19 +358,12 @@ func (s *Server) registerCheckpointTools() {
 
 		listReq := &checkpoint.ListRequest{
 			SessionID:   args.SessionID,
-			TenantID:    tenantID,
+			TenantID:    rt.TenantID,
 			TeamID:      "", // Empty team is allowed
-			ProjectID:   projectID,
-			ProjectPath: validPath,
+			ProjectID:   rt.ProjectID,
+			ProjectPath: rt.ValidPath,
 			Limit:       args.Limit,
 			AutoOnly:    args.AutoOnly,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = err
-			return nil, checkpointListOutput{}, err
 		}
 
 		checkpoints, err := s.checkpointSvc.List(ctx, listReq)
@@ -442,36 +522,26 @@ func (s *Server) registerRemediationTools() {
 		var toolErr error
 		defer s.startMetrics(ctx, "remediation_search", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context. Remediation search is team/org-scoped, so we
+		// deliberately pass projectID="" - the helper will keep projectID empty
+		// on the resulting TenantInfo. Project floor isn't applicable for
+		// cross-project queries.
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, args.TeamID, "")
 		if err != nil {
 			toolErr = err
 			return nil, remediationSearchOutput{}, err
-		}
-
-		// Validate team_id if provided
-		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
-			toolErr = fmt.Errorf("invalid team_id: %w", err)
-			return nil, remediationSearchOutput{}, toolErr
 		}
 
 		searchReq := &remediation.SearchRequest{
 			Query:            args.Query,
-			TenantID:         tenantID,
+			TenantID:         rt.TenantID,
 			Scope:            args.Scope,
 			Category:         args.Category,
 			MinConfidence:    args.MinConfidence,
 			Limit:            args.Limit,
-			TeamID:           args.TeamID,
-			ProjectPath:      validPath,
+			TeamID:           rt.TeamID,
+			ProjectPath:      rt.ValidPath,
 			IncludeHierarchy: args.IncludeHierarchy,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
-		if err != nil {
-			toolErr = err
-			return nil, remediationSearchOutput{}, err
 		}
 
 		results, err := s.remediationSvc.Search(ctx, searchReq)

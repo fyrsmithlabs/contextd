@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -15,6 +16,54 @@ import (
 // Uses git user.name from global config if available, falls back to OS username.
 func GetDefaultTenantID() string {
 	return GetTenantIDForPath("")
+}
+
+// GetDefaultProjectID returns a best-effort project ID derived from the
+// current working directory. Returns "" when no project can be derived
+// (e.g. unreadable CWD); callers should treat that as fail-closed.
+//
+// This is the floor of contextd's isolation model: a solo developer running
+// without explicit configuration still gets per-repo separation by virtue of
+// the working directory's basename.
+func GetDefaultProjectID() string {
+	cwd, err := os.Getwd()
+	if err != nil || cwd == "" {
+		return ""
+	}
+	return GetProjectIDForPath(cwd)
+}
+
+// GetProjectIDForPath returns a sanitized project identifier derived from a
+// filesystem path. Returns "" if the path is empty or cannot be reduced to a
+// valid identifier.
+func GetProjectIDForPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	base := filepath.Base(filepath.Clean(path))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	id := sanitize.Identifier(strings.ToLower(base))
+	if id == "" || id == "default" {
+		// sanitize.Identifier returns "default" when no valid characters remain,
+		// which is not actually descriptive of the project — treat as unresolved.
+		return ""
+	}
+	return id
+}
+
+// DefaultsForPath returns a (tenantID, projectID) pair using the given path as
+// a hint. Empty path falls back to CWD-based derivation. This is the canonical
+// entry point used by vectorstore to resolve missing tenant context.
+func DefaultsForPath(path string) (tenantID, projectID string) {
+	tenantID = GetTenantIDForPath(path)
+	if path == "" {
+		projectID = GetDefaultProjectID()
+	} else {
+		projectID = GetProjectIDForPath(path)
+	}
+	return tenantID, projectID
 }
 
 // GetTenantIDForPath returns a tenant ID, preferring GitHub username from repo remote.

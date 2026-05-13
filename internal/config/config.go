@@ -74,10 +74,29 @@ type VectorStoreConfig struct {
 	Provider string         `koanf:"provider"` // "chromem" or "qdrant" (default: "chromem")
 	Chromem  ChromemConfig  `koanf:"chromem"`
 	Fallback FallbackConfig `koanf:"fallback"`
+
+	// IsolationMode selects the multi-tenant isolation strategy for the
+	// vector store. Valid values:
+	//
+	//   - "payload"    (default) Metadata-based filtering in shared collections.
+	//                  Recommended for solo devs and most teams.
+	//   - "filesystem" Separate database directory per tenant/project. For
+	//                  deployments that need physical isolation.
+	//   - "none"       No isolation. TESTING ONLY - provides zero security.
+	//
+	// Override via CONTEXTD_ISOLATION_MODE.
+	IsolationMode string `koanf:"isolation_mode"`
 }
 
 // Validate validates VectorStoreConfig.
 func (c *VectorStoreConfig) Validate() error {
+	switch c.IsolationMode {
+	case "", "payload", "filesystem", "none":
+		// ok
+	default:
+		return fmt.Errorf("unsupported isolation_mode: %s (supported: payload, filesystem, none)", c.IsolationMode)
+	}
+
 	switch c.Provider {
 	case "chromem":
 		return c.Chromem.Validate()
@@ -380,6 +399,9 @@ func Load() *Config {
 			DefaultCollection: getEnvString("CONTEXTD_VECTORSTORE_CHROMEM_COLLECTION", "contextd_default"),
 			VectorSize:        getEnvInt("CONTEXTD_VECTORSTORE_CHROMEM_VECTOR_SIZE", 384),
 		},
+		// Default to payload isolation: works for solo devs out of the box and
+		// scales to teams without changing storage layout.
+		IsolationMode: getEnvString("CONTEXTD_ISOLATION_MODE", "payload"),
 	}
 
 	// Statusline configuration
