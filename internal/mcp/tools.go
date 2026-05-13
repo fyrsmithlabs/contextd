@@ -264,9 +264,23 @@ type checkpointListInput struct {
 	AutoOnly    bool   `json:"auto_only,omitempty" jsonschema:"Only return auto-created checkpoints"`
 }
 
+// checkpointListRow is a typed row for checkpoint_list output. Field names
+// mirror checkpoint.Checkpoint so the SDK can derive a stable OutputSchema.
+type checkpointListRow struct {
+	ID          string    `json:"id" jsonschema:"Checkpoint ID"`
+	SessionID   string    `json:"session_id" jsonschema:"Session ID"`
+	Name        string    `json:"name" jsonschema:"Checkpoint name"`
+	Description string    `json:"description" jsonschema:"Scrubbed human-readable description"`
+	Summary     string    `json:"summary" jsonschema:"Scrubbed brief summary"`
+	TokenCount  int32     `json:"token_count" jsonschema:"Token count estimate"`
+	Threshold   float64   `json:"threshold" jsonschema:"Context threshold that triggered the checkpoint"`
+	AutoCreated bool      `json:"auto_created" jsonschema:"True if auto-created by system"`
+	CreatedAt   time.Time `json:"created_at" jsonschema:"Creation timestamp"`
+}
+
 type checkpointListOutput struct {
-	Checkpoints []map[string]interface{} `json:"checkpoints" jsonschema:"List of checkpoints"`
-	Count       int                      `json:"count" jsonschema:"Number of checkpoints returned"`
+	Checkpoints []checkpointListRow `json:"checkpoints" jsonschema:"List of checkpoints"`
+	Count       int                 `json:"count" jsonschema:"Number of checkpoints returned"`
 }
 
 type checkpointResumeInput struct {
@@ -288,6 +302,12 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrFalse(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_save", &toolErr)()
@@ -345,6 +365,10 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_list", &toolErr)()
@@ -372,22 +396,22 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointListOutput{}, toolErr
 		}
 
-		results := make([]map[string]interface{}, 0, len(checkpoints))
+		results := make([]checkpointListRow, 0, len(checkpoints))
 		for _, cp := range checkpoints {
 			// Scrub text fields uniformly (consistent with checkpoint_save/resume)
 			scrubbedSummary := s.scrubber.Scrub(cp.Summary).Scrubbed
 			scrubbedDesc := s.scrubber.Scrub(cp.Description).Scrubbed
 
-			results = append(results, map[string]interface{}{
-				"id":           cp.ID,
-				"session_id":   cp.SessionID,
-				"name":         cp.Name,
-				"description":  scrubbedDesc,
-				"summary":      scrubbedSummary,
-				"token_count":  cp.TokenCount,
-				"threshold":    cp.Threshold,
-				"auto_created": cp.AutoCreated,
-				"created_at":   cp.CreatedAt,
+			results = append(results, checkpointListRow{
+				ID:          cp.ID,
+				SessionID:   cp.SessionID,
+				Name:        cp.Name,
+				Description: scrubbedDesc,
+				Summary:     scrubbedSummary,
+				TokenCount:  cp.TokenCount,
+				Threshold:   cp.Threshold,
+				AutoCreated: cp.AutoCreated,
+				CreatedAt:   cp.CreatedAt,
 			})
 		}
 
@@ -470,9 +494,23 @@ type remediationSearchInput struct {
 	IncludeHierarchy bool                      `json:"include_hierarchy,omitempty" jsonschema:"Search parent scopes (project→team→org)"`
 }
 
+// remediationSearchRow is a typed row for remediation_search output. Fields
+// mirror remediation.ScoredRemediation so the SDK can derive an OutputSchema.
+type remediationSearchRow struct {
+	ID         string  `json:"id" jsonschema:"Remediation ID"`
+	Title      string  `json:"title" jsonschema:"Remediation title"`
+	Problem    string  `json:"problem" jsonschema:"Scrubbed problem description"`
+	RootCause  string  `json:"root_cause" jsonschema:"Scrubbed root cause analysis"`
+	Solution   string  `json:"solution" jsonschema:"Scrubbed solution description"`
+	Category   string  `json:"category" jsonschema:"Error category"`
+	Confidence float64 `json:"confidence" jsonschema:"Current confidence score (0-1)"`
+	Score      float64 `json:"score" jsonschema:"Relevance score (0-1)"`
+	UsageCount int64   `json:"usage_count" jsonschema:"Times this remediation has been retrieved"`
+}
+
 type remediationSearchOutput struct {
-	Remediations []map[string]interface{} `json:"remediations" jsonschema:"Matching remediations with scores"`
-	Count        int                      `json:"count" jsonschema:"Number of results"`
+	Remediations []remediationSearchRow `json:"remediations" jsonschema:"Matching remediations with scores"`
+	Count        int                    `json:"count" jsonschema:"Number of results"`
 }
 
 type remediationRecordInput struct {
@@ -518,6 +556,10 @@ func (s *Server) registerRemediationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "remediation_search", &toolErr)()
@@ -550,18 +592,27 @@ func (s *Server) registerRemediationTools() {
 			return nil, remediationSearchOutput{}, toolErr
 		}
 
-		remediations := make([]map[string]interface{}, 0, len(results))
+		remediations := make([]remediationSearchRow, 0, len(results))
 		for _, r := range results {
-			remediations = append(remediations, map[string]interface{}{
-				"id":          r.Remediation.ID,
-				"title":       r.Remediation.Title,
-				"problem":     r.Remediation.Problem,
-				"root_cause":  r.Remediation.RootCause,
-				"solution":    r.Remediation.Solution,
-				"category":    string(r.Remediation.Category),
-				"confidence":  r.Remediation.Confidence,
-				"score":       r.Score,
-				"usage_count": r.Remediation.UsageCount,
+			// Scrub free-form text fields (HANDLER-GUIDE §7.1).
+			problem := r.Remediation.Problem
+			rootCause := r.Remediation.RootCause
+			solution := r.Remediation.Solution
+			if s.scrubber != nil {
+				problem = s.scrubber.Scrub(problem).Scrubbed
+				rootCause = s.scrubber.Scrub(rootCause).Scrubbed
+				solution = s.scrubber.Scrub(solution).Scrubbed
+			}
+			remediations = append(remediations, remediationSearchRow{
+				ID:         r.Remediation.ID,
+				Title:      r.Remediation.Title,
+				Problem:    problem,
+				RootCause:  rootCause,
+				Solution:   solution,
+				Category:   string(r.Remediation.Category),
+				Confidence: r.Remediation.Confidence,
+				Score:      r.Score,
+				UsageCount: r.Remediation.UsageCount,
 			})
 		}
 
@@ -1608,7 +1659,13 @@ func (s *Server) registerFoldingTools() {
 	// branch_create - Create a new context branch
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_create",
-		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
+		Description: "Open an isolated context-folding branch with its own token budget for a complex sub-task; auto-cleaned on return.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrFalse(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_create", &toolErr)()
@@ -1652,7 +1709,13 @@ func (s *Server) registerFoldingTools() {
 	// branch_return - Return from a branch with results
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_return",
-		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
+		Description: "Close a context-folding branch with a scrubbed result message; force-returns child branches first.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrTrue(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_return", &toolErr)()
@@ -1684,7 +1747,11 @@ func (s *Server) registerFoldingTools() {
 	// branch_status - Get branch status
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_status",
-		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
+		Description: "Report the status, depth, and budget usage of a specific branch or the active branch for a session.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_status", &toolErr)()
