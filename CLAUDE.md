@@ -358,45 +358,29 @@ pkg/api/v1/            # Proto definitions (unused - simplified away)
 
 ---
 
-## Temporal Workflows (Automation)
+## Plugin Update Check (Automation)
 
-The repository includes Temporal-based workflows for internal automation tasks.
+The repository runs a lightweight GitHub Actions workflow to remind PR
+authors about Priority #3 (update the Claude plugin when code changes
+require it).
 
-### Plugin Update Validation
+**Location:** `.github/workflows/plugin-check.yml`
 
-**Location:** `internal/workflows/`
+**Triggers:** `pull_request` (opened, synchronize, reopened)
 
-Automatically validates that Claude plugin files are updated when code changes require it.
+**Behavior:**
+- Inspects the PR's changed files via `gh pr view --json files`.
+- If files under `cmd/`, `internal/`, `pkg/`, `go.mod`, or `go.sum`
+  changed AND no files under `marketplace/plugins/contextd/` changed,
+  posts a reminder comment linking back to Priority #3 in this file.
+- Skipped for PRs authored by `dependabot[bot]` or labelled
+  `skip-plugin-check`.
+- Uses the default `GITHUB_TOKEN` — no third-party action dependencies.
 
-**Triggers:**
-- PR opened, synchronized, or reopened
-
-**Process:**
-1. Fetch PR file changes via GitHub API
-2. Categorize files (code vs plugin vs other)
-3. Validate plugin schemas if modified
-4. Post reminder or success comment to PR
-
-**Components:**
-- **Workflow:** `PluginUpdateValidationWorkflow` (orchestration)
-- **Activities:** GitHub API calls, file categorization, schema validation
-- **Worker:** `cmd/plugin-validator/main.go` (executes workflows)
-- **Webhook:** `cmd/github-webhook/main.go` (receives GitHub events)
-
-**Running:**
-```bash
-# Set environment variables
-export GITHUB_TOKEN=ghp_xxx
-export GITHUB_WEBHOOK_SECRET=your_secret
-
-# Start full stack
-docker-compose -f deploy/docker-compose.temporal.yml up
-
-# Access Temporal UI
-open http://localhost:8080
-```
-
-**See:** `internal/workflows/README.md` for complete documentation
+Plugin schema validation, if needed, can be added to the same workflow
+as plain `jq`/`go run` steps. The previous Temporal-based stack under
+`internal/workflows/` was removed because a distributed workflow engine
+was overkill for what fits in ~50 lines of YAML.
 
 ---
 
