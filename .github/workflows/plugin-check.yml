@@ -1,0 +1,57 @@
+# Plugin Update Reminder
+# Reminds PR authors to update the fyrsmithlabs/marketplace plugin when
+# code changes (cmd/, internal/, pkg/, go.mod, go.sum) ship without a
+# matching change under marketplace/plugins/contextd/.
+#
+# See CLAUDE.md Priority #3 for the underlying policy.
+
+name: Plugin Update Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  remind:
+    name: Remind to update plugin
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-plugin-check')
+
+    steps:
+      - name: Inspect changed files
+        id: changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          files=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json files --jq '.files[].path')
+          echo "$files"
+          code=0
+          plugin=0
+          while IFS= read -r f; do
+            case "$f" in
+              cmd/*|internal/*|pkg/*|go.mod|go.sum) code=1 ;;
+              marketplace/plugins/contextd/*) plugin=1 ;;
+            esac
+          done <<< "$files"
+          {
+            echo "code=$code"
+            echo "plugin=$plugin"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post reminder comment
+        if: steps.changes.outputs.code == '1' && steps.changes.outputs.plugin == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
+            "Heads up: this PR touches code under \`cmd/\`, \`internal/\`, \`pkg/\`, or \`go.{mod,sum}\` but does not update \`marketplace/plugins/contextd/\`. Per CLAUDE.md Priority #3, please update the fyrsmithlabs/marketplace plugin or apply the \`skip-plugin-check\` label if no update is needed."

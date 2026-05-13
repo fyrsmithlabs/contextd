@@ -103,17 +103,6 @@ All agents created with consistent pattern:
 ```
 ✓ cmd/ctxd/init_test.go - All passing
 ✓ cmd/ctxd/statusline_test.go - All passing
-✓ internal/workflows/*_test.go - All passing (16/16)
-```
-
-### Workflow Tests (Plugin Validation)
-```
-✓ TestPluginUpdateValidationWorkflow - All 3 subtests passing
-✓ TestCategorizeFilesActivity - All 6 subtests passing
-✓ TestValidatePluginSchemasActivity - All 2 subtests passing
-✓ TestParseValidationResponse - All 4 subtests passing
-✓ TestBuildValidationComment - All 3 subtests passing
-✓ TestBuildValidationPrompt - Passing
 ```
 
 ### Integration Tests

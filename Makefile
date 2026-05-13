@@ -33,12 +33,6 @@ help:
 	@echo "  make test-semantic-real Run semantic similarity tests with real embeddings"
 	@echo "  make test-integration Run integration tests (requires Docker)"
 	@echo "  make test-integration-cleanup Clean up integration test resources"
-	@echo "  make test-integration-framework Run framework tests (no Docker)"
-	@echo "  make test-integration-all-suites Run all integration suites"
-	@echo "  make test-integration-policy Suite A: Policy compliance"
-	@echo "  make test-integration-bugfix Suite C: Bug-fix learning"
-	@echo "  make test-integration-multisession Suite D: Multi-session"
-	@echo "  make test-integration-secrets Suite A: Secrets handling"
 	@echo "  make coverage       Run tests with coverage report"
 	@echo "  make cover          Alias for coverage"
 	@echo "  make test-setup     Setup test profile"
@@ -349,38 +343,6 @@ test-integration-cleanup:
 	@echo "Cleaning up integration test resources..."
 	@docker-compose -f test/docker-compose.test.yml down -v
 	@echo "✓ Integration test cleanup complete"
-
-# Integration framework tests (no external services needed)
-test-integration-framework:
-	@echo "🧪 Running integration framework tests..."
-	@go test -v -count=1 ./test/integration/framework/...
-	@echo "✓ Integration framework tests passed"
-
-test-integration-policy:
-	@echo "🧪 Running Suite A - Policy compliance tests..."
-	@go test -v -count=1 -run "TestSuiteA" ./test/integration/framework/...
-	@echo "✓ Policy compliance tests passed"
-
-test-integration-bugfix:
-	@echo "🧪 Running Suite C - Bug-fix learning tests..."
-	@go test -v -count=1 -run "TestSuiteC" ./test/integration/framework/...
-	@echo "✓ Bug-fix learning tests passed"
-
-test-integration-multisession:
-	@echo "🧪 Running Suite D - Multi-session tests..."
-	@go test -v -count=1 -run "TestSuiteD" ./test/integration/framework/...
-	@echo "✓ Multi-session tests passed"
-
-test-integration-secrets:
-	@echo "🧪 Running Suite A - Secrets tests..."
-	@go test -v -count=1 -run "TestSuiteA_Secrets" ./test/integration/framework/...
-	@echo "✓ Secrets tests passed"
-
-test-integration-all-suites: test-integration-policy test-integration-bugfix test-integration-multisession
-	@echo ""
-	@echo "========================================"
-	@echo "✅ All integration test suites passed!"
-	@echo "========================================"
 
 # Development setup targets
 deps: install-tools install-trufflehog install-pre-commit install-air
