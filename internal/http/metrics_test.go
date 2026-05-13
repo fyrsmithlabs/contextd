@@ -110,8 +110,8 @@ func TestNormalizePath(t *testing.T) {
 	}{
 		{"", "/"},
 		{"/health", "/health"},
-		{"/api/v1/scrub", "/api/v1/scrub"},
 		{"/api/v1/status", "/api/v1/status"},
+		{"/api/v1/health/metadata", "/api/v1/health/metadata"},
 	}
 
 	for _, tt := range tests {
