@@ -8,7 +8,6 @@ import (
 
 	"github.com/fyrsmithlabs/contextd/internal/conversation"
 	"github.com/fyrsmithlabs/contextd/internal/sanitize"
-	"github.com/fyrsmithlabs/contextd/internal/tenant"
 )
 
 // ===== CONVERSATION TOOLS =====
@@ -17,7 +16,7 @@ type conversationIndexInput struct {
 	ProjectPath string   `json:"project_path" jsonschema:"required,Path to project to index conversations for"`
 	TenantID    string   `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (auto-derived from project_path via git remote if not provided)"`
 	SessionIDs  []string `json:"session_ids,omitempty" jsonschema:"Specific session IDs to index (empty = all)"`
-	EnableLLM   bool     `json:"enable_llm,omitempty" jsonschema:"Enable LLM-based decision extraction (default: false). NOTE: LLM summarization is not yet implemented - this flag is reserved for future use. Currently uses heuristic extraction only."`
+	EnableLLM   bool     `json:"enable_llm,omitempty" jsonschema:"Enable LLM-based decision extraction (reserved; not yet implemented)"`
 	Force       bool     `json:"force,omitempty" jsonschema:"Force reindexing of existing sessions (default: false)"`
 }
 
@@ -37,14 +36,28 @@ type conversationSearchInput struct {
 	Tags        []string `json:"tags,omitempty" jsonschema:"Filter by tags"`
 	FilePath    string   `json:"file_path,omitempty" jsonschema:"Filter by file path discussed"`
 	Domain      string   `json:"domain,omitempty" jsonschema:"Filter by domain (e.g., 'kubernetes', 'frontend', 'database')"`
-	Limit       int      `json:"limit,omitempty" jsonschema:"Maximum results to return (default: 10)"`
+	Limit       int      `json:"limit,omitempty" jsonschema:"Maximum results to return (default: 10, max: 100)"`
+}
+
+// conversationSearchRow is a single typed search result row. Replaces the
+// previous untyped map[string]interface{} so the SDK can emit a complete
+// output schema (see HANDLER-GUIDE.md §4.4).
+type conversationSearchRow struct {
+	ID        string   `json:"id" jsonschema:"Document identifier"`
+	SessionID string   `json:"session_id" jsonschema:"Originating conversation session ID"`
+	Type      string   `json:"type" jsonschema:"Document type: message, decision, or summary"`
+	Content   string   `json:"content" jsonschema:"Document content (secret-scrubbed)"`
+	Score     float64  `json:"score" jsonschema:"Relevance score (0-1)"`
+	Timestamp int64    `json:"timestamp" jsonschema:"Document timestamp (Unix seconds)"`
+	Tags      []string `json:"tags,omitempty" jsonschema:"Document tags, if any"`
+	Domain    string   `json:"domain,omitempty" jsonschema:"Document domain, if classified"`
 }
 
 type conversationSearchOutput struct {
-	Query   string                   `json:"query" jsonschema:"Search query used"`
-	Results []map[string]interface{} `json:"results" jsonschema:"Search results with score and content"`
-	Total   int                      `json:"total" jsonschema:"Total number of results"`
-	TookMs  int64                    `json:"took_ms" jsonschema:"Search duration in milliseconds"`
+	Query   string                  `json:"query" jsonschema:"Search query used"`
+	Results []conversationSearchRow `json:"results" jsonschema:"Search results with score and content"`
+	Total   int                     `json:"total" jsonschema:"Total number of results"`
+	TookMs  int64                   `json:"took_ms" jsonschema:"Search duration in milliseconds"`
 }
 
 func (s *Server) registerConversationTools() {
@@ -53,51 +66,44 @@ func (s *Server) registerConversationTools() {
 		return
 	}
 
-	// conversation_index
+	// conversation_index — append-only write touching the vectorstore.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "conversation_index",
-		Description: "Index Claude Code conversation files for a project. Parses JSONL files, extracts messages and decisions, and stores them for semantic search. Note: LLM-based decision extraction (enable_llm) is not yet implemented - currently uses heuristic pattern matching only.",
+		Description: "Index Claude Code conversation JSONL files for a project, storing messages and heuristic decisions for semantic search.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrFalse(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationIndexInput) (*mcp.CallToolResult, conversationIndexOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "conversation_index", &toolErr)()
 
-		// Validate project_path (CWE-22 path traversal protection)
+		// Reject LLM requests explicitly until implemented.
+		if args.EnableLLM {
+			toolErr = fmt.Errorf("enable_llm=true is not yet supported: LLM-based decision extraction is not implemented; set enable_llm=false or omit the parameter to use heuristic extraction")
+			return nil, conversationIndexOutput{}, toolErr
+		}
+
+		// project_path is required for conversation_index — surface that
+		// explicitly before tenantCtx so the error names the missing field.
 		if args.ProjectPath == "" {
 			toolErr = fmt.Errorf("project_path is required")
 			return nil, conversationIndexOutput{}, toolErr
 		}
-		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
-		if err != nil {
-			toolErr = fmt.Errorf("invalid project_path: %w", err)
-			return nil, conversationIndexOutput{}, toolErr
-		}
 
-		tenantID := args.TenantID
-		if tenantID == "" {
-			tenantID = tenant.GetTenantIDForPath(validPath)
-		}
-		// Validate tenant_id format (CWE-287 authentication bypass protection)
-		if tenantID == "" {
-			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
-			return nil, conversationIndexOutput{}, toolErr
-		}
-		if err := sanitize.ValidateTenantID(tenantID); err != nil {
-			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
+		if err != nil {
+			toolErr = err
 			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		opts := conversation.IndexOptions{
-			ProjectPath: validPath,
-			TenantID:    tenantID,
+			ProjectPath: rt.ValidPath,
+			TenantID:    rt.TenantID,
 			SessionIDs:  args.SessionIDs,
 			EnableLLM:   args.EnableLLM,
 			Force:       args.Force,
-		}
-
-		// Reject LLM requests explicitly until implemented
-		if args.EnableLLM {
-			toolErr = fmt.Errorf("enable_llm=true is not yet supported: LLM-based decision extraction is not implemented; set enable_llm=false or omit the parameter to use heuristic extraction")
-			return nil, conversationIndexOutput{}, toolErr
 		}
 
 		result, err := s.conversationSvc.Index(ctx, opts)
@@ -124,26 +130,30 @@ func (s *Server) registerConversationTools() {
 		}, output, nil
 	})
 
-	// conversation_search
+	// conversation_search — pure read touching the vectorstore.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "conversation_search",
 		Description: "Search indexed Claude Code conversations for relevant past context, decisions, and patterns.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args conversationSearchInput) (*mcp.CallToolResult, conversationSearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "conversation_search", &toolErr)()
 
-		// Validate project_path (CWE-22 path traversal protection)
 		if args.ProjectPath == "" {
 			toolErr = fmt.Errorf("project_path is required")
 			return nil, conversationSearchOutput{}, toolErr
 		}
-		validPath, err := sanitize.ValidateProjectPath(args.ProjectPath)
+
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
-			toolErr = fmt.Errorf("invalid project_path: %w", err)
+			toolErr = err
 			return nil, conversationSearchOutput{}, toolErr
 		}
 
-		// Validate file_path filter if provided (CWE-22 path traversal protection)
+		// Validate file_path filter if provided (CWE-22 path traversal protection).
 		validFilePath := args.FilePath
 		if validFilePath != "" {
 			validFilePath, err = sanitize.ValidatePath(args.FilePath, "")
@@ -153,35 +163,29 @@ func (s *Server) registerConversationTools() {
 			}
 		}
 
-		tenantID := args.TenantID
-		if tenantID == "" {
-			tenantID = tenant.GetTenantIDForPath(validPath)
-		}
-		// Validate tenant_id format (CWE-287 authentication bypass protection)
-		if tenantID == "" {
-			toolErr = fmt.Errorf("tenant_id is required: provide tenant_id explicitly or ensure project_path is set")
-			return nil, conversationSearchOutput{}, toolErr
-		}
-		if err := sanitize.ValidateTenantID(tenantID); err != nil {
-			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
-			return nil, conversationSearchOutput{}, toolErr
-		}
-
-		// Convert string types to DocumentType
+		// Convert string types to DocumentType.
 		var docTypes []conversation.DocumentType
 		for _, t := range args.Types {
 			docTypes = append(docTypes, conversation.DocumentType(t))
 		}
 
+		limit := args.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+		if limit > 100 {
+			limit = 100
+		}
+
 		opts := conversation.SearchOptions{
 			Query:       args.Query,
-			ProjectPath: validPath,
-			TenantID:    tenantID,
+			ProjectPath: rt.ValidPath,
+			TenantID:    rt.TenantID,
 			Types:       docTypes,
 			Tags:        args.Tags,
 			FilePath:    validFilePath,
 			Domain:      args.Domain,
-			Limit:       args.Limit,
+			Limit:       limit,
 		}
 
 		result, err := s.conversationSvc.Search(ctx, opts)
@@ -190,35 +194,28 @@ func (s *Server) registerConversationTools() {
 			return nil, conversationSearchOutput{}, toolErr
 		}
 
-		// Convert results to maps
-		results := make([]map[string]interface{}, 0, len(result.Results))
+		// Convert results to typed rows, scrubbing content along the way.
+		rows := make([]conversationSearchRow, 0, len(result.Results))
 		for _, hit := range result.Results {
-			// Scrub content before returning
-			scrubbedContent := hit.Document.Content
+			content := hit.Document.Content
 			if s.scrubber != nil {
-				scrubbedContent = s.scrubber.Scrub(hit.Document.Content).Scrubbed
+				content = s.scrubber.Scrub(hit.Document.Content).Scrubbed
 			}
-
-			r := map[string]interface{}{
-				"id":         hit.Document.ID,
-				"session_id": hit.Document.SessionID,
-				"type":       string(hit.Document.Type),
-				"content":    scrubbedContent,
-				"score":      hit.Score,
-				"timestamp":  hit.Document.Timestamp.Unix(),
-			}
-			if len(hit.Document.Tags) > 0 {
-				r["tags"] = hit.Document.Tags
-			}
-			if hit.Document.Domain != "" {
-				r["domain"] = hit.Document.Domain
-			}
-			results = append(results, r)
+			rows = append(rows, conversationSearchRow{
+				ID:        hit.Document.ID,
+				SessionID: hit.Document.SessionID,
+				Type:      string(hit.Document.Type),
+				Content:   content,
+				Score:     hit.Score,
+				Timestamp: hit.Document.Timestamp.Unix(),
+				Tags:      hit.Document.Tags,
+				Domain:    hit.Document.Domain,
+			})
 		}
 
 		output := conversationSearchOutput{
 			Query:   result.Query,
-			Results: results,
+			Results: rows,
 			Total:   result.Total,
 			TookMs:  result.Took.Milliseconds(),
 		}

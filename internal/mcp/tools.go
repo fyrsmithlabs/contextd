@@ -1118,13 +1118,25 @@ type troubleshootDiagnoseOutput struct {
 }
 
 func (s *Server) registerTroubleshootTools() {
-	// troubleshoot_diagnose
+	// troubleshoot_diagnose — pure read but may invoke an LLM, so
+	// OpenWorldHint=true per HANDLER-GUIDE.md §2 ("external-world reads").
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "troubleshoot_diagnose",
-		Description: "Diagnose an error using AI and known patterns",
+		Description: "Diagnose an error using known patterns plus optional LLM-generated hypotheses.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrTrue(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args troubleshootDiagnoseInput) (*mcp.CallToolResult, troubleshootDiagnoseOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "troubleshoot_diagnose", &toolErr)()
+
+		// Reject empty error_message before reaching the service so the
+		// error names the missing field explicitly (HANDLER-GUIDE §3.5).
+		if args.ErrorMessage == "" {
+			toolErr = fmt.Errorf("error_message is required")
+			return nil, troubleshootDiagnoseOutput{}, toolErr
+		}
 
 		diagnosis, err := s.troubleshootSvc.Diagnose(ctx, args.ErrorMessage, args.ErrorContext)
 		if err != nil {
@@ -1132,11 +1144,24 @@ func (s *Server) registerTroubleshootTools() {
 			return nil, troubleshootDiagnoseOutput{}, toolErr
 		}
 
+		// Scrub free-form text fields that may carry secret-bearing error
+		// strings or LLM output (HANDLER-GUIDE §7).
+		rootCause := diagnosis.RootCause
+		recommendations := diagnosis.Recommendations
+		if s.scrubber != nil {
+			rootCause = s.scrubber.Scrub(rootCause).Scrubbed
+			scrubbedRecs := make([]string, len(recommendations))
+			for i, r := range recommendations {
+				scrubbedRecs[i] = s.scrubber.Scrub(r).Scrubbed
+			}
+			recommendations = scrubbedRecs
+		}
+
 		output := troubleshootDiagnoseOutput{
 			ErrorMessage:    diagnosis.ErrorMessage,
-			RootCause:       diagnosis.RootCause,
+			RootCause:       rootCause,
 			Hypotheses:      diagnosis.Hypotheses,
-			Recommendations: diagnosis.Recommendations,
+			Recommendations: recommendations,
 			RelatedPatterns: diagnosis.RelatedPatterns,
 			Confidence:      diagnosis.Confidence,
 		}

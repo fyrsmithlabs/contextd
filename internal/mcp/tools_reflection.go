@@ -19,7 +19,7 @@ import (
 
 type reflectReportInput struct {
 	ProjectID           string `json:"project_id" jsonschema:"required,Project identifier"`
-	ProjectPath         string `json:"project_path,omitempty" jsonschema:"Project path for repository context"`
+	ProjectPath         string `json:"project_path,omitempty" jsonschema:"Project path for repository context (used for tenant derivation and report persistence)"`
 	PeriodDays          int    `json:"period_days,omitempty" jsonschema:"Number of days to analyze (default: 30)"`
 	IncludePatterns     bool   `json:"include_patterns,omitempty" jsonschema:"Include pattern analysis (default: true)"`
 	IncludeCorrelations bool   `json:"include_correlations,omitempty" jsonschema:"Include correlation analysis (default: true)"`
@@ -66,15 +66,22 @@ func (s *Server) registerReflectionTools() {
 	reporter := reflection.NewReporter(s.reasoningbankSvc)
 	analyzer := reflection.NewAnalyzer(s.reasoningbankSvc)
 
-	// reflect_report - Generate a reflection report
+	// reflect_report — pure read; underlying reasoningbank.ListMemories
+	// requires a TenantInfo on ctx, so we thread tenantCtx even though the
+	// input does not expose tenant_id directly.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "reflect_report",
-		Description: "Generate a self-reflection report analyzing memories and patterns for a project. Returns insights about behavior patterns, success/failure trends, and recommendations.",
+		Description: "Generate a self-reflection report on memories and patterns for a project, with optional persistence to disk.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectReportInput) (*mcp.CallToolResult, reflectReportOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "reflect_report", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
+		// Validate project_id up front so the error explicitly names the
+		// required identifier rather than blaming derivation downstream.
 		if args.ProjectID == "" {
 			toolErr = fmt.Errorf("project_id is required")
 			return nil, reflectReportOutput{}, toolErr
@@ -84,12 +91,14 @@ func (s *Server) registerReflectionTools() {
 			return nil, reflectReportOutput{}, toolErr
 		}
 
-		// Validate project_path if provided (CWE-22 path traversal protection)
-		if args.ProjectPath != "" {
-			if _, err := sanitize.ValidateProjectPath(args.ProjectPath); err != nil {
-				toolErr = fmt.Errorf("invalid project_path: %w", err)
-				return nil, reflectReportOutput{}, toolErr
-			}
+		// Reflection reads from the reasoningbank vectorstore, so a tenant
+		// MUST be on the context. We pass the explicit project_id through so
+		// derivation can't silently shift the floor away from the caller's
+		// intent.
+		ctx, _, err := s.tenantCtx(ctx, args.ProjectPath, "", "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, reflectReportOutput{}, toolErr
 		}
 
 		// Set defaults
@@ -119,6 +128,13 @@ func (s *Server) registerReflectionTools() {
 		format := args.Format
 		if format == "" {
 			format = "json"
+		}
+		// Reject unknown formats up front (HANDLER-GUIDE §3.3 enum validation).
+		switch format {
+		case "json", "text", "markdown":
+		default:
+			toolErr = fmt.Errorf("invalid format %q: must be one of json, text, markdown", format)
+			return nil, reflectReportOutput{}, toolErr
 		}
 
 		// Calculate period
@@ -191,21 +207,33 @@ func (s *Server) registerReflectionTools() {
 		}, output, nil
 	})
 
-	// reflect_analyze - Analyze patterns in memories
+	// reflect_analyze — pure read; like reflect_report, the underlying
+	// service touches the vectorstore so we still thread tenantCtx.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "reflect_analyze",
-		Description: "Analyze memories for behavioral patterns. Returns patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
+		Description: "Analyze memories for behavioral patterns grouped by category (success, failure, recurring, improving, declining) with confidence scores.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reflectAnalyzeInput) (*mcp.CallToolResult, reflectAnalyzeOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "reflect_analyze", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
 		if args.ProjectID == "" {
 			toolErr = fmt.Errorf("project_id is required")
 			return nil, reflectAnalyzeOutput{}, toolErr
 		}
 		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
 			toolErr = fmt.Errorf("invalid project_id: %w", err)
+			return nil, reflectAnalyzeOutput{}, toolErr
+		}
+
+		// No project_path input on this tool; tenantCtx falls back to the
+		// default tenant resolver while keeping the explicit project_id.
+		ctx, _, err := s.tenantCtx(ctx, "", "", "", args.ProjectID)
+		if err != nil {
+			toolErr = err
 			return nil, reflectAnalyzeOutput{}, toolErr
 		}
 
@@ -223,6 +251,9 @@ func (s *Server) registerReflectionTools() {
 		maxPatterns := args.MaxPatterns
 		if maxPatterns <= 0 {
 			maxPatterns = 20
+		}
+		if maxPatterns > 100 {
+			maxPatterns = 100
 		}
 
 		opts := reflection.AnalyzeOptions{
