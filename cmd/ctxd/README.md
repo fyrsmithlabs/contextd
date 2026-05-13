@@ -1,6 +1,6 @@
 # ctxd CLI
 
-`ctxd` is a command-line interface for interacting with the contextd HTTP server. It provides commands for scrubbing secrets from files or stdin and checking server health.
+`ctxd` is a command-line interface for interacting with the contextd HTTP server. It provides commands for checking server health and managing checkpoints. Secret scrubbing is exposed via the MCP transport rather than the CLI.
 
 ## Installation
 
@@ -48,28 +48,6 @@ The ONNX runtime is downloaded from GitHub releases and installed to `~/.config/
 **Skip if:**
 - `ONNX_PATH` environment variable is set (uses your existing installation)
 - Runtime is already installed (use `--force` to re-download)
-
-### Scrub Secrets
-
-Scrub secrets from files or stdin using the contextd secret scrubber.
-
-```bash
-# Scrub a file
-ctxd scrub .env
-
-# Scrub from stdin
-cat output.log | ctxd scrub -
-
-# Use a different server
-ctxd scrub --server http://localhost:8080 .env
-
-# Scrub and redirect output
-ctxd scrub secrets.txt > clean.txt
-```
-
-**Output:**
-- Scrubbed content is written to stdout
-- If secrets were found, a summary is written to stderr: `[ctxd] Scrubbed N secret(s)`
 
 ### Health Check
 
@@ -292,13 +270,11 @@ Currently, ctxd does not support environment variables for configuration. Use th
 
 ctxd communicates with the following contextd HTTP API endpoints:
 
-- `POST /api/v1/scrub`: Scrub secrets from content
-  - Request: `{"content": "..."}`
-  - Response: `{"content": "...", "findings_count": 0}`
 - `GET /health`: Check server health
   - Response: `{"status": "ok"}`
 
-**Note**: HTTP checkpoint endpoints (`/checkpoint/save`, `/checkpoint/list`, `/checkpoint/resume`) were removed for security reasons (CVE-2025-CONTEXTD-001). Use MCP tools for checkpoint operations:
+**Note**: HTTP secret-scrubbing (`/api/v1/scrub`) and checkpoint endpoints (`/checkpoint/save`, `/checkpoint/list`, `/checkpoint/resume`) were removed. Use MCP tools instead:
+- `secrets_scrub` - Scrub secrets from content
 - `checkpoint_save` - Save a checkpoint
 - `checkpoint_list` - List available checkpoints
 - `checkpoint_resume` - Resume from a checkpoint
@@ -311,29 +287,11 @@ ctxd communicates with the following contextd HTTP API endpoints:
 # Start the contextd HTTP server (in another terminal)
 contextd --http
 
-# Scrub a configuration file
-ctxd scrub config.yaml > config.clean.yaml
-
 # Check if the server is running
 ctxd health
 
-# Scrub command output
-docker inspect container_id | ctxd scrub -
-```
-
-### Pipeline Usage
-
-```bash
-# Scrub logs before sharing
-kubectl logs pod-name | ctxd scrub - > safe-logs.txt
-
-# Scrub environment variables
-env | ctxd scrub - | grep CONTEXT
-
-# Clean up multiple files
-for f in *.log; do
-  ctxd scrub "$f" > "clean/$f"
-done
+# Save a checkpoint before risky work
+ctxd checkpoint save --tenant-id dahendel --name "Before refactor"
 ```
 
 ## Development
@@ -351,14 +309,13 @@ The ctxd CLI can be tested manually:
 ```bash
 # Test help output
 ./ctxd --help
-./ctxd scrub --help
 ./ctxd health --help
 
 # Test version
 ./ctxd --version
 
-# Test with running server
-echo "secret: sk-1234" | ./ctxd scrub -
+# Test against a running server
+./ctxd health
 ```
 
 ## Troubleshooting
@@ -366,43 +323,13 @@ echo "secret: sk-1234" | ./ctxd scrub -
 ### Connection Refused
 
 ```
-Error: failed to send request to http://localhost:9090/api/v1/scrub:
+Error: Failed to connect to http://localhost:9090/health:
 dial tcp 127.0.0.1:9090: connect: connection refused
 ```
 
 **Solution**: Ensure the contextd HTTP server is running:
 ```bash
 contextd --http
-```
-
-### Server returned status 400
-
-```
-Error: Server returned status 400: invalid request body
-```
-
-**Solution**: Ensure you're providing content to scrub:
-```bash
-# Wrong - empty input
-echo "" | ctxd scrub -
-
-# Right
-echo "content" | ctxd scrub -
-```
-
-### No content to scrub
-
-```
-Error: no content to scrub
-```
-
-**Solution**: Provide input via file or stdin:
-```bash
-# Provide file
-ctxd scrub .env
-
-# Provide stdin
-cat .env | ctxd scrub -
 ```
 
 ## License

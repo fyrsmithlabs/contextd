@@ -167,9 +167,6 @@ Fast tests with deterministic fake embedder (no ONNX runtime required):
 # Unit tests: fixtures and metrics
 go test ./internal/vectorstore/testdata
 go test ./internal/vectorstore -run QualityMetrics
-
-# Integration tests: fake embeddings
-go test ./test/integration/framework -run SemanticSimilarity
 ```
 
 **Use Case:** Fast CI/CD checks, local development
@@ -181,9 +178,6 @@ Tests with actual FastEmbed models (requires ONNX runtime):
 ```bash
 # Real embedding tests (unit-level)
 go test -v ./internal/vectorstore -run SemanticReal
-
-# Real embedding tests (integration-level)
-USE_REAL_EMBEDDINGS=1 go test -v ./test/integration/framework -run SemanticSimilarity
 ```
 
 **Requirements:**
@@ -201,7 +195,6 @@ USE_REAL_EMBEDDINGS=1 go test -v ./test/integration/framework -run SemanticSimil
 | Quality metrics | `go test ./internal/vectorstore -run QualityMetrics` | None | Test metric calculations |
 | Real semantic tests | `go test ./internal/vectorstore -run SemanticReal` | Real | Validate search quality |
 | Regression detection | `go test ./internal/vectorstore -run RegressionDetection` | Real | Block quality degradation |
-| Integration tests | `go test ./test/integration/framework -run SemanticSimilarity` | Fake (default) or Real (opt-in) | End-to-end search |
 
 ---
 
@@ -401,7 +394,6 @@ Include before/after metrics comparison and rationale for changes.
   run: |
     go test ./internal/vectorstore/testdata
     go test ./internal/vectorstore -run QualityMetrics
-    go test ./test/integration/framework -run SemanticSimilarity
 
 # Real embedding tests (pre-merge, nightly)
 - name: Semantic Quality Tests
@@ -463,6 +455,4 @@ export ONNX_PATH=/path/to/libonnxruntime.so
 - **Fixture API:** `internal/vectorstore/testdata/fixtures.go`
 - **Quality Metrics:** `internal/vectorstore/quality_metrics.go`
 - **Real Tests:** `internal/vectorstore/chromem_semantic_real_test.go`
-- **Integration Tests:** `test/integration/framework/semantic_similarity_test.go`
-- **Embeddings Guide:** `test/integration/framework/README_EMBEDDINGS.md`
 - **Vector Storage Testing:** `docs/spec/vector-storage/testing.md`

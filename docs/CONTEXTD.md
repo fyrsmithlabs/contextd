@@ -156,10 +156,10 @@ Runs as stdio MCP server for Claude Code integration.
 contextd --http-port 9090
 ```
 
-Runs HTTP server with endpoints:
-- `GET /api/v1/status` - Health check
-- `POST /api/v1/threshold` - Trigger context threshold
-- `POST /api/v1/scrub` - Scrub secrets from text
+Runs HTTP server with read-only endpoints:
+- `GET /health` - Process health
+- `GET /metrics` - Prometheus metrics
+- `GET /api/v1/status` - Service status, version, counts
 
 ---
 

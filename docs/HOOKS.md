@@ -199,29 +199,25 @@ For long debugging sessions (50% threshold):
 
 ## HTTP API Integration
 
-contextd also exposes an HTTP API for threshold triggers and status checks.
+contextd exposes a read-only HTTP API for status checks (consumed by `ctxd statusline` and external monitoring).
 
 ### Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/v1/status` | GET | Service health and status |
-| `/api/v1/threshold` | POST | Trigger context threshold hook |
-| `/api/v1/scrub` | POST | Scrub secrets from text |
-
-### Example: Trigger Context Threshold
-
-```bash
-curl -X POST http://localhost:9090/api/v1/threshold \
-  -H "Content-Type: application/json" \
-  -d '{"percentage": 75, "session_id": "abc123"}'
-```
+| `/health` | GET | Process health |
+| `/metrics` | GET | Prometheus metrics |
+| `/api/v1/status` | GET | Service status, version, and counts |
 
 ### Example: Check Status
 
 ```bash
 curl http://localhost:9090/api/v1/status
 ```
+
+### Removed endpoints
+
+The previous `POST /api/v1/threshold` and `POST /api/v1/scrub` endpoints were removed. Hooks should call the MCP tools `checkpoint_save` and `secrets_scrub` directly instead.
 
 ---
 

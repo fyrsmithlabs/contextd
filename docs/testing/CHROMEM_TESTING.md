@@ -140,5 +140,4 @@ All failures traced to the same root cause: chromem requires valid filesystem pa
 
 ## See Also
 
-- `/Users/dahendel/projects/fyrsmithlabs/contextd/internal/vectorstore/testhelpers_test.go` - Test helper implementations
-- `/Users/dahendel/projects/fyrsmithlabs/contextd/test/integration/framework/developer.go` - Developer simulator pattern
+- `internal/vectorstore/testhelpers_test.go` — Test helper implementations
