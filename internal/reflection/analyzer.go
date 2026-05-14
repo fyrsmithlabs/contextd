@@ -40,8 +40,10 @@ func (a *DefaultAnalyzer) Analyze(ctx context.Context, opts AnalyzeOptions) ([]P
 		opts.MaxPatterns = 20
 	}
 
-	// Retrieve all memories for the project
-	rawMemories, err := a.memorySvc.Search(ctx, opts.ProjectID, "", 1000)
+	// Retrieve all memories for the project. ListMemories is the correct API
+	// for "give me every memory for this project" — Search rejects empty
+	// queries.
+	rawMemories, err := a.memorySvc.ListMemories(ctx, opts.ProjectID, 1000, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve memories: %w", err)
 	}

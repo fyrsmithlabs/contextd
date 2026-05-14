@@ -8,15 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fyrsmithlabs/contextd/internal/reflection"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
 // TestReflectReport_TenantContext verifies that the handler's tenant
 // derivation places the right TenantInfo on the context BEFORE the
-// underlying reflection reporter is invoked. We don't rely on the reporter
-// itself returning a clean result because it currently issues an empty-query
-// Search against reasoningbank — that's a pre-existing service bug
-// orthogonal to the handler refactor.
+// underlying reflection reporter is invoked.
 //
 // We test the wiring by invoking tenantCtx with the exact arguments the
 // handler hands it (see tools_reflection.go: s.tenantCtx(ctx,
@@ -90,8 +88,7 @@ func TestReflectReport_RejectsUnknownFormat(t *testing.T) {
 }
 
 // TestReflectAnalyze_TenantContext mirrors the reflect_report tenant test
-// for the second reflection handler. Same caveat about the buggy
-// reasoningbank.Search empty-query path applies.
+// for the second reflection handler.
 func TestReflectAnalyze_TenantContext(t *testing.T) {
 	srv := newMcpTestServer(t, nil)
 
@@ -124,4 +121,48 @@ func TestReflectAnalyze_RejectsMalformedProjectID(t *testing.T) {
 		require.NotNil(t, res)
 		assert.True(t, res.IsError, "malformed project_id must be rejected")
 	}
+}
+
+// TestReflectReport_GenerateAgainstService is a smoke test confirming that
+// DefaultReporter.Generate succeeds against a real reasoningbank.Service.
+// Previously the reporter called Service.Search(ctx, projectID, "", 1000),
+// but Search rejects empty queries — so reflect_report failed at runtime
+// against any non-mock service. The fix switches the reporter to
+// ListMemories; this test guards against regression.
+func TestReflectReport_GenerateAgainstService(t *testing.T) {
+	srv := newMcpTestServer(t, nil)
+	ctx, _, err := srv.tenantCtx(context.Background(), "", "", "", "contextd")
+	require.NoError(t, err)
+
+	reporter := reflection.NewReporter(srv.reasoningbankSvc)
+	report, err := reporter.Generate(ctx, reflection.ReportOptions{
+		ProjectID:           "contextd",
+		IncludePatterns:     true,
+		IncludeCorrelations: true,
+		IncludeInsights:     true,
+		MaxInsights:         5,
+		Format:              "json",
+	})
+	require.NoError(t, err, "Reporter.Generate must not fail on empty corpus")
+	require.NotNil(t, report)
+	assert.Equal(t, "contextd", report.ProjectID)
+}
+
+// TestReflectAnalyze_AnalyzeAgainstService is the analyzer counterpart of
+// TestReflectReport_GenerateAgainstService. Guards against the empty-query
+// regression returning.
+func TestReflectAnalyze_AnalyzeAgainstService(t *testing.T) {
+	srv := newMcpTestServer(t, nil)
+	ctx, _, err := srv.tenantCtx(context.Background(), "", "", "", "contextd")
+	require.NoError(t, err)
+
+	analyzer := reflection.NewAnalyzer(srv.reasoningbankSvc)
+	patterns, err := analyzer.Analyze(ctx, reflection.AnalyzeOptions{
+		ProjectID:     "contextd",
+		MinConfidence: 0.3,
+		MinFrequency:  2,
+		MaxPatterns:   20,
+	})
+	require.NoError(t, err, "Analyzer.Analyze must not fail on empty corpus")
+	assert.NotNil(t, patterns)
 }
