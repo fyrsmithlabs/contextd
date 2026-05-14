@@ -19,32 +19,6 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
-// withTenantContext adds tenant context to the Go context for vectorstore operations.
-// This is required for payload-based tenant isolation to work correctly.
-// Returns an error if any ID fails validation (fail-closed security).
-func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) (context.Context, error) {
-	// Validate tenant ID (required)
-	if err := sanitize.ValidateTenantID(tenantID); err != nil {
-		return ctx, fmt.Errorf("invalid tenant_id: %w", err)
-	}
-
-	// Validate team ID (optional, but must be valid if provided)
-	if err := sanitize.ValidateTeamID(teamID); err != nil {
-		return ctx, fmt.Errorf("invalid team_id: %w", err)
-	}
-
-	// Validate project ID (optional, but must be valid if provided)
-	if err := sanitize.ValidateProjectID(projectID); err != nil {
-		return ctx, fmt.Errorf("invalid project_id: %w", err)
-	}
-
-	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		TeamID:    teamID,
-		ProjectID: projectID,
-	}), nil
-}
-
 // deriveProjectID safely extracts a project ID from a path.
 // This is a secure replacement for filepath.Base() on untrusted input.
 // Returns empty string and error if path is invalid, or sanitized ID on success.
@@ -80,8 +54,7 @@ type resolvedTenant struct {
 }
 
 // tenantCtx is the canonical helper for resolving tenant context inside MCP
-// tool handlers. It folds the previous validateAndDeriveProjectPath +
-// withTenantContext pair into a single call:
+// tool handlers:
 //
 //  1. Validates projectPath (when provided) via sanitize.ValidateProjectPath.
 //  2. Derives tenantID from the path (git remote → git user → $USER → "local")
@@ -158,48 +131,6 @@ func (s *Server) tenantCtx(ctx context.Context, projectPath, tenantID, teamID, p
 		ProjectID: resolved.ProjectID,
 	})
 	return ctx, resolved, nil
-}
-
-// validateAndDeriveProjectPath validates a project path and derives tenant context info.
-// Returns the validated path, tenant ID, and project ID, or an error.
-//
-// Deprecated: Prefer tenantCtx for new handlers - it folds path validation,
-// derivation, sanitisation, and context wrapping into one call. Existing
-// callers below are tracked for migration in a follow-up PR.
-func (s *Server) validateAndDeriveProjectPath(path, explicitTenantID string) (validPath, tenantID, projectID string, err error) {
-	// Validate project path if provided
-	if path != "" {
-		validPath, err = sanitize.ValidateProjectPath(path)
-		if err != nil {
-			return "", "", "", fmt.Errorf("invalid project_path: %w", err)
-		}
-	}
-
-	// Derive tenant_id from validated path if not explicitly provided
-	tenantID = explicitTenantID
-	if tenantID == "" && validPath != "" {
-		tenantID = tenant.GetTenantIDForPath(validPath)
-	}
-
-	// Validate tenant_id was derived successfully
-	if tenantID == "" {
-		return "", "", "", fmt.Errorf("tenant_id is required for data isolation. It is usually auto-detected from your git repository. Try running from within a git repository, or set tenant_id explicitly")
-	}
-
-	// Validate derived tenant_id format (CWE-287: prevent malformed tenant IDs)
-	if err := sanitize.ValidateTenantID(tenantID); err != nil {
-		return "", "", "", fmt.Errorf("derived tenant_id invalid: %w", err)
-	}
-
-	// Derive project_id from validated path
-	if validPath != "" {
-		projectID, err = deriveProjectID(validPath)
-		if err != nil {
-			return "", "", "", err
-		}
-	}
-
-	return validPath, tenantID, projectID, nil
 }
 
 // registerTools registers all MCP tools with the server.
