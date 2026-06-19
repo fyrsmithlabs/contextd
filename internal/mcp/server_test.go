@@ -188,7 +188,7 @@ func TestNewServer(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.NotNil(t, cfg)
-	require.Equal(t, "contextd-v2", cfg.Name)
+	require.Equal(t, "contextd", cfg.Name)
 	require.Equal(t, "1.0.0", cfg.Version)
 	require.NotNil(t, cfg.Logger)
 }

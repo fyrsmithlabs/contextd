@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MCP Resources** — read-only, JSON, secret-scrubbed resources exposing memories, checkpoints, and remediations. Includes a `contextd://help` resource plus templates for collections and by-id lookups (and `remediations{?query}` search). Tenant-scoped via the `project_id` in the URI and fail-closed when tenant context is missing.
+- **MCP Prompts** — six workflow prompts auto-available to any MCP host: `contextd_checkpoint`, `contextd_remember`, `contextd_diagnose`, `contextd_resume`, `contextd_status`, `contextd_search`.
+- **Streamable HTTP transport** for remote MCP hosting via `--mcp-http-port` / `--mcp-http-host`. A dedicated Echo server exposes `/mcp` and `/health`, separate from the REST `--http-port` API.
+- **Bearer-token auth** for the HTTP MCP endpoint via `--mcp-http-token` / `CONTEXTD_MCP_HTTP_TOKEN`.
+- **MCP client primitives** — logging with progress on `repository_index`, and elicitation in `checkpoint_resume` (asks which checkpoint when none is given).
+- **Agent-swarm notifications** — `resources/subscribe` + `resources/updated` broadcast when shared memories, checkpoints, or remediations are recorded (design doc: `docs/spec/mcp-protocol/notifications-agent-swarm.md`).
+
+### Changed
+- **MCP serverInfo name** changed from `contextd-v2` to `contextd`.
+
 ## [0.5.0] - 2026-06-19
 
 ### Added

@@ -73,6 +73,9 @@ func run() error {
 	httpHost := flag.String("http-host", "", "HTTP server host (overrides config, default: localhost)")
 	noHTTP := flag.Bool("no-http", false, "disable HTTP server (allows multiple instances)")
 	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
+	mcpHTTPPort := flag.Int("mcp-http-port", 0, "run the MCP server over the Streamable HTTP transport on this port (separate from --http-port REST API)")
+	mcpHTTPHost := flag.String("mcp-http-host", "localhost", "host to bind the MCP Streamable HTTP server")
+	mcpHTTPToken := flag.String("mcp-http-token", "", "bearer token required on the MCP Streamable HTTP endpoint (or set CONTEXTD_MCP_HTTP_TOKEN); empty serves unauthenticated for localhost/testing")
 	downloadModels := flag.Bool("download-models", false, "download embedding models and exit (for airgap/container builds)")
 	flag.Parse()
 
@@ -543,7 +546,10 @@ func run() error {
 	// ============================================================================
 	var mcpServer *mcp.Server
 	var mcpErrChan chan error
-	if *mcpMode {
+	// MCP runs over stdio (--mcp) or Streamable HTTP (--mcp-http-port). Either
+	// flag builds and starts the MCP server.
+	mcpHTTPEnabled := *mcpHTTPPort > 0
+	if *mcpMode || mcpHTTPEnabled {
 		// MCP mode requires all services
 		if checkpointSvc == nil || remediationSvc == nil || repositorySvc == nil ||
 			troubleshootSvc == nil || reasoningbankSvc == nil {
@@ -579,16 +585,37 @@ func run() error {
 		}
 		defer mcpServer.Close()
 
-		logger.Info(ctx, "MCP server initialized, starting stdio transport")
-
-		// Run MCP server in background goroutine (no longer blocks)
+		// Run MCP server in background goroutine (no longer blocks).
 		mcpErrChan = make(chan error, 1)
-		go func() {
-			if err := mcpServer.Run(ctx); err != nil {
-				mcpErrChan <- fmt.Errorf("MCP server error: %w", err)
+		if mcpHTTPEnabled {
+			mcpToken := *mcpHTTPToken
+			if mcpToken == "" {
+				mcpToken = os.Getenv("CONTEXTD_MCP_HTTP_TOKEN")
 			}
-			close(mcpErrChan)
-		}()
+			httpCfg := mcp.StreamableHTTPConfig{
+				Host:  *mcpHTTPHost,
+				Port:  *mcpHTTPPort,
+				Token: mcpToken,
+			}
+			logger.Info(ctx, "MCP server initialized, starting streamable HTTP transport",
+				zap.String("mcp_http_host", *mcpHTTPHost),
+				zap.Int("mcp_http_port", *mcpHTTPPort),
+			)
+			go func() {
+				if err := mcpServer.RunHTTP(ctx, httpCfg); err != nil {
+					mcpErrChan <- fmt.Errorf("MCP HTTP server error: %w", err)
+				}
+				close(mcpErrChan)
+			}()
+		} else {
+			logger.Info(ctx, "MCP server initialized, starting stdio transport")
+			go func() {
+				if err := mcpServer.Run(ctx); err != nil {
+					mcpErrChan <- fmt.Errorf("MCP server error: %w", err)
+				}
+				close(mcpErrChan)
+			}()
+		}
 	}
 
 	// Log service availability summary

@@ -62,7 +62,7 @@ type Config struct {
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Name:    "contextd-v2",
+		Name:    "contextd",
 		Version: "1.0.0",
 		Logger:  zap.NewNop(),
 		IgnoreFiles: []string{
@@ -114,13 +114,22 @@ func NewServer(
 		return nil, fmt.Errorf("scrubber is required")
 	}
 
-	// Create MCP server
+	// Create MCP server.
+	//
+	// Subscribe/Unsubscribe handlers are required for the SDK to advertise the
+	// resources.subscribe capability and track per-session resource
+	// subscriptions — the basis of the agent-swarm notification mechanism (see
+	// docs/spec/mcp-protocol/notifications-agent-swarm.md). The SDK records the
+	// subscriptions itself; these handlers exist only to enable that path.
 	mcpServer := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    cfg.Name,
 			Version: cfg.Version,
 		},
-		nil,
+		&mcp.ServerOptions{
+			SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },
+			UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error { return nil },
+		},
 	)
 
 	// Create ignore parser for repository indexing
@@ -145,6 +154,11 @@ func NewServer(
 	if err := s.registerTools(); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
+
+	// Register resources (memories/checkpoints/remediations) and prompts.
+	// Served over both stdio and Streamable HTTP via the shared *mcp.Server.
+	s.registerResources()
+	s.registerPrompts()
 
 	return s, nil
 }

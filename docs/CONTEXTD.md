@@ -91,6 +91,41 @@ go build -o contextd ./cmd/contextd
 
 ---
 
+## MCP Resources
+
+Resources expose contextd state as read-only, JSON MCP resources. All resource
+content is secret-scrubbed (gitleaks) before return and tenant-scoped by the
+`project_id` embedded in the URI. Resources fail-closed: a missing or invalid
+project returns an error rather than another tenant's data or empty results.
+
+| Resource URI | Purpose |
+|--------------|---------|
+| `contextd://help` | Documents the `contextd://` URI scheme |
+| `contextd://{project_id}/memories` | Recent memories (collection) |
+| `contextd://{project_id}/memory/{id}` | A single memory |
+| `contextd://{project_id}/checkpoints` | Checkpoint list |
+| `contextd://{project_id}/checkpoint/{id}` | A single checkpoint |
+| `contextd://{project_id}/remediation/{id}` | A single remediation |
+| `contextd://{project_id}/remediations{?query}` | Remediation search (`query` required) |
+
+---
+
+## MCP Prompts
+
+Prompts are static workflow templates that mirror the bundled slash commands,
+guiding an agent through a common contextd task.
+
+| Prompt | Argument | Purpose |
+|--------|----------|---------|
+| `contextd_checkpoint` | `summary` (optional) | Save a resumable checkpoint |
+| `contextd_remember` | `content` (optional) | Record a learning |
+| `contextd_diagnose` | `error` (required) | Diagnose an error and find a known fix |
+| `contextd_resume` | `checkpoint_id` (optional) | List/resume a checkpoint |
+| `contextd_status` | _(none)_ | Show memories/checkpoints/project status |
+| `contextd_search` | `query` (required) | Search memories/remediations/code |
+
+---
+
 ## Configuration
 
 ### Environment Variables
@@ -143,24 +178,55 @@ server:
 
 ## Running Modes
 
-### MCP Mode (Claude Code integration)
+The MCP server identifies itself as `contextd` (the `serverInfo` name) over
+either of two transports.
+
+### MCP Mode — stdio (Claude Code integration)
 
 ```bash
 contextd --mcp
 ```
 
-Runs as stdio MCP server for Claude Code integration.
+Runs as a stdio MCP server for local Claude Code integration.
 
-### HTTP Mode (standalone)
+### MCP Mode — Streamable HTTP (remote hosting)
+
+```bash
+contextd --mcp-http-port 9095            # optionally --mcp-http-host 0.0.0.0
+```
+
+Runs the MCP server over the Streamable HTTP transport for remote hosting. It is
+a separate Echo server that exposes the MCP endpoint at `/mcp` plus a `/health`
+endpoint. Optional bearer authentication is configured via `--mcp-http-token` or
+the `CONTEXTD_MCP_HTTP_TOKEN` environment variable; when unset, the server runs
+unauthenticated (intended for localhost/testing) and logs a warning.
+
+This Streamable HTTP MCP transport is separate from the REST `--http-port` API
+described below.
+
+### HTTP Mode (standalone REST API)
 
 ```bash
 contextd --http-port 9090
 ```
 
-Runs HTTP server with endpoints:
+Runs the REST HTTP server with endpoints:
 - `GET /api/v1/status` - Health check
 - `POST /api/v1/threshold` - Trigger context threshold
 - `POST /api/v1/scrub` - Scrub secrets from text
+
+---
+
+## Agent-Swarm Notifications
+
+When multiple agents connect to a single contextd server over the Streamable
+HTTP transport (stateful sessions), an agent can `resources/subscribe` to a
+collection URI (for example `contextd://{project_id}/memories`). When any agent
+records a memory, remediation, or checkpoint, subscribers receive a
+`notifications/resources/updated` event and can re-read the shared knowledge,
+keeping a swarm in sync over one knowledge layer.
+
+See [Agent-Swarm Notifications spec](./spec/mcp-protocol/notifications-agent-swarm.md).
 
 ---
 

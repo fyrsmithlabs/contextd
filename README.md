@@ -368,6 +368,76 @@ ContextD exposes 25 tools to Claude Code, organized by category:
 
 ---
 
+## MCP Resources
+
+Beyond tools, contextd exposes read-only **MCP resources**. Resource contents are JSON, secret-scrubbed, and tenant-scoped via the `project_id` embedded in the URI.
+
+- `contextd://help` - server overview and usage hints
+- `contextd://{project_id}/memories` - list memories for a project
+- `contextd://{project_id}/memory/{id}` - a single memory
+- `contextd://{project_id}/checkpoints` - list checkpoints
+- `contextd://{project_id}/checkpoint/{id}` - a single checkpoint
+- `contextd://{project_id}/remediation/{id}` - a single remediation
+- `contextd://{project_id}/remediations{?query}` - search remediations
+
+Example:
+
+```
+contextd://contextd/memory/abc123
+```
+
+See [docs/CONTEXTD.md](docs/CONTEXTD.md) for the full resource list and schemas.
+
+---
+
+## MCP Prompts
+
+ContextD ships six workflow prompts that mirror the plugin commands:
+
+| Prompt | Purpose |
+|--------|---------|
+| `contextd_checkpoint` | Save a session checkpoint |
+| `contextd_remember` | Record a learning or insight |
+| `contextd_diagnose` | Diagnose an error |
+| `contextd_resume` | Resume from a checkpoint |
+| `contextd_status` | Show contextd status |
+| `contextd_search` | Search memories and remediations |
+
+---
+
+## Remote Hosting (Streamable HTTP)
+
+The MCP server runs over **stdio** (default) or **Streamable HTTP** for remote hosting:
+
+```bash
+# stdio (local, used by Claude Code)
+contextd --mcp
+
+# Streamable HTTP (remote)
+contextd --mcp-http-port 9095 [--mcp-http-host 0.0.0.0]
+```
+
+The HTTP transport is served by a dedicated Echo server (separate from the `--http-port` REST API), exposing `/mcp` and `/health`.
+
+**Optional bearer auth:** set `--mcp-http-token` or `CONTEXTD_MCP_HTTP_TOKEN`. If unset, the endpoint is unauthenticated (localhost/testing only) and logs a warning.
+
+A client connects by POSTing an `initialize` request to `/mcp`:
+
+```bash
+curl -X POST http://host:9095/mcp \
+  -H "Authorization: Bearer $CONTEXTD_MCP_HTTP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+```
+
+Omit the `Authorization` header when no token is configured.
+
+### Agent Swarms
+
+Multiple agents can connect to one HTTP-hosted contextd and receive `resources/updated` notifications when shared memories, checkpoints, or remediations change. See [docs/spec/mcp-protocol/notifications-agent-swarm.md](docs/spec/mcp-protocol/notifications-agent-swarm.md).
+
+---
+
 ## How It Works
 
 ```
