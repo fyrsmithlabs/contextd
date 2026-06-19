@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
@@ -74,7 +75,9 @@ func (s *Service) collectionName(tenantID, projectPath string) string {
 	tenantID = sanitizeForCollectionName(tenantID)
 	projectName := sanitizeForCollectionName(filepath.Base(projectPath))
 
-	return fmt.Sprintf("%s_%s_conversations", tenantID, projectName)
+	// Enforce the <=64 char, [a-z0-9_] collection-name constraint with a
+	// deterministic hash suffix when the assembled name is too long.
+	return sanitize.Name(fmt.Sprintf("%s_%s_conversations", tenantID, projectName))
 }
 
 // sanitizeForCollectionName ensures a string is safe for use in collection names.

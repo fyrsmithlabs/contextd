@@ -363,10 +363,21 @@ func TestService_CollectionName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := service.collectionName(tt.tenantID, tt.projectPath)
 			if tt.want == "" {
-				// Special case: verify hash pattern for unicode input
-				// Should be "h_<hash1>_h_<hash2>_conversations"
-				if !strings.HasPrefix(got, "h_") || !strings.Contains(got, "_conversations") {
+				// Special case: unicode tenant+project each hash to "h_<32hex>",
+				// making the assembled name exceed 64 chars. sanitize.Name then
+				// truncates with its own deterministic hash suffix. The result
+				// must be a valid <=64 char chromem name; the readable suffix may
+				// be truncated away, but it must still start with the hash prefix.
+				if !strings.HasPrefix(got, "h_") {
 					t.Errorf("collectionName(%q, %q) = %q, want hash-based collection name", tt.tenantID, tt.projectPath, got)
+				}
+				if len(got) < 1 || len(got) > 64 {
+					t.Errorf("collectionName(%q, %q) = %q has invalid length %d", tt.tenantID, tt.projectPath, got, len(got))
+				}
+				for _, r := range got {
+					if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+						t.Errorf("collectionName(%q, %q) = %q contains invalid char %q", tt.tenantID, tt.projectPath, got, string(r))
+					}
 				}
 			} else if got != tt.want {
 				t.Errorf("collectionName(%q, %q) = %q, want %q", tt.tenantID, tt.projectPath, got, tt.want)

@@ -175,11 +175,27 @@ func TestProductionHardening_TenantContextImmutability(t *testing.T) {
 	}
 	tenantCtx := ContextWithTenant(ctx, tenant)
 
-	// Attempt to modify tenant while concurrent operations are running
+	// ContextWithTenant copies TenantInfo by value, so mutating the caller's
+	// struct after context creation must NOT change the tenant the context
+	// carries. Mutate it before launching any concurrent work so the assertion
+	// below is deterministic (single writer, no test-internal data race).
+	tenant.TenantID = "malicious-tenant"
+	tenant.TeamID = "malicious-team"
+	tenant.ProjectID = "malicious-proj"
+
+	// The store must still observe the ORIGINAL tenant scope.
+	observed, err := TenantFromContext(tenantCtx)
+	require.NoError(t, err)
+	assert.Equal(t, "org-123", observed.TenantID, "context must retain original tenant after caller mutation")
+	assert.Equal(t, "team-1", observed.TeamID, "context must retain original team after caller mutation")
+	assert.Equal(t, "proj-1", observed.ProjectID, "context must retain original project after caller mutation")
+
+	// Run 100 concurrent AddDocuments operations sharing the same context. The
+	// store reads tenant fields from its defensive copy, so concurrent reads do
+	// not race the caller's now-mutated struct.
 	var wg sync.WaitGroup
 	errorsCh := make(chan error, 100)
 
-	// Run 100 concurrent AddDocuments operations
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -194,16 +210,6 @@ func TestProductionHardening_TenantContextImmutability(t *testing.T) {
 				errorsCh <- err
 			}
 		}(i)
-
-		// Concurrently try to modify the tenant (should have no effect)
-		if i%10 == 0 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				tenant.TenantID = "malicious-tenant"
-				tenant.TeamID = "malicious-team"
-			}()
-		}
 	}
 
 	wg.Wait()

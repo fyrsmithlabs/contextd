@@ -97,6 +97,49 @@ func truncateWithHash(s string) string {
 	return truncated + hashSuffix
 }
 
+// Name enforces the vector store collection-name constraint (^[a-z0-9_]{1,64}$)
+// on an already-assembled name.
+//
+// Unlike Identifier, it does NOT collapse or trim underscores (so callers that
+// build names like "remediations_project_tenant_path" keep their structure for
+// already-valid inputs), but it DOES:
+//   - lowercase the input
+//   - replace any character outside [a-z0-9_] with '_'
+//   - truncate to MaxIdentifierLength with a deterministic hash suffix when the
+//     result would exceed the limit, so two distinct long names cannot collide
+//   - return DefaultIdentifier when the result would otherwise be empty
+//
+// Name is deterministic: the same input always yields the same output, so
+// existing collections remain addressable across restarts.
+func Name(s string) string {
+	if s == "" {
+		return DefaultIdentifier
+	}
+
+	s = strings.ToLower(s)
+
+	var result strings.Builder
+	result.Grow(len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	sanitized := result.String()
+
+	if sanitized == "" {
+		return DefaultIdentifier
+	}
+
+	if len(sanitized) > MaxIdentifierLength {
+		sanitized = truncateWithHash(sanitized)
+	}
+
+	return sanitized
+}
+
 // CollectionName builds a collection name from tenant and project components.
 //
 // Format: {sanitized_tenant}_{sanitized_project}_{suffix}

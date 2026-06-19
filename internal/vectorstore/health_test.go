@@ -32,18 +32,23 @@ func TestHealthMonitor_RegisterCallback(t *testing.T) {
 	hm := NewHealthMonitor(ctx, checker, 30*time.Second, logger)
 	defer hm.Stop()
 
-	called := false
+	// Signal completion via a channel so the read happens-after the write
+	// deterministically (the callback fires from a separate goroutine).
+	called := make(chan bool, 1)
 	hm.RegisterCallback(func(healthy bool) {
-		called = true
+		called <- healthy
 	})
 
 	// Manually trigger callback
 	hm.updateHealth(false)
 
-	// Give callback goroutine time to execute
-	time.Sleep(10 * time.Millisecond)
-
-	assert.True(t, called)
+	// Wait for the callback goroutine to fire (with a timeout guard).
+	select {
+	case healthy := <-called:
+		assert.False(t, healthy)
+	case <-time.After(time.Second):
+		t.Fatal("callback was not invoked within timeout")
+	}
 }
 
 func TestHealthMonitor_LastCheck(t *testing.T) {

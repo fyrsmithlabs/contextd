@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fyrsmithlabs/contextd/internal/sanitize"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -254,16 +255,23 @@ func (s *service) collectionName(tenantID string, scope Scope, teamID, projectPa
 	sanitizedTenant := sanitizePath(tenantID)
 	sanitizedTeam := sanitizePath(teamID)
 
+	var name string
 	switch scope {
 	case ScopeOrg:
-		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
+		name = fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
 	case ScopeTeam:
-		return fmt.Sprintf("%s_team_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizedTeam)
+		name = fmt.Sprintf("%s_team_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizedTeam)
 	case ScopeProject:
-		return fmt.Sprintf("%s_project_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizePath(projectPath))
+		name = fmt.Sprintf("%s_project_%s_%s", s.config.CollectionPrefix, sanitizedTenant, sanitizePath(projectPath))
 	default:
-		return fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
+		name = fmt.Sprintf("%s_org_%s", s.config.CollectionPrefix, sanitizedTenant)
 	}
+
+	// Enforce the vector store collection-name constraint (<=64 chars, [a-z0-9_]).
+	// Long project paths can push the assembled name past 64 chars, which hard-fails
+	// in chromem; sanitize.Name truncates with a deterministic hash suffix so distinct
+	// long inputs stay collision-free and existing collections remain addressable.
+	return sanitize.Name(name)
 }
 
 // sanitizePath converts a path to a safe collection name suffix.

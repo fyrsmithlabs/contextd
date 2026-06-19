@@ -46,7 +46,11 @@ func GetCollectionName(projectID string, collectionType CollectionType) (string,
 	}
 
 	sanitizedID := sanitize.Identifier(projectID)
-	return fmt.Sprintf("%s_%s", sanitizedID, collectionType), nil
+	// Enforce the <=64 char collection-name constraint on the assembled name:
+	// a near-max sanitized ID plus a "_<type>" suffix can otherwise exceed 64,
+	// which hard-fails in chromem. sanitize.Name truncates with a deterministic
+	// hash suffix so distinct IDs stay collision-free.
+	return sanitize.Name(fmt.Sprintf("%s_%s", sanitizedID, collectionType)), nil
 }
 
 // GetAllCollectionNames returns all collection names for a project.

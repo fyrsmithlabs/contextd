@@ -47,8 +47,21 @@ func (t *TenantInfo) Validate() error {
 }
 
 // ContextWithTenant adds TenantInfo to a context.
+//
+// The TenantInfo is defensively copied by value before being stored. This
+// guarantees tenant-context immutability: once a context is created, later
+// mutation of the caller's *TenantInfo cannot change the tenant scope observed
+// by in-flight operations. This is a security guarantee, not just a convenience
+// — without the copy a caller (or a racing goroutine) could re-scope documents
+// and queries to a different tenant mid-flight.
 func ContextWithTenant(ctx context.Context, tenant *TenantInfo) context.Context {
-	return context.WithValue(ctx, tenantContextKey{}, tenant)
+	if tenant == nil {
+		return context.WithValue(ctx, tenantContextKey{}, (*TenantInfo)(nil))
+	}
+	// Copy by value so external mutation of the caller's struct is invisible
+	// to anything reading from this context.
+	cp := *tenant
+	return context.WithValue(ctx, tenantContextKey{}, &cp)
 }
 
 // TenantFromContext extracts TenantInfo from a context.

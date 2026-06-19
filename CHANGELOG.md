@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-19
+
+### Added
+- **Memory category classification** (`feat(reasoningbank)`) — regex-based classifier assigns one of six categories (operational, architectural, debugging, security, feature, general) to each memory, with hierarchical custom rules at org/team/project scope. Closes the memory-gap where operational knowledge (build/run commands) went uncaptured.
+- **Go best-practice skills** (#166) — 43 `samber/cc-skills-golang` skills (v1.5.0) vendored into `.claude/skills/` as auto-discovered project skills covering Go 1.24–1.26 features.
+
+### Security
+- **Tenant context immutability** — `ContextWithTenant` now stores a defensive value-copy of `TenantInfo` instead of the caller's pointer. Previously a caller mutating their `TenantInfo` after creating the context could re-scope documents/queries to a different tenant mid-operation, weakening tenant isolation.
+- **Input validation hardened** (#160) — shell metacharacters (`<>&(){}`) blocked in glob patterns; `ValidateRequiredID` added for authorization-context IDs (CWE-287); `ContainsAny` fixed to detect `..` as a substring (CWE-22); WAL/HTTP path-traversal checks moved before `filepath.Clean()`; `RealIP()` replaced with `RemoteAddr` to prevent `X-Forwarded-For` spoofing (CWE-290).
+
+### Fixed
+- **Long project paths no longer break storage** — collection names derived from long project paths exceeded chromem's 64-char limit and caused hard failures in `remediation_record`/`search` and other project-scoped collections. Names are now centrally sanitized via `sanitize.Name()` (truncate + deterministic sha256 suffix, collision-safe, stable across restarts).
+- **Fallback store concurrency** — fixed multiple data races in the fallback storage path (concurrent Add/Delete on chromem collections, background sync vs. foreground ops, and a shared `Document.Metadata` map mutated in place) that could corrupt stored state under concurrent load. Mutating ops are now serialized per backing store and documents deep-copied before write.
+- **Metrics DRY refactor** (#160) — extracted `startMetrics()` helper; promoted `scoredMemory`/`scoreAndFilterResults()` to package level.
+- **Homebrew formula sha256** updated for the re-tagged v0.4.0 binary.
+- **Test reliability** — hardened flaky/racy tests: circuit-breaker stress test restructured into deterministic failure→recovery phases (production breaker confirmed correct), health-monitor callback test synchronized via channel, and tenant-immutability test made deterministic.
+
+### Changed
+- **Repo hygiene** (#159) — removed agent artifacts and incident reports from repo root.
+- **CHANGELOG correction** — removed an incorrect note claiming plugin command format changed; commands remain `/contextd:<command>`.
+- **Docs** — added Discord community link to README (#158); memory-gap incident report.
+
 ## [0.4.0] - 2026-02-01
 
 ### Added

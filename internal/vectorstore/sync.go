@@ -130,6 +130,15 @@ type SyncManager struct {
 	wg     sync.WaitGroup // Wait for goroutines on shutdown
 	cb     *CircuitBreaker
 	logger *zap.Logger
+
+	// remoteMu serializes background mutations of the remote store against
+	// foreground FallbackStore mutations. It is the SAME mutex instance the
+	// FallbackStore uses for its remote writes/deletes. This is required
+	// because the embedded chromem-go Collection is not safe for concurrent
+	// Add+Delete (Delete reads len(documents) before locking). May be nil in
+	// unit tests that construct a SyncManager directly; nil is treated as a
+	// no-op lock.
+	remoteMu *sync.Mutex
 }
 
 // NewSyncManager creates a SyncManager with bounded channels and shutdown support.
@@ -145,6 +154,27 @@ func NewSyncManager(ctx context.Context, wal *WAL, local, remote Store, health *
 		cancel: cancel,
 		cb:     NewCircuitBreaker(5, 5*time.Minute),
 		logger: logger,
+	}
+}
+
+// SetRemoteMutex wires the SyncManager to the FallbackStore's remote-store
+// mutex so background sync writes/deletes do not race with foreground
+// operations on the (concurrency-unsafe) chromem-go remote collection.
+func (s *SyncManager) SetRemoteMutex(mu *sync.Mutex) {
+	s.remoteMu = mu
+}
+
+// lockRemote acquires the remote mutex if one is configured.
+func (s *SyncManager) lockRemote() {
+	if s.remoteMu != nil {
+		s.remoteMu.Lock()
+	}
+}
+
+// unlockRemote releases the remote mutex if one is configured.
+func (s *SyncManager) unlockRemote() {
+	if s.remoteMu != nil {
+		s.remoteMu.Unlock()
 	}
 }
 
@@ -261,13 +291,24 @@ func (s *SyncManager) syncEntry(entry WALEntry) error {
 
 	switch entry.Operation {
 	case "add":
-		// Upsert to remote (local wins)
-		_, err := s.remote.AddDocuments(ctx, entry.Docs)
+		// Upsert to remote (local wins). Serialize against foreground remote
+		// mutations - chromem-go is not safe for concurrent Add+Delete.
+		//
+		// Deep-copy the docs: remote.AddDocuments mutates doc.Metadata via
+		// InjectMetadata, but entry.Docs is still referenced by the WAL and may
+		// be read concurrently (e.g. mergePendingResults). Mutating the shared
+		// maps in place would be a data race.
+		s.lockRemote()
+		_, err := s.remote.AddDocuments(ctx, cloneDocuments(entry.Docs))
+		s.unlockRemote()
 		return err
 
 	case "delete":
-		// Delete from remote
-		return s.remote.DeleteDocuments(ctx, entry.IDs)
+		// Delete from remote (serialized against foreground remote mutations).
+		s.lockRemote()
+		err := s.remote.DeleteDocuments(ctx, entry.IDs)
+		s.unlockRemote()
+		return err
 
 	default:
 		return fmt.Errorf("unknown operation: %s", entry.Operation)
