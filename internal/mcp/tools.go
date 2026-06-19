@@ -235,6 +235,9 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointSaveOutput{}, toolErr
 		}
 
+		// Notify swarm members subscribed to this project's checkpoints collection.
+		s.notifyCollectionUpdated(ctx, projectID, "checkpoints")
+
 		result := checkpointSaveOutput{
 			ID:          cp.ID,
 			SessionID:   cp.SessionID,
@@ -516,7 +519,7 @@ func (s *Server) registerRemediationTools() {
 		defer s.startMetrics(ctx, "remediation_record", &toolErr)()
 
 		// Validate and derive tenant context from project path
-		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
 		if err != nil {
 			toolErr = err
 			return nil, remediationRecordOutput{}, err
@@ -558,6 +561,9 @@ func (s *Server) registerRemediationTools() {
 			toolErr = fmt.Errorf("remediation record failed: %w", err)
 			return nil, remediationRecordOutput{}, toolErr
 		}
+
+		// Notify swarm members subscribed to this project's remediations collection.
+		s.notifyCollectionUpdated(ctx, projectID, "remediations")
 
 		result := remediationRecordOutput{
 			ID:         rem.ID,
@@ -1282,6 +1288,9 @@ func (s *Server) registerMemoryTools() {
 			toolErr = fmt.Errorf("memory record failed: %w", err)
 			return nil, memoryRecordOutput{}, toolErr
 		}
+
+		// Notify swarm members subscribed to this project's memories collection.
+		s.notifyCollectionUpdated(ctx, args.ProjectID, "memories")
 
 		output := memoryRecordOutput{
 			ID:         memory.ID,
