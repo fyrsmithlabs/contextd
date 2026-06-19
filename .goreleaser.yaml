@@ -1,5 +1,18 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# Windows-only builds - Mac/Linux users should use Homebrew
+#
+# CGO + embedded FastEmbed release pipeline.
+#
+# Every platform is built with CGO_ENABLED=1 so local FastEmbed (ONNX) embeddings
+# work out of the box. We cross-compile all 6 targets from a single Linux runner
+# using zig as the C/C++ toolchain (CC=scripts/zig-cc.sh). onnxruntime itself is
+# loaded via dlopen at runtime - it is NEVER linked at build time - so this stays
+# clean across platforms.
+#
+# The matching onnxruntime shared library is bundled NEXT TO each binary inside
+# its archive (fetched by scripts/fetch-onnx-libs.sh). contextd's
+# GetONNXLibraryPath() resolves that co-located lib first, so embeddings work
+# offline with zero setup. Only the model weights auto-download on first use
+# (or via `contextd -download-models`).
 version: 2
 
 project_name: contextd
@@ -7,16 +20,32 @@ project_name: contextd
 before:
   hooks:
     - go mod tidy
+    # Self-contained release: fetch every platform's onnxruntime lib so the
+    # archive step can bundle the matching one beside each binary.
+    - bash scripts/fetch-onnx-libs.sh
+    # Fetch the macOS SDK needed to cross-compile the darwin cgo targets with
+    # zig (extracts to build/macos-sdk/MacOSX12.3.sdk, referenced below).
+    - bash scripts/fetch-macos-sdk.sh
 
 builds:
-  # Pure Go builds for Windows (no CGO, uses remote embeddings)
-  - id: contextd-windows
+  - id: contextd
     main: ./cmd/contextd
     binary: contextd
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
+      # Absolute path to the repo root for the zig wrappers + macOS SDK. CI sets
+      # REPO_ROOT={{`{{ github.workspace }}`}} (always the checkout root); local
+      # `goreleaser` runs fall back to PWD. Avoids relying on PWD being present
+      # in the goreleaser-action process env.
+      - CC={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cc.sh
+      - CXX={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cxx.sh
+      # macOS SDK for the darwin cgo targets (fetched by the before hook). The
+      # zig wrapper only consults this for darwin/* builds.
+      - MACOS_SDK_ROOT={{ envOrDefault "REPO_ROOT" .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
     goos:
       - windows
+      - darwin
+      - linux
     goarch:
       - amd64
       - arm64
@@ -24,39 +53,52 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X main.buildDate={{.Date}}
 
-  - id: ctxd-windows
+  - id: ctxd
     main: ./cmd/ctxd
     binary: ctxd
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
+      - CC={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cc.sh
+      - CXX={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cxx.sh
+      # macOS SDK for the darwin cgo targets (fetched by the before hook). The
+      # zig wrapper only consults this for darwin/* builds.
+      - MACOS_SDK_ROOT={{ envOrDefault "REPO_ROOT" .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
     goos:
       - windows
+      - darwin
+      - linux
     goarch:
       - amd64
       - arm64
+    # ctxd only declares main.version (no commit/buildDate vars), so inject just
+    # that - extra -X for missing symbols would silently no-op.
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
 
 archives:
-  - id: contextd-windows-archive
+  - id: contextd-archive
     ids:
-      - contextd-windows
-      - ctxd-windows
+      - contextd
+      - ctxd
     formats:
-      - zip
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- .Arch }}
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE*
+      # Per-platform onnxruntime lib, placed next to the binary so the
+      # embedded-embeddings resolver finds it with zero setup. The src is
+      # templated per archive (.Os/.Arch), so each archive gets ONLY its own
+      # platform's lib (and, on windows, the providers sidecar DLL).
+      - src: "build/onnxlibs/{{ .Os }}/{{ .Arch }}/*"
+        dst: .
 
 checksum:
   name_template: 'checksums.txt'
@@ -87,15 +129,45 @@ changelog:
     - title: Others
       order: 999
 
-# Homebrew: Use separate job to update homebrew-tap (source-based formula)
-# goreleaser brews section requires binary archives, we only build Windows
+brews:
+  - name: contextd
+    repository:
+      owner: fyrsmithlabs
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    ids:
+      - contextd-archive
+    # Auto-skip the formula upload for prereleases / snapshots.
+    skip_upload: auto
+    homepage: "https://github.com/fyrsmithlabs/contextd"
+    description: "AI agent memory and context management MCP server with local FastEmbed embeddings"
+    license: "AGPL-3.0"
+    # onnxruntime is bundled in the archive (libonnxruntime.dylib lands next to
+    # the binary), so embeddings work out of the box. Keep onnxruntime as a
+    # brew dependency as a fallback for the resolver.
+    dependencies:
+      - name: onnxruntime
+    install: |
+      bin.install "contextd"
+      bin.install "ctxd"
+      # Bundle the matching onnxruntime lib next to the binaries so contextd's
+      # resolver (GetONNXLibraryPath) finds it with zero setup. The archive
+      # carries .dylib on macOS and .so on Linux - install whichever is present.
+      Dir["libonnxruntime.*"].each { |lib| bin.install lib }
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/contextd --version")
+      assert_match version.to_s, shell_output("#{bin}/ctxd --version")
+    caveats: |
+      contextd ships with local FastEmbed (ONNX) embeddings that work out of the
+      box - the matching onnxruntime runtime library is bundled alongside the
+      binary, so no extra setup is required.
 
-# Chocolatey disabled - requires choco CLI on runner
-# chocolateys:
-#   - name: contextd
-#     ids:
-#       - contextd-windows-archive
-#     skip_publish: true
+      Embedding model weights are downloaded automatically on first use. To
+      pre-download them (e.g. for airgapped/container setups), run:
+
+          contextd -download-models
 
 release:
   github:
@@ -107,15 +179,19 @@ release:
   footer: |
     ## Installation
 
-    ### Windows
-    Download the zip file and extract to a directory in your PATH.
-
-    ### macOS / Linux
-    Use Homebrew:
+    ### macOS / Linux (Homebrew)
     ```bash
-    brew tap fyrsmithlabs/contextd
-    brew install contextd
+    brew install fyrsmithlabs/tap/contextd
     ```
+    Local FastEmbed embeddings work out of the box (the onnxruntime library is
+    bundled). Model weights auto-download on first use, or run
+    `contextd -download-models` to pre-fetch them.
+
+    ### Windows
+    Download the `_windows_` zip for your architecture and extract it to a
+    directory on your PATH. Keep `onnxruntime.dll` (and
+    `onnxruntime_providers_shared.dll`) next to `contextd.exe` - they are
+    bundled in the zip and required for local embeddings.
 
 announce:
   skip: true

@@ -1,24 +1,37 @@
-# Release Workflow
-# Builds Windows binaries using goreleaser on tag push
-# Updates Homebrew tap automatically (separate job for source formula)
-# Mac/Linux users: brew install fyrsmithlabs/tap/contextd
-
+# Release workflow
+#
+# On a `v*` tag, GoReleaser builds CGO binaries (contextd + ctxd) for all six
+# targets (windows/darwin/linux x amd64/arm64) by cross-compiling from this
+# single Linux runner with zig as the C/C++ toolchain. Each archive bundles the
+# matching onnxruntime shared library next to the binary so local FastEmbed
+# embeddings work offline with zero setup. GoReleaser also generates and
+# publishes the Homebrew formula to fyrsmithlabs/homebrew-tap.
+#
+# REQUIRED secret: HOMEBREW_TAP_TOKEN - a PAT with `contents:write` on
+# fyrsmithlabs/homebrew-tap. Without it the brews step fails.
+#
+# Trigger: a `v*` tag push. The normal path is to label a PR `release` and merge
+# it - tag-release.yml then creates the tag for you. Pushing a `v*` tag by hand
+# is the manual fallback and runs this same workflow.
 name: Release
 
 on:
+  # Manual fallback: pushing a `v*` tag by hand releases that tag.
   push:
     tags:
       - 'v*'
+  # Label path: tag-release.yml creates the tag and dispatches this workflow
+  # against it (dispatch works with the default GITHUB_TOKEN; a tag push does
+  # not). Dispatch with `--ref vX.Y.Z` so the checkout + GoReleaser see the tag.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Release Windows Binaries
+    name: Release
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
@@ -26,93 +39,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.7'
           cache: true
 
+      # zig is the cross C/C++ toolchain for all targets. 0.14.0 is required:
+      # 0.13's Mach-O linker cannot link Go-generated darwin objects.
+      - name: Set up zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.14.0
+
+      # The Go module cache must be writable: zig writes a stray default object
+      # into the compiler cwd (the module dir) during cgo preprocessor probes.
+      - name: Make module cache writable
+        run: |
+          go env GOMODCACHE
+          mkdir -p "$(go env GOMODCACHE)"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: '~> v2'
+          # Pinned: the `brews` block is deprecated in favour of homebrew_casks.
+          # Pin to a known-good v2 so a future minor that removes `brews` cannot
+          # silently break the release. Migrate to homebrew_casks before bumping.
+          version: 'v2.16.0'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  update-homebrew:
-    name: Update Homebrew Formula
-    runs-on: ubuntu-latest
-    needs: release
-    # Skip prereleases
-    if: ${{ !contains(needs.release.outputs.version, 'rc') && !contains(needs.release.outputs.version, 'beta') }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get SHA256
-        id: info
-        run: |
-          VERSION="${{ needs.release.outputs.version }}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          # Get SHA256 of source tarball
-          SHA256=$(curl -sL "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${VERSION}.tar.gz" | sha256sum | cut -d' ' -f1)
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-
-          echo "Version: $VERSION"
-          echo "SHA256: $SHA256"
-
-      - name: Update formula
-        run: |
-          cat > Formula/contextd.rb << 'EOF'
-          # typed: false
-          # frozen_string_literal: true
-
-          class Contextd < Formula
-            desc "AI context and reasoning engine for Claude Code"
-            homepage "https://github.com/fyrsmithlabs/contextd"
-            version "${{ steps.info.outputs.version }}"
-            license "AGPL-3.0"
-
-            url "https://github.com/fyrsmithlabs/contextd/archive/refs/tags/v${{ steps.info.outputs.version }}.tar.gz"
-            sha256 "${{ steps.info.outputs.sha256 }}"
-
-            depends_on "go" => :build
-            depends_on "onnxruntime"
-
-            def install
-              ENV["CGO_ENABLED"] = "1"
-
-              ldflags = %W[
-                -s -w
-                -X main.version=#{version}
-              ]
-
-              system "go", "build", *std_go_args(ldflags:), "-o", bin/"contextd", "./cmd/contextd"
-              system "go", "build", *std_go_args(ldflags:), "-o", bin/"ctxd", "./cmd/ctxd"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/contextd --version")
-              assert_match version.to_s, shell_output("#{bin}/ctxd --version")
-            end
-          end
-          EOF
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/contextd.rb
-          git diff --staged --quiet || git commit -m "Update Homebrew formula to v${{ steps.info.outputs.version }}"
-          git push
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          CGO_ENABLED: '1'
+          # Keep the Go module cache writable so zig's cgo probes can write into it.
+          GOFLAGS: '-modcacherw'
+          # Absolute repo root for the zig CC/CXX wrappers + macOS SDK referenced
+          # in .goreleaser.yaml (envOrDefault "REPO_ROOT" .Env.PWD). Pin it to the
+          # checkout root so the build never depends on PWD being set in the
+          # goreleaser-action process env.
+          REPO_ROOT: ${{ github.workspace }}

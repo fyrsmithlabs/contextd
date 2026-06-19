@@ -1,0 +1,77 @@
+# Tag Release on Label
+#
+# Cuts a release by LABEL instead of a manual tag push. When a PR carrying the
+# `release` label is MERGED to main, this workflow tags `v<VERSION>` (read from
+# the VERSION file) on the merge commit, pushes it, and then dispatches the
+# GoReleaser build in release.yml against that tag.
+#
+#   label a PR `release`  ──(merge)──►  tag v<VERSION>  ──►  dispatch release.yml (GoReleaser)
+#
+# No PAT required: it pushes the tag and then triggers release.yml via
+# `workflow_dispatch`, which DOES fire with the default GITHUB_TOKEN (a tag
+# *push* with GITHUB_TOKEN would not, due to GitHub's recursion guard).
+#
+# Manual `git push origin vX.Y.Z` still works as a fallback (release.yml keeps
+# its `push: tags` trigger).
+name: Tag Release on Label
+
+on:
+  pull_request:
+    types: [labeled, closed]
+
+permissions:
+  contents: write   # create + push the tag
+  actions: write    # dispatch release.yml
+
+jobs:
+  tag:
+    name: Tag on release label
+    runs-on: ubuntu-latest
+    # Fire only when the PR is MERGED and carries the `release` label. Covers
+    # both orderings: label-then-merge (fires on `closed`) and merge-then-label
+    # (fires on `labeled`). Never tags un-merged code.
+    if: >-
+      github.event.pull_request.merged == true &&
+      (
+        (github.event.action == 'labeled' && github.event.label.name == 'release') ||
+        (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'release'))
+      )
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create and push version tag
+        id: tag
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::VERSION file is empty"; exit 1
+          fi
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::notice::Tag ${TAG} already exists on origin — skipping (no double release)."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG} (PR #${{ github.event.pull_request.number }})"
+          git push origin "${TAG}"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Pushed ${TAG}."
+
+      - name: Dispatch GoReleaser release
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --ref "${{ steps.tag.outputs.tag }}"
+          echo "::notice::Dispatched release.yml against ${{ steps.tag.outputs.tag }}."
