@@ -340,17 +340,34 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointResumeOutput{}, toolErr
 		}
 
-		resumeReq := &checkpoint.ResumeRequest{
-			CheckpointID: args.CheckpointID,
-			TenantID:     args.TenantID,
-			Level:        args.Level,
-		}
-
 		// Add tenant context to Go context for vectorstore operations
 		ctx, err := withTenantContext(ctx, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, checkpointResumeOutput{}, err
+		}
+
+		// If no checkpoint was specified, ask the client to choose (via MCP
+		// elicitation) or fall back to presenting the list.
+		if args.CheckpointID == "" {
+			id, listMsg, chooseErr := s.chooseCheckpointViaElicit(ctx, req.Session, args.TenantID)
+			if chooseErr != nil {
+				toolErr = chooseErr
+				return nil, checkpointResumeOutput{}, chooseErr
+			}
+			if id == "" {
+				// Could not auto-resolve; return the list for manual selection.
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: listMsg}},
+				}, checkpointResumeOutput{}, nil
+			}
+			args.CheckpointID = id
+		}
+
+		resumeReq := &checkpoint.ResumeRequest{
+			CheckpointID: args.CheckpointID,
+			TenantID:     args.TenantID,
+			Level:        args.Level,
 		}
 
 		response, err := s.checkpointSvc.Resume(ctx, resumeReq)
@@ -1016,11 +1033,15 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositoryIndexOutput{}, toolErr
 		}
 
+		s.clientLog(ctx, req.Session, "info", fmt.Sprintf("indexing repository %s (branch: %s)", validPath, args.Branch))
+
 		result, err := s.repositorySvc.IndexRepository(ctx, validPath, opts)
 		if err != nil {
 			toolErr = fmt.Errorf("repository index failed: %w", err)
 			return nil, repositoryIndexOutput{}, toolErr
 		}
+
+		s.clientLog(ctx, req.Session, "info", fmt.Sprintf("indexed %d files from %s", result.FilesIndexed, result.Path))
 
 		// Ensure output arrays are never nil (MCP schema validation requires arrays, not null)
 		outputInclude := result.IncludePatterns
