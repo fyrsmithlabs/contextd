@@ -1,7 +1,7 @@
 # CLAUDE.md - contextd
 
 **Status**: Active Development (Phase 6 complete)
-**Last Updated**: 2026-01-06
+**Last Updated**: 2026-06-19
 
 ---
 
@@ -44,7 +44,7 @@ Before ANY codebase exploration or task work:
 
 ## ⚠️ CRITICAL: Update Claude Plugin on Changes (Priority #3)
 
-**After ANY feature/fix/release, update the fyrsmithlabs/marketplace plugin.**
+**After ANY feature/fix/release, update the in-repo `contextd` plugin.**
 
 When these occur:
 - New feature added
@@ -53,9 +53,11 @@ When these occur:
 - New skills/commands/agents
 - MCP tool changes
 
-**Action:** Update `fyrsmithlabs/marketplace` repo to expose new capabilities to users. DO NOT skip this step.
+**Action:** Update the bundled `contextd` plugin under `plugins/contextd/` to expose new capabilities to users. DO NOT skip this step.
 
-**Plugin Location:** https://github.com/fyrsmithlabs/marketplace (contextd commands are prefixed with `contextd-`)
+**Plugin Location:** `plugins/contextd/` in this repository. The repo is itself a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`, marketplace name `contextd`), so the plugin ships and versions alongside the core code rather than in a separate repo. See [Claude Code Plugin](#claude-code-plugin) below.
+
+> **Note:** The plugin previously lived in the external `fyrsmithlabs/marketplace` repo. It now lives in-repo so plugin and server stay in lockstep. When releasing, bump the version in both `VERSION`/`plugin.json`/`marketplace.json` together.
 
 **Required Order:**
 1. ✅ `mcp__contextd__memory_search` - Search past learnings/strategies first
@@ -299,7 +301,42 @@ internal/
 ├── logging/           # Zap + OTEL bridge
 └── telemetry/         # OpenTelemetry
 pkg/api/v1/            # Proto definitions (unused - simplified away)
+.claude-plugin/        # Marketplace manifest (marketplace name: contextd)
+plugins/contextd/      # In-repo Claude Code plugin (see "Claude Code Plugin")
 ```
+
+---
+
+## Claude Code Plugin
+
+The `contextd` Claude Code plugin lives **in this repo** under `plugins/contextd/`. The repository root is also a plugin marketplace (`.claude-plugin/marketplace.json`, name `contextd`), so the plugin is distributed and versioned alongside the server code instead of in a separate repo.
+
+### Layout
+
+```
+.claude-plugin/marketplace.json        # Marketplace "contextd" → lists the plugin
+plugins/contextd/
+├── .claude-plugin/plugin.json         # Plugin manifest (keep version in sync with VERSION)
+├── .mcp.json                          # Bundled `contextd --mcp` server (git-tracked via .gitignore negation)
+├── commands/                          # /contextd:checkpoint, remember, diagnose, resume, status, search
+├── skills/                            # using-contextd, cross-session-memory, checkpoint-workflow, error-remediation
+├── hooks/                             # hooks.json + defensive SessionStart script
+└── README.md
+```
+
+### Install
+
+```
+/plugin marketplace add fyrsmithlabs/contextd
+/plugin install contextd@contextd
+```
+
+### Rules for changes
+
+- **Keep versions in lockstep:** when bumping `VERSION`, also bump `plugins/contextd/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+- **New MCP tool / command / skill?** Add or update the matching plugin component under `plugins/contextd/` in the same change (Priority #3).
+- **`.mcp.json` is git-tracked** here via a `.gitignore` negation (`!plugins/contextd/.mcp.json`); the root-level `.mcp.json` ignore is for local dev only — don't remove the negation.
+- **Validate** hooks with the plugin-dev `validate-hook-schema.sh`; keep manifests valid JSON.
 
 ---
 

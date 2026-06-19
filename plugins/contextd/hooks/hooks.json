@@ -1,0 +1,17 @@
+{
+  "description": "contextd lifecycle hooks for Claude Code",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

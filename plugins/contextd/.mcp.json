@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "contextd": {
+      "command": "contextd",
+      "args": ["--mcp"],
+      "env": {
+        "CONTEXTD_VECTORSTORE_PROVIDER": "chromem"
+      }
+    }
+  }
+}
