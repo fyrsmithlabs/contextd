@@ -62,7 +62,7 @@ type Config struct {
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Name:    "contextd-v2",
+		Name:    "contextd",
 		Version: "1.0.0",
 		Logger:  zap.NewNop(),
 		IgnoreFiles: []string{
