@@ -1,6 +1,5 @@
 ---
-name: checkpoint
-description: Save a context checkpoint of the current session so it can be resumed later.
+description: Save a resumable context checkpoint of this session
 argument-hint: "[optional summary]"
 ---
 

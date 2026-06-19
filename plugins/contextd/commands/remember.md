@@ -1,6 +1,5 @@
 ---
-name: remember
-description: Record a learning or insight from the current session into contextd memory.
+description: Record a learning from this session into contextd memory
 argument-hint: "[what to remember]"
 ---
 

@@ -1,6 +1,5 @@
 ---
-name: diagnose
-description: Diagnose an error and search contextd for a known fix.
+description: Diagnose an error and find a known contextd fix
 argument-hint: "<error message or description>"
 ---
 

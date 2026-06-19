@@ -1,6 +1,5 @@
 ---
-name: resume
-description: List contextd checkpoints and resume from one.
+description: List contextd checkpoints and resume from one
 argument-hint: "[checkpoint id]"
 ---
 

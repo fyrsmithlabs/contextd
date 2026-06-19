@@ -1,6 +1,5 @@
 ---
-name: status
-description: Show contextd session info — memories, checkpoints, and tenant/project context.
+description: Show contextd memories, checkpoints, and project context
 ---
 
 # /contextd:status

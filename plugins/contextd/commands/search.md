@@ -1,6 +1,5 @@
 ---
-name: search
-description: Search contextd across memories, remediations, and indexed code.
+description: Search contextd memories, remediations, and code
 argument-hint: "<query>"
 ---
 
