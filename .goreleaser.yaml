@@ -33,11 +33,15 @@ builds:
     binary: contextd
     env:
       - CGO_ENABLED=1
-      - CC={{ .Env.PWD }}/scripts/zig-cc.sh
-      - CXX={{ .Env.PWD }}/scripts/zig-cxx.sh
+      # Absolute path to the repo root for the zig wrappers + macOS SDK. CI sets
+      # REPO_ROOT={{`{{ github.workspace }}`}} (always the checkout root); local
+      # `goreleaser` runs fall back to PWD. Avoids relying on PWD being present
+      # in the goreleaser-action process env.
+      - CC={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cc.sh
+      - CXX={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cxx.sh
       # macOS SDK for the darwin cgo targets (fetched by the before hook). The
       # zig wrapper only consults this for darwin/* builds.
-      - MACOS_SDK_ROOT={{ .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
+      - MACOS_SDK_ROOT={{ envOrDefault "REPO_ROOT" .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
     goos:
       - windows
       - darwin
@@ -56,11 +60,11 @@ builds:
     binary: ctxd
     env:
       - CGO_ENABLED=1
-      - CC={{ .Env.PWD }}/scripts/zig-cc.sh
-      - CXX={{ .Env.PWD }}/scripts/zig-cxx.sh
+      - CC={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cc.sh
+      - CXX={{ envOrDefault "REPO_ROOT" .Env.PWD }}/scripts/zig-cxx.sh
       # macOS SDK for the darwin cgo targets (fetched by the before hook). The
       # zig wrapper only consults this for darwin/* builds.
-      - MACOS_SDK_ROOT={{ .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
+      - MACOS_SDK_ROOT={{ envOrDefault "REPO_ROOT" .Env.PWD }}/build/macos-sdk/MacOSX12.3.sdk
     goos:
       - windows
       - darwin
@@ -68,11 +72,11 @@ builds:
     goarch:
       - amd64
       - arm64
+    # ctxd only declares main.version (no commit/buildDate vars), so inject just
+    # that - extra -X for missing symbols would silently no-op.
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.buildDate={{.Date}}
 
 archives:
   - id: contextd-archive

@@ -65,3 +65,8 @@ jobs:
           CGO_ENABLED: '1'
           # Keep the Go module cache writable so zig's cgo probes can write into it.
           GOFLAGS: '-modcacherw'
+          # Absolute repo root for the zig CC/CXX wrappers + macOS SDK referenced
+          # in .goreleaser.yaml (envOrDefault "REPO_ROOT" .Env.PWD). Pin it to the
+          # checkout root so the build never depends on PWD being set in the
+          # goreleaser-action process env.
+          REPO_ROOT: ${{ github.workspace }}
