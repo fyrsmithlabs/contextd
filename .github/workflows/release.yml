@@ -9,6 +9,10 @@
 #
 # REQUIRED secret: HOMEBREW_TAP_TOKEN - a PAT with `contents:write` on
 # fyrsmithlabs/homebrew-tap. Without it the brews step fails.
+#
+# Trigger: a `v*` tag push. The normal path is to label a PR `release` and merge
+# it - tag-release.yml then creates the tag for you. Pushing a `v*` tag by hand
+# is the manual fallback and runs this same workflow.
 name: Release
 
 on:
