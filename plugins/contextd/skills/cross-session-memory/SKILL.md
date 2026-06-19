@@ -1,6 +1,6 @@
 ---
 name: cross-session-memory
-description: Use when starting a task to check for prior solutions, and when finishing one to record what was learned. Triggers on "have we solved this before", reusing a past approach, capturing a design decision, or any non-trivial task whose insight should survive the session. Covers memory_search, memory_record, memory_feedback, and memory_outcome.
+description: This skill should be used when starting a task to check for prior solutions, or when finishing one to record a learning. It triggers when the user says "have we solved this before", "remember this", "record what we learned", reuses a past approach, or captures a design decision worth surviving the session. Covers memory_search, memory_record, memory_feedback, and memory_outcome.
 version: 0.5.0
 ---
 

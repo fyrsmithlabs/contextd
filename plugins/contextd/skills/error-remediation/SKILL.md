@@ -1,6 +1,6 @@
 ---
 name: error-remediation
-description: Use whenever an error, exception, failed build, or failing test is encountered. Triggers on stack traces, compiler/linter errors, CI failures, panics, or "why is this failing". Covers troubleshoot_diagnose, remediation_search, remediation_record, and remediation_feedback so fixes are matched to past solutions and saved for next time.
+description: This skill should be used whenever an error, exception, failed build, failing test, stack trace, compiler/linter error, CI failure, or panic appears, or when the user asks "why is this failing" or "how do I fix this". Covers troubleshoot_diagnose, remediation_search, remediation_record, and remediation_feedback to match errors to past fixes and record new ones.
 version: 0.5.0
 ---
 
@@ -26,7 +26,7 @@ Get AI-powered analysis of the error first — it categorizes the failure and su
 remediation_search(query)
 ```
 
-Paste the salient part of the error message. If contextd has seen it, you get the fix that worked before — don't re-derive it.
+Pass the salient part of the error message. If contextd has seen it, it returns the fix that worked before — do not re-derive it.
 
 ### 3. Record the fix
 

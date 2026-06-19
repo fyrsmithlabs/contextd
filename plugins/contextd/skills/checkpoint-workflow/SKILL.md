@@ -1,6 +1,6 @@
 ---
 name: checkpoint-workflow
-description: Use to preserve and restore session state — when context is getting full (approaching ~70%), before a long-running task, before /clear, or when resuming earlier work. Triggers on "save my progress", "pick up where we left off", "checkpoint this", or running low on context. Covers checkpoint_save, checkpoint_list, and checkpoint_resume.
+description: This skill should be used to preserve or restore session state. It triggers when the user says "save my progress", "checkpoint this", "pick up where we left off", or "resume", before /clear, before a long-running task, or when context usage approaches ~70%. Covers checkpoint_save, checkpoint_list, and checkpoint_resume.
 version: 0.5.0
 ---
 
@@ -47,5 +47,5 @@ Choose the resume **level** to match the need:
 
 ## Tips
 
-- Pair with `cross-session-memory`: checkpoints capture *this* session's state; memories capture *reusable* insight. Record durable learnings as memories before they're lost to a checkpoint you may never reopen.
+- Pair with `cross-session-memory`: checkpoints capture *this* session's state; memories capture *reusable* insight. Record durable learnings as memories before they are lost to a checkpoint that may never be reopened.
 - Auto-checkpoint on `/clear` and auto-resume on start can be enabled via contextd hooks/config (`CONTEXTD_AUTO_CHECKPOINT_ON_CLEAR`, `CONTEXTD_AUTO_RESUME_ON_START`, `CONTEXTD_CHECKPOINT_THRESHOLD`).

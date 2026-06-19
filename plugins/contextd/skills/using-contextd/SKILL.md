@@ -1,6 +1,6 @@
 ---
 name: using-contextd
-description: Use at the start of any coding or research session to establish the contextd workflow — cross-session memory, checkpoints, semantic search, and error remediation. Triggers when the user mentions remembering past work, resuming a session, "what did we do before", persistent memory, or when starting a non-trivial task that could benefit from prior learnings.
+description: This skill should be used at the start of a coding or research session, or when the user says "what did we do before", "remember", "resume", mentions persistent or cross-session memory, or begins a non-trivial task that could reuse prior learnings. It establishes the contextd workflow — run semantic_search and memory_search before exploring code — and points to the cross-session-memory, checkpoint-workflow, and error-remediation skills.
 version: 0.5.0
 ---
 
