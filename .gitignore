@@ -1,7 +1,11 @@
 # Build artifacts
 dist/
+build/
 /contextd
 /ctxd
+
+# Release-time fetched artifacts + stray cross-compile objects (never committed)
+*.o
 
 # Test binaries
 *.test
