@@ -16,9 +16,14 @@
 name: Release
 
 on:
+  # Manual fallback: pushing a `v*` tag by hand releases that tag.
   push:
     tags:
       - 'v*'
+  # Label path: tag-release.yml creates the tag and dispatches this workflow
+  # against it (dispatch works with the default GITHUB_TOKEN; a tag push does
+  # not). Dispatch with `--ref vX.Y.Z` so the checkout + GoReleaser see the tag.
+  workflow_dispatch:
 
 permissions:
   contents: write

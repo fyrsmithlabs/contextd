@@ -2,20 +2,17 @@
 #
 # Cuts a release by LABEL instead of a manual tag push. When a PR carrying the
 # `release` label is MERGED to main, this workflow tags `v<VERSION>` (read from
-# the VERSION file) on the merge commit and pushes it. That tag push is what
-# triggers the GoReleaser build in release.yml — this workflow only creates the
-# tag, it does not run GoReleaser itself.
+# the VERSION file) on the merge commit, pushes it, and then dispatches the
+# GoReleaser build in release.yml against that tag.
 #
-#   label a PR `release`  ──(merge)──►  tag v<VERSION>  ──►  release.yml (GoReleaser)
+#   label a PR `release`  ──(merge)──►  tag v<VERSION>  ──►  dispatch release.yml (GoReleaser)
+#
+# No PAT required: it pushes the tag and then triggers release.yml via
+# `workflow_dispatch`, which DOES fire with the default GITHUB_TOKEN (a tag
+# *push* with GITHUB_TOKEN would not, due to GitHub's recursion guard).
 #
 # Manual `git push origin vX.Y.Z` still works as a fallback (release.yml keeps
 # its `push: tags` trigger).
-#
-# REQUIRED secret: RELEASE_TAG_TOKEN — a PAT (or GitHub App token) with
-# `contents:write` on this repo. A tag pushed with the default GITHUB_TOKEN does
-# NOT trigger other workflows (GitHub's recursion guard), so release.yml would
-# never fire. The token below falls back to HOMEBREW_TAP_TOKEN, then GITHUB_TOKEN;
-# only the first two (real PATs) will actually trigger the release build.
 name: Tag Release on Label
 
 on:
@@ -23,15 +20,16 @@ on:
     types: [labeled, closed]
 
 permissions:
-  contents: write
+  contents: write   # create + push the tag
+  actions: write    # dispatch release.yml
 
 jobs:
   tag:
     name: Tag on release label
     runs-on: ubuntu-latest
-    # Fire only when the PR is MERGED and carries the `release` label. This
-    # covers both orderings: label-then-merge (fires on `closed`) and
-    # merge-then-label (fires on `labeled`). Never tags un-merged code.
+    # Fire only when the PR is MERGED and carries the `release` label. Covers
+    # both orderings: label-then-merge (fires on `closed`) and merge-then-label
+    # (fires on `labeled`). Never tags un-merged code.
     if: >-
       github.event.pull_request.merged == true &&
       (
@@ -44,10 +42,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          # Use a PAT so the tag push triggers release.yml (see header note).
-          token: ${{ secrets.RELEASE_TAG_TOKEN || secrets.HOMEBREW_TAP_TOKEN || github.token }}
 
       - name: Create and push version tag
+        id: tag
         run: |
           set -euo pipefail
           VERSION="$(tr -d '[:space:]' < VERSION)"
@@ -55,9 +52,11 @@ jobs:
             echo "::error::VERSION file is empty"; exit 1
           fi
           TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "::notice::Tag ${TAG} already exists on origin — skipping (no double release)."
+            echo "created=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -65,4 +64,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "Release ${TAG} (PR #${{ github.event.pull_request.number }})"
           git push origin "${TAG}"
-          echo "::notice::Pushed ${TAG} — triggers the GoReleaser release workflow."
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Pushed ${TAG}."
+
+      - name: Dispatch GoReleaser release
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --ref "${{ steps.tag.outputs.tag }}"
+          echo "::notice::Dispatched release.yml against ${{ steps.tag.outputs.tag }}."
