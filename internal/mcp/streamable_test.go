@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v4"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
 )
@@ -66,5 +67,46 @@ func TestStreamableHandler_Initialize(t *testing.T) {
 func TestStreamableHandler_NotNil(t *testing.T) {
 	if newBareServer(t).StreamableHandler(false) == nil {
 		t.Fatal("StreamableHandler returned nil")
+	}
+}
+
+// TestBearerTokenMiddleware checks the auth gate on the MCP endpoint.
+func TestBearerTokenMiddleware(t *testing.T) {
+	const token = "s3cr3t-token"
+	h := bearerTokenMiddleware(token)(func(c echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cases := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+	}{
+		{"no header", "", http.StatusUnauthorized},
+		{"wrong scheme", "Basic abc", http.StatusUnauthorized},
+		{"wrong token", "Bearer nope", http.StatusUnauthorized},
+		{"correct token", "Bearer " + token, http.StatusOK},
+	}
+
+	e := echo.New()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("{}"))
+			if tc.authHeader != "" {
+				req.Header.Set(echo.HeaderAuthorization, tc.authHeader)
+			}
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			err := h(c)
+			status := rec.Code
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					status = he.Code
+				}
+			}
+			if status != tc.wantStatus {
+				t.Errorf("status = %d, want %d (err=%v)", status, tc.wantStatus, err)
+			}
+		})
 	}
 }

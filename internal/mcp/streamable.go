@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -11,6 +13,27 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/zap"
 )
+
+// bearerTokenMiddleware enforces "Authorization: Bearer <token>" using a
+// constant-time comparison to avoid leaking the token via timing.
+func bearerTokenMiddleware(token string) echo.MiddlewareFunc {
+	want := []byte(token)
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			h := c.Request().Header.Get(echo.HeaderAuthorization)
+			const prefix = "Bearer "
+			if !strings.HasPrefix(h, prefix) {
+				return echo.NewHTTPError(http.StatusUnauthorized, "missing bearer token")
+			}
+			got := []byte(strings.TrimSpace(h[len(prefix):]))
+			if subtle.ConstantTimeEq(int32(len(got)), int32(len(want))) != 1 ||
+				subtle.ConstantTimeCompare(got, want) != 1 {
+				return echo.NewHTTPError(http.StatusUnauthorized, "invalid bearer token")
+			}
+			return next(c)
+		}
+	}
+}
 
 // StreamableHTTPConfig configures the standalone Streamable HTTP MCP server.
 type StreamableHTTPConfig struct {
@@ -27,6 +50,11 @@ type StreamableHTTPConfig struct {
 	// resource-update notifications and receive server-initiated messages. See
 	// docs/spec/mcp-protocol/notifications-agent-swarm.md.
 	Stateless bool
+	// Token, when non-empty, requires clients to present
+	// "Authorization: Bearer <Token>" on the MCP endpoint. When empty, the
+	// endpoint is served unauthenticated (intended for localhost/testing) and
+	// RunHTTP logs a prominent warning.
+	Token string
 	// ReadHeaderTimeout guards against slow-loris clients (default: 10s).
 	ReadHeaderTimeout time.Duration
 }
@@ -74,8 +102,16 @@ func (s *Server) RunHTTP(ctx context.Context, cfg StreamableHTTPConfig) error {
 	e.Use(middleware.RequestID())
 
 	// MCP Streamable HTTP uses a single endpoint for both POST (client→server
-	// messages) and GET (server→client SSE stream).
-	e.Any(cfg.Path, echo.WrapHandler(s.StreamableHandler(cfg.Stateless)))
+	// messages) and GET (server→client SSE stream). Bearer auth (when a token
+	// is configured) guards only this endpoint; /health stays open.
+	mcpEndpoint := e.Group(cfg.Path)
+	if cfg.Token != "" {
+		mcpEndpoint.Use(bearerTokenMiddleware(cfg.Token))
+	} else {
+		s.logger.Warn("MCP streamable HTTP server running WITHOUT authentication; " +
+			"set a token (--mcp-http-token / CONTEXTD_MCP_HTTP_TOKEN) before exposing beyond localhost")
+	}
+	mcpEndpoint.Any("", echo.WrapHandler(s.StreamableHandler(cfg.Stateless)))
 
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{

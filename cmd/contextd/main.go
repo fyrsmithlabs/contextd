@@ -75,6 +75,7 @@ func run() error {
 	mcpMode := flag.Bool("mcp", false, "run in MCP mode (stdio transport)")
 	mcpHTTPPort := flag.Int("mcp-http-port", 0, "run the MCP server over the Streamable HTTP transport on this port (separate from --http-port REST API)")
 	mcpHTTPHost := flag.String("mcp-http-host", "localhost", "host to bind the MCP Streamable HTTP server")
+	mcpHTTPToken := flag.String("mcp-http-token", "", "bearer token required on the MCP Streamable HTTP endpoint (or set CONTEXTD_MCP_HTTP_TOKEN); empty serves unauthenticated for localhost/testing")
 	downloadModels := flag.Bool("download-models", false, "download embedding models and exit (for airgap/container builds)")
 	flag.Parse()
 
@@ -587,9 +588,14 @@ func run() error {
 		// Run MCP server in background goroutine (no longer blocks).
 		mcpErrChan = make(chan error, 1)
 		if mcpHTTPEnabled {
+			mcpToken := *mcpHTTPToken
+			if mcpToken == "" {
+				mcpToken = os.Getenv("CONTEXTD_MCP_HTTP_TOKEN")
+			}
 			httpCfg := mcp.StreamableHTTPConfig{
-				Host: *mcpHTTPHost,
-				Port: *mcpHTTPPort,
+				Host:  *mcpHTTPHost,
+				Port:  *mcpHTTPPort,
+				Token: mcpToken,
 			}
 			logger.Info(ctx, "MCP server initialized, starting streamable HTTP transport",
 				zap.String("mcp_http_host", *mcpHTTPHost),
