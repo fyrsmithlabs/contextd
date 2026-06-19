@@ -1,0 +1,22 @@
+{
+  "name": "contextd",
+  "version": "0.5.0",
+  "description": "Cross-session memory, context checkpoints, semantic search, and error remediation for Claude Code, backed by the contextd MCP server.",
+  "author": {
+    "name": "fyrsmithlabs",
+    "email": "dustinhendel@gmail.com",
+    "url": "https://github.com/fyrsmithlabs"
+  },
+  "homepage": "https://github.com/fyrsmithlabs/contextd",
+  "repository": "https://github.com/fyrsmithlabs/contextd",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "context",
+    "checkpoint",
+    "remediation",
+    "semantic-search",
+    "mcp",
+    "reasoningbank"
+  ]
+}
