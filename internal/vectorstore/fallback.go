@@ -61,6 +61,33 @@ func generateEntryID(prefix string) string {
 	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b))
 }
 
+// cloneDocuments returns a deep copy of docs, including a fresh copy of each
+// document's Metadata map.
+//
+// FallbackStore writes the same documents to both the remote and local stores.
+// Each store's AddDocuments calls IsolationMode.InjectMetadata, which MUTATES
+// doc.Metadata in place. Because remote and local writes are serialized by
+// independent mutexes (and may overlap), sharing the same Metadata map across
+// both writes is a write/write data race. Giving the local write its own copy
+// removes the aliasing.
+func cloneDocuments(docs []Document) []Document {
+	if docs == nil {
+		return nil
+	}
+	out := make([]Document, len(docs))
+	for i, doc := range docs {
+		out[i] = doc
+		if doc.Metadata != nil {
+			meta := make(map[string]interface{}, len(doc.Metadata))
+			for k, v := range doc.Metadata {
+				meta[k] = v
+			}
+			out[i].Metadata = meta
+		}
+	}
+	return out
+}
+
 // Validate validates the fallback configuration.
 func (c *FallbackConfig) Validate() error {
 	if c.LocalPath == "" {
@@ -91,6 +118,25 @@ type FallbackStore struct {
 	config FallbackConfig // Configuration
 	logger *zap.Logger    // Logger
 	mu     sync.RWMutex   // Protects mode switches
+
+	// localMu / remoteMu serialize mutating operations against each backing
+	// store independently.
+	//
+	// The embedded chromem-go Collection (v0.7.0) is NOT safe for concurrent
+	// Add+Delete: Collection.Delete reads len(c.documents) and ranges over its
+	// filters BEFORE acquiring documentsLock, which races with the locked map
+	// writes performed by Collection.AddDocument. Add vs Add and Add vs Search
+	// are individually safe (both take the collection lock), but any Delete may
+	// race with a concurrent Add or Delete and corrupt the documents map.
+	//
+	// We cannot fix upstream, so FallbackStore serializes all mutations
+	// (add/delete/collection create+delete) per store behind these mutexes to
+	// guarantee Add and Delete never overlap on the same backing store. Reads
+	// (Search) are unaffected: chromem Query takes the collection RLock and is
+	// safe against the locked writes. Separate mutexes keep remote and local
+	// mutations independent so a slow remote call does not block local writes.
+	localMu  sync.Mutex
+	remoteMu sync.Mutex
 }
 
 // NewFallbackStore creates a new FallbackStore wrapping remote and local stores.
@@ -132,8 +178,11 @@ func NewFallbackStore(
 		logger: logger,
 	}
 
-	// Create sync manager
+	// Create sync manager and share the remote-store mutex so background sync
+	// writes/deletes serialize against foreground remote mutations (chromem-go
+	// is not safe for concurrent Add+Delete).
 	fs.sync = NewSyncManager(ctx, wal, local, remote, health, logger)
+	fs.sync.SetRemoteMutex(&fs.remoteMu)
 
 	// Start health monitoring and sync
 	health.Start()
@@ -201,7 +250,9 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 
 	// Try remote write if healthy
 	if fs.health.IsHealthy() {
+		fs.remoteMu.Lock()
 		ids, err := fs.remote.AddDocuments(ctx, docs)
+		fs.remoteMu.Unlock()
 		if err != nil {
 			// Remote write failed - log and fall through to local path
 			fs.logger.Warn("fallback: remote write failed, falling back to local",
@@ -209,8 +260,15 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 				zap.String("tenant_id", tenant.TenantID))
 			// Continue to local write below
 		} else {
-			// Remote write succeeded - also write to local for consistency
-			if _, localErr := fs.local.AddDocuments(ctx, docs); localErr != nil {
+			// Remote write succeeded - also write to local for consistency.
+			// Use a deep copy: the remote AddDocuments above mutates
+			// doc.Metadata via InjectMetadata, and so will the local write -
+			// sharing the maps would be a data race.
+			localDocs := cloneDocuments(docs)
+			fs.localMu.Lock()
+			_, localErr := fs.local.AddDocuments(ctx, localDocs)
+			fs.localMu.Unlock()
+			if localErr != nil {
 				fs.logger.Warn("fallback: local write failed after remote success",
 					zap.Error(localErr),
 					zap.String("tenant_id", tenant.TenantID))
@@ -253,8 +311,14 @@ func (fs *FallbackStore) AddDocuments(ctx context.Context, docs []Document) ([]s
 		return nil, fmt.Errorf("fallback: WAL write failed: %w", err)
 	}
 
-	// Write to local store
-	ids, err := fs.local.AddDocuments(ctx, docs)
+	// Write to local store using a deep copy. The WAL entry above retains the
+	// original docs slice by reference (and mergePendingResults reads it), so
+	// the local AddDocuments must not mutate those docs' Metadata maps via
+	// InjectMetadata - doing so would race with concurrent WAL readers.
+	localDocs := cloneDocuments(docs)
+	fs.localMu.Lock()
+	ids, err := fs.local.AddDocuments(ctx, localDocs)
+	fs.localMu.Unlock()
 	if err != nil {
 		fs.logger.Error("fallback: local write failed",
 			zap.Error(err),
@@ -498,7 +562,10 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 
 	// Try remote delete if healthy
 	if fs.health.IsHealthy() {
-		if err := fs.remote.DeleteDocuments(ctx, ids); err != nil {
+		fs.remoteMu.Lock()
+		remoteDelErr := fs.remote.DeleteDocuments(ctx, ids)
+		fs.remoteMu.Unlock()
+		if err := remoteDelErr; err != nil {
 			// Remote delete failed - log and fall through to local path
 			fs.logger.Warn("fallback: remote delete failed, using local",
 				zap.Error(err),
@@ -506,7 +573,10 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 			// Continue to local delete below
 		} else {
 			// Remote delete succeeded - also delete from local
-			if localErr := fs.local.DeleteDocuments(ctx, ids); localErr != nil {
+			fs.localMu.Lock()
+			localErr := fs.local.DeleteDocuments(ctx, ids)
+			fs.localMu.Unlock()
+			if localErr != nil {
 				fs.logger.Warn("fallback: local delete failed after remote success",
 					zap.Error(localErr))
 			}
@@ -541,8 +611,11 @@ func (fs *FallbackStore) DeleteDocuments(ctx context.Context, ids []string) erro
 		return fmt.Errorf("fallback: WAL write failed: %w", err)
 	}
 
-	if err := fs.local.DeleteDocuments(ctx, ids); err != nil {
-		return fmt.Errorf("fallback: local delete failed: %w", err)
+	fs.localMu.Lock()
+	localDelErr := fs.local.DeleteDocuments(ctx, ids)
+	fs.localMu.Unlock()
+	if localDelErr != nil {
+		return fmt.Errorf("fallback: local delete failed: %w", localDelErr)
 	}
 
 	return nil
@@ -555,13 +628,19 @@ func (fs *FallbackStore) DeleteDocumentsFromCollection(ctx context.Context, coll
 
 	// Try remote delete if healthy
 	if fs.health.IsHealthy() {
-		if err := fs.remote.DeleteDocumentsFromCollection(ctx, collectionName, ids); err != nil {
+		fs.remoteMu.Lock()
+		remoteDelErr := fs.remote.DeleteDocumentsFromCollection(ctx, collectionName, ids)
+		fs.remoteMu.Unlock()
+		if err := remoteDelErr; err != nil {
 			// Remote delete failed - log and fall through to local
 			fs.logger.Warn("fallback: remote delete failed, using local", zap.Error(err))
 			// Continue to local delete below
 		} else {
 			// Remote delete succeeded - also delete from local
-			if localErr := fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids); localErr != nil {
+			fs.localMu.Lock()
+			localErr := fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids)
+			fs.localMu.Unlock()
+			if localErr != nil {
 				fs.logger.Warn("fallback: local delete failed after remote success", zap.Error(localErr))
 			}
 			return nil
@@ -569,6 +648,8 @@ func (fs *FallbackStore) DeleteDocumentsFromCollection(ctx context.Context, coll
 	}
 
 	// Remote is unhealthy or delete failed: Use local store
+	fs.localMu.Lock()
+	defer fs.localMu.Unlock()
 	return fs.local.DeleteDocumentsFromCollection(ctx, collectionName, ids)
 }
 
@@ -578,13 +659,19 @@ func (fs *FallbackStore) CreateCollection(ctx context.Context, collectionName st
 	defer fs.mu.RUnlock()
 
 	// Create in both stores for consistency
-	if err := fs.local.CreateCollection(ctx, collectionName, vectorSize); err != nil {
-		return fmt.Errorf("fallback: local collection creation failed: %w", err)
+	fs.localMu.Lock()
+	localErr := fs.local.CreateCollection(ctx, collectionName, vectorSize)
+	fs.localMu.Unlock()
+	if localErr != nil {
+		return fmt.Errorf("fallback: local collection creation failed: %w", localErr)
 	}
 
 	if fs.health.IsHealthy() {
-		if err := fs.remote.CreateCollection(ctx, collectionName, vectorSize); err != nil {
-			fs.logger.Warn("fallback: remote collection creation failed", zap.Error(err))
+		fs.remoteMu.Lock()
+		remoteErr := fs.remote.CreateCollection(ctx, collectionName, vectorSize)
+		fs.remoteMu.Unlock()
+		if remoteErr != nil {
+			fs.logger.Warn("fallback: remote collection creation failed", zap.Error(remoteErr))
 			// Not fatal - local has it
 		}
 	}
@@ -598,13 +685,19 @@ func (fs *FallbackStore) DeleteCollection(ctx context.Context, collectionName st
 	defer fs.mu.RUnlock()
 
 	// Delete from both stores
-	if err := fs.local.DeleteCollection(ctx, collectionName); err != nil {
-		fs.logger.Warn("fallback: local collection deletion failed", zap.Error(err))
+	fs.localMu.Lock()
+	localErr := fs.local.DeleteCollection(ctx, collectionName)
+	fs.localMu.Unlock()
+	if localErr != nil {
+		fs.logger.Warn("fallback: local collection deletion failed", zap.Error(localErr))
 	}
 
 	if fs.health.IsHealthy() {
-		if err := fs.remote.DeleteCollection(ctx, collectionName); err != nil {
-			fs.logger.Warn("fallback: remote collection deletion failed", zap.Error(err))
+		fs.remoteMu.Lock()
+		remoteErr := fs.remote.DeleteCollection(ctx, collectionName)
+		fs.remoteMu.Unlock()
+		if remoteErr != nil {
+			fs.logger.Warn("fallback: remote collection deletion failed", zap.Error(remoteErr))
 		}
 	}
 

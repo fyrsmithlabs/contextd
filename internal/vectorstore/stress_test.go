@@ -270,51 +270,87 @@ func TestStress_CircuitBreakerUnderLoad(t *testing.T) {
 
 	duration := getStressDuration()
 
-	cb := NewCircuitBreaker(10, 100*time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
-	defer cancel()
+	const resetAfter = 100 * time.Millisecond
+	cb := NewCircuitBreaker(10, resetAfter)
 
 	var successOps atomic.Int64
 	var failureOps atomic.Int64
 	var blockedOps atomic.Int64
 
-	// Simulate rapid failure/success cycles
+	// The test is split into two deterministic phases so it exercises both the
+	// "open and block" behavior AND the "recover through half-open to closed"
+	// behavior. A single mixed phase can never produce a success because the
+	// breaker opens after `threshold` failures and starves every caller, so we
+	// drive the lifecycle explicitly.
+	//
+	// failPhase drives the underlying operation to fail; recoverPhase drives it
+	// to succeed. We give each phase roughly half of the configured stress
+	// duration so the test scales with CONTEXTD_STRESS_DURATION.
+	half := duration / 2
+	if half < 200*time.Millisecond {
+		half = 200 * time.Millisecond
+	}
+
+	// --- Phase 1: failure load. The breaker should open and block callers. ---
+	failCtx, failCancel := context.WithTimeout(context.Background(), half)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
-			phase := 0
 			for {
 				select {
-				case <-ctx.Done():
+				case <-failCtx.Done():
 					return
 				default:
 					if cb.Allow() {
-						// Alternate between failure and success phases
-						if phase < 20 {
-							// Failure phase
-							cb.RecordFailure()
-							failureOps.Add(1)
-						} else {
-							// Success phase
-							cb.RecordSuccess()
-							successOps.Add(1)
-						}
-						phase = (phase + 1) % 40
+						cb.RecordFailure()
+						failureOps.Add(1)
 					} else {
 						blockedOps.Add(1)
 					}
 					time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
 				}
 			}
-		}(i)
+		}()
 	}
-
-	<-ctx.Done()
-	cancel()
 	wg.Wait()
+	failCancel()
+
+	// After sustained failures the breaker must be open (or half-open, if a
+	// probe slipped through right at the boundary) and must have blocked work.
+	require.NotEqual(t, "closed", cb.State(), "breaker should not be closed after sustained failures")
+
+	// --- Recovery window: let the reset timeout elapse with no new failures. ---
+	// No RecordFailure happens here, so lastFailure stays put and the breaker
+	// becomes eligible to transition to half-open on the next Allow().
+	time.Sleep(2 * resetAfter)
+
+	// --- Phase 2: recovery load. The underlying operation now succeeds, so the
+	// breaker should probe via half-open and transition back to closed. ---
+	recoverCtx, recoverCancel := context.WithTimeout(context.Background(), half)
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-recoverCtx.Done():
+					return
+				default:
+					if cb.Allow() {
+						cb.RecordSuccess()
+						successOps.Add(1)
+					} else {
+						blockedOps.Add(1)
+					}
+					time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	recoverCancel()
 
 	successes := successOps.Load()
 	failures := failureOps.Load()
@@ -327,9 +363,10 @@ func TestStress_CircuitBreakerUnderLoad(t *testing.T) {
 	t.Logf("   Blocked operations: %d", blocked)
 	t.Logf("   Final state: %s", cb.State())
 
-	assert.Greater(t, successes, int64(0), "Should have successful operations")
-	assert.Greater(t, failures, int64(0), "Should have failed operations")
-	assert.Greater(t, blocked, int64(0), "Circuit should have blocked some operations")
+	assert.Greater(t, successes, int64(0), "Breaker should recover and allow successful operations")
+	assert.Greater(t, failures, int64(0), "Should have failed operations during the failure phase")
+	assert.Greater(t, blocked, int64(0), "Circuit should have blocked some operations while open")
+	assert.Equal(t, "closed", cb.State(), "Breaker should be closed after the recovery phase")
 }
 
 // TestStress_WALConcurrentWrites stress tests the WAL with concurrent writes
