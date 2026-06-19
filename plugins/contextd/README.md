@@ -33,6 +33,26 @@ conversation indexing, reflection).
 **Hook**: a defensive `SessionStart` hook that reminds Claude to use contextd
 when the binary is present, and no-ops silently when it isn't.
 
+## Beyond Claude Code
+
+The bundled contextd MCP server now also exposes capabilities that are
+available to any MCP host whenever the server is running:
+
+- **MCP Resources** — read-only, secret-scrubbed JSON views of memories,
+  checkpoints, and remediations (including a `contextd://help` resource).
+- **MCP Prompts** — six workflow prompts (`contextd_checkpoint`,
+  `contextd_remember`, `contextd_diagnose`, `contextd_resume`,
+  `contextd_status`, `contextd_search`).
+- **Remote hosting** — Streamable HTTP transport with optional bearer-token
+  auth for running contextd as a shared remote MCP server.
+- **Agent-swarm notifications** — resource-update notifications broadcast when
+  shared memories, checkpoints, or remediations are recorded, so multiple
+  agents can stay in sync.
+
+See [../../docs/CONTEXTD.md](../../docs/CONTEXTD.md) and
+[../../docs/spec/mcp-protocol/notifications-agent-swarm.md](../../docs/spec/mcp-protocol/notifications-agent-swarm.md)
+for details.
+
 ## Prerequisites
 
 The `contextd` binary must be on `PATH` for the MCP server to start:
