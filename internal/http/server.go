@@ -6,33 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
-	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	"github.com/fyrsmithlabs/contextd/internal/services"
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
-)
-
-const (
-	// CheckpointNameMaxLength is the UI display limit for checkpoint names.
-	CheckpointNameMaxLength = 50
-	// CheckpointNameTruncationSuffix is added when names are truncated.
-	CheckpointNameTruncationSuffix = "..."
-	// MaxSummaryLength is the maximum length for summary fields.
-	MaxSummaryLength = 10000
-	// MaxContextLength is the maximum length for context fields.
-	MaxContextLength = 50000
-	// MinThresholdPercent is the minimum valid threshold percentage.
-	MinThresholdPercent = 1
-	// MaxThresholdPercent is the maximum valid threshold percentage.
-	MaxThresholdPercent = 100
 )
 
 // Server provides HTTP endpoints for contextd.
@@ -122,40 +103,15 @@ func (s *Server) registerRoutes() {
 
 	// API v1 routes
 	v1 := s.echo.Group("/api/v1")
-	v1.POST("/scrub", s.handleScrub)
-	v1.POST("/threshold", s.handleThreshold)
 	v1.GET("/status", s.handleStatus)
 	v1.GET("/health/metadata", s.handleMetadataHealth)
 
 	// Note: Checkpoint management is available via MCP tools (checkpoint_save, checkpoint_list, checkpoint_resume)
-	// HTTP endpoints were removed due to security concerns (CVE-2025-CONTEXTD-001)
-}
-
-// ScrubRequest is the request body for POST /api/v1/scrub.
-type ScrubRequest struct {
-	Content string `json:"content"`
-}
-
-// ScrubResponse is the response body for POST /api/v1/scrub.
-type ScrubResponse struct {
-	Content       string `json:"content"`
-	FindingsCount int    `json:"findings_count"`
-}
-
-// ThresholdRequest is the request body for POST /api/v1/threshold.
-type ThresholdRequest struct {
-	ProjectID   string `json:"project_id"`
-	SessionID   string `json:"session_id"`
-	Percent     int    `json:"percent"`
-	Summary     string `json:"summary,omitempty"`      // Brief summary of session work (recommended)
-	Context     string `json:"context,omitempty"`      // Additional context for resumption
-	ProjectPath string `json:"project_path,omitempty"` // Full project path (defaults to project_id)
-}
-
-// ThresholdResponse is the response body for POST /api/v1/threshold.
-type ThresholdResponse struct {
-	CheckpointID string `json:"checkpoint_id"`
-	Message      string `json:"message"`
+	// HTTP endpoints were removed due to security concerns (CVE-2025-CONTEXTD-001).
+	//
+	// Note: The secret-scrubbing and context-threshold POST endpoints were also
+	// removed - agents should use the MCP secrets_scrub and checkpoint_save flows
+	// directly instead of the HTTP surface.
 }
 
 // HealthResponse is the response body for GET /health.
@@ -164,7 +120,7 @@ type HealthResponse struct {
 	Metadata *MetadataHealthStatus `json:"metadata,omitempty"` // Optional metadata health
 }
 
-// StatusResponse, StatusCounts, ContextStatus, CompressionStatus, and MemoryStatus
+// StatusResponse, StatusCounts, ContextStatus, and MemoryStatus
 // are defined in types.go to enable reuse across packages.
 
 // Note: Checkpoint request/response types removed (CVE-2025-CONTEXTD-001 fix).
@@ -287,13 +243,6 @@ func (s *Server) handleStatus(c echo.Context) error {
 		services["scrubber"] = "unavailable"
 	}
 
-	// Check compression service
-	if s.registry.Compression() != nil {
-		services["compression"] = "ok"
-	} else {
-		services["compression"] = "unavailable"
-	}
-
 	// Get counts via VectorStore collections using shared helper
 	checkpoints, memories := CountFromCollections(ctx, s.registry.VectorStore())
 	counts := StatusCounts{
@@ -309,16 +258,6 @@ func (s *Server) handleStatus(c echo.Context) error {
 		Counts:   counts,
 	}
 
-	// Add compression stats if available
-	if s.registry.Compression() != nil {
-		compStats := s.registry.Compression().Stats()
-		resp.Compression = &CompressionStatus{
-			LastRatio:       compStats.LastRatio,
-			LastQuality:     compStats.LastQuality,
-			OperationsTotal: compStats.OperationsTotal,
-		}
-	}
-
 	// Add memory stats if available
 	if s.registry.Memory() != nil {
 		memStats := s.registry.Memory().Stats()
@@ -330,156 +269,10 @@ func (s *Server) handleStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// handleScrub scrubs secrets from the provided content.
-func (s *Server) handleScrub(c echo.Context) error {
-	var req ScrubRequest
-	if err := c.Bind(&req); err != nil {
-		s.logger.Warn("invalid scrub request", zap.Error(err))
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
-	}
-
-	if req.Content == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "content field is required")
-	}
-
-	// Check if scrubber service is available
-	scrubber := s.registry.Scrubber()
-	if scrubber == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "scrubber service unavailable")
-	}
-
-	// Scrub the content
-	result := scrubber.Scrub(req.Content)
-
-	s.logger.Debug("scrub operation completed",
-		zap.Int("findings", result.TotalFindings),
-		zap.Duration("duration", result.Duration),
-	)
-
-	return c.JSON(http.StatusOK, ScrubResponse{
-		Content:       result.Scrubbed,
-		FindingsCount: result.TotalFindings,
-	})
-}
-
-// handleThreshold handles context threshold reached event.
-func (s *Server) handleThreshold(c echo.Context) error {
-	var req ThresholdRequest
-	if err := c.Bind(&req); err != nil {
-		s.logger.Warn("invalid threshold request", zap.Error(err))
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
-	}
-
-	// Validate required fields
-	if req.ProjectID == "" || req.SessionID == "" || req.Percent == 0 {
-		return echo.NewHTTPError(http.StatusBadRequest, "project_id, session_id, and percent fields are required")
-	}
-
-	// Validate percent range
-	if req.Percent < MinThresholdPercent || req.Percent > MaxThresholdPercent {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			fmt.Sprintf("percent must be between %d and %d", MinThresholdPercent, MaxThresholdPercent))
-	}
-
-	// Validate and sanitize summary length
-	if len(req.Summary) > MaxSummaryLength {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			fmt.Sprintf("summary exceeds maximum length of %d characters", MaxSummaryLength))
-	}
-
-	// Validate and sanitize context length
-	if len(req.Context) > MaxContextLength {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			fmt.Sprintf("context exceeds maximum length of %d characters", MaxContextLength))
-	}
-
-	// Use provided values or fall back to defaults
-	projectPath := req.ProjectPath
-	if projectPath == "" {
-		projectPath = req.ProjectID
-	}
-
-	// Check for path traversal BEFORE cleaning (CWE-22) - filepath.Clean resolves
-	// ".." sequences, so checking after clean is ineffective (e.g. "/var/../../etc/passwd"
-	// becomes "/etc/passwd" which no longer contains "..").
-	if strings.Contains(projectPath, "..") {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid project_path: path traversal not allowed")
-	}
-	projectPath = filepath.Clean(projectPath)
-
-	summary := req.Summary
-	if summary == "" {
-		summary = fmt.Sprintf("Context at %d%% threshold", req.Percent)
-	}
-
-	name := fmt.Sprintf("Auto-checkpoint at %d%%", req.Percent)
-	if req.Summary != "" {
-		// Use first N chars of summary as name if provided
-		name = req.Summary
-		if len(name) > CheckpointNameMaxLength {
-			name = name[:CheckpointNameMaxLength-len(CheckpointNameTruncationSuffix)] + CheckpointNameTruncationSuffix
-		}
-	}
-
-	// Check if checkpoint service is available
-	checkpointSvc := s.registry.Checkpoint()
-	if checkpointSvc == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "checkpoint service unavailable")
-	}
-
-	// Create auto-checkpoint via checkpoint service
-	ctx := c.Request().Context()
-	chkpt, err := checkpointSvc.Save(ctx, &checkpoint.SaveRequest{
-		SessionID:   req.SessionID,
-		TenantID:    req.ProjectID,
-		ProjectPath: projectPath,
-		Name:        name,
-		Description: fmt.Sprintf("Automatic checkpoint created when context reached %d%% threshold", req.Percent),
-		Summary:     summary,
-		Context:     req.Context,
-		FullState:   "",
-		TokenCount:  0,
-		Threshold:   float64(req.Percent) / 100.0,
-		AutoCreated: true,
-		Metadata:    map[string]string{"trigger": "threshold"},
-	})
-
-	if err != nil {
-		s.logger.Error("failed to create auto-checkpoint",
-			zap.Error(err),
-			zap.String("session_id", req.SessionID),
-			zap.Int("percent", req.Percent),
-		)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create checkpoint")
-	}
-
-	s.logger.Info("created auto-checkpoint",
-		zap.String("checkpoint_id", chkpt.ID),
-		zap.String("session_id", req.SessionID),
-		zap.Int("percent", req.Percent),
-	)
-
-	// Execute threshold hook if available
-	if hooksSvc := s.registry.Hooks(); hooksSvc != nil {
-		if err := hooksSvc.Execute(ctx, hooks.HookContextThreshold, map[string]interface{}{
-			"session_id":    req.SessionID,
-			"project_id":    req.ProjectID,
-			"percent":       req.Percent,
-			"checkpoint_id": chkpt.ID,
-		}); err != nil {
-			s.logger.Warn("threshold hook failed",
-				zap.Error(err),
-				zap.String("checkpoint_id", chkpt.ID),
-			)
-			// Don't fail the request if hook fails
-		}
-	}
-
-	return c.JSON(http.StatusOK, ThresholdResponse{
-		CheckpointID: chkpt.ID,
-		Message:      fmt.Sprintf("Auto-checkpoint created at %d%% context threshold", req.Percent),
-	})
-}
+// Note: The POST /scrub and POST /threshold handlers were removed - agents
+// should use the MCP secrets_scrub and checkpoint_save tools directly. The
+// scrub endpoint was an unauthed loopback-only surface (CWE-200 risk if
+// binding misconfigured) and the threshold endpoint duplicated checkpoint_save.
 
 // Note: handleCheckpointSave, handleCheckpointList, and handleCheckpointResume methods
 // were removed to address CVE-2025-CONTEXTD-001 (missing tenant context injection).

@@ -220,7 +220,7 @@ func isContextdTool(name string) bool {
 		"mcp__contextd__remediation_record",
 		"mcp__contextd__troubleshoot_diagnose",
 		"mcp__contextd__repository_index",
-		"mcp__contextd__repository_search",
+		"mcp__contextd__semantic_search",
 	}
 
 	for _, tool := range contextdTools {

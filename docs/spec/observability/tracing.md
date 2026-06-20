@@ -15,7 +15,7 @@ Distributed tracing for contextd using OpenTelemetry spans with standardized nam
 
 | Layer | Operations |
 |-------|-----------|
-| **MCP tool handlers** | memory_search, memory_record, checkpoint_save, remediation_search, repository_search, etc. |
+| **MCP tool handlers** | memory_search, memory_record, checkpoint_save, remediation_search, semantic_search, etc. |
 | **Internal services** | ReasoningBank, Remediation, Checkpoint, Repository, Troubleshoot, Folding |
 | **Vectorstore operations** | Vector search, store, collection management (chromem or Qdrant) |
 | **Secret scrubbing** | gitleaks pipeline (timing only, no content) |

@@ -18,7 +18,6 @@ ContextD uses structured error codes to provide clear, actionable error messages
 | **Troubleshooting** | (Sentinel errors) | Error diagnosis and pattern matching |
 | **Embeddings** | (Sentinel errors) | Model loading and embedding generation |
 | **Compression** | (Sentinel errors) | A/B testing and experiment management |
-| **Workflow** | (Severity-based) | Temporal workflow errors |
 
 ---
 
@@ -1355,74 +1354,6 @@ ctxd compression experiments create \
   --id=exp_compression \
   --variants=extractive,abstractive,hybrid
 ```
-
----
-
-## Workflow Errors
-
-Errors related to Temporal workflows (internal automation).
-
-Workflow errors use severity levels instead of error codes:
-
-| Severity | Description | Behavior |
-|----------|-------------|----------|
-| **Critical** | Workflow must fail | Recorded AND propagated |
-| **High** | Major issue, can continue | Recorded but not propagated |
-| **Low** | Minor issue | Logged as warning only |
-
-### Workflow Error Structure
-
-```go
-type WorkflowError struct {
-    Operation string        // e.g., "fetch_version_file"
-    Severity  ErrorSeverity // critical, high, low
-    Err       error         // underlying error
-    Context   string        // additional context
-}
-```
-
-### Critical Errors
-
-**Examples:**
-- Failed to fetch required files
-- Invalid JSON in plugin.json
-- Missing required resources
-- Activity initialization failed
-
-**Behavior:**
-- Added to `result.Errors` slice
-- Error returned to fail workflow
-- Execution stops
-
----
-
-### High Severity Errors
-
-**Examples:**
-- Failed to post GitHub comment
-- Non-essential operation failed
-- Failed with acceptable fallback
-
-**Behavior:**
-- Added to `result.Errors` slice
-- Logged as error
-- Workflow continues
-
----
-
-### Low Severity Errors
-
-**Examples:**
-- Failed to remove old comment (might not exist)
-- Cleanup operation failed
-- Missing optional resource
-
-**Behavior:**
-- Logged as warning
-- NOT added to `result.Errors`
-- Workflow continues
-
-**See Also:** [Workflow Documentation](../../internal/workflows/README.md)
 
 ---
 

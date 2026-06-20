@@ -571,9 +571,9 @@ func generateSampleData() {
 	}
 
 	// Generate HTTP data
-	paths := []string{"/api/v1/scrub", "/api/v1/status", "/api/v1/threshold"}
-	methods := []string{"GET", "POST"}
-	statuses := []string{"200", "400", "500"}
+	paths := []string{"/api/v1/status"}
+	methods := []string{"GET"}
+	statuses := []string{"200", "500"}
 	for i := 0; i < 200; i++ {
 		path := randomChoice(paths)
 		method := randomChoice(methods)

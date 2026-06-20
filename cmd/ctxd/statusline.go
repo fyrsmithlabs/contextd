@@ -127,11 +127,10 @@ Examples:
 
 // Type aliases for shared types from internal/http
 type (
-	StatusResponse    = ctxhttp.StatusResponse
-	StatusCounts      = ctxhttp.StatusCounts
-	ContextStatus     = ctxhttp.ContextStatus
-	CompressionStatus = ctxhttp.CompressionStatus
-	MemoryStatus      = ctxhttp.MemoryStatus
+	StatusResponse = ctxhttp.StatusResponse
+	StatusCounts   = ctxhttp.StatusCounts
+	ContextStatus  = ctxhttp.ContextStatus
+	MemoryStatus   = ctxhttp.MemoryStatus
 )
 
 // runStatuslineRun handles the statusline run command
@@ -285,11 +284,6 @@ func formatStatusline(status *StatusResponse) string {
 	// Confidence (if available)
 	if status.Memory != nil && status.Memory.LastConfidence > 0 {
 		parts = append(parts, fmt.Sprintf("C:%.2f", status.Memory.LastConfidence))
-	}
-
-	// Compression ratio (if available)
-	if status.Compression != nil && status.Compression.LastRatio > 0 {
-		parts = append(parts, fmt.Sprintf("F:%.1fx", status.Compression.LastRatio))
 	}
 
 	return strings.Join(parts, " \u2502 ")
@@ -573,10 +567,6 @@ func runStatuslineTest(cmd *cobra.Command, args []string) error {
 	}
 	if status.Memory != nil {
 		fmt.Printf("Memory: lastConfidence=%.2f\n", status.Memory.LastConfidence)
-	}
-	if status.Compression != nil {
-		fmt.Printf("Compression: ratio=%.2f, quality=%.2f, ops=%d\n",
-			status.Compression.LastRatio, status.Compression.LastQuality, status.Compression.OperationsTotal)
 	}
 
 	// Show formatted line

@@ -42,8 +42,9 @@ func (r *DefaultReporter) Generate(ctx context.Context, opts ReportOptions) (*Re
 		opts.Format = "json"
 	}
 
-	// Retrieve memories for statistics
-	rawMemories, err := r.memorySvc.Search(ctx, opts.ProjectID, "", 1000)
+	// Retrieve memories for statistics. ListMemories is the correct API for
+	// "give me every memory for this project" — Search rejects empty queries.
+	rawMemories, err := r.memorySvc.ListMemories(ctx, opts.ProjectID, 1000, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve memories: %w", err)
 	}

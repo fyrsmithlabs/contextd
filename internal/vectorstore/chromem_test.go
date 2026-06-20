@@ -766,7 +766,8 @@ func TestChromemStore_SearchInCollection_EmptyCollection(t *testing.T) {
 }
 
 // TestChromemStore_SearchInCollection_AfterAutoCreate reproduces bug #19:
-// repository_search fails with "collection not found" after repository_index.
+// semantic_search (formerly repository_search, now merged) fails with
+// "collection not found" after repository_index.
 // The issue: AddDocuments auto-creates collection via getOrCreateCollection,
 // but SearchInCollection uses GetCollection which may not find it.
 func TestChromemStore_SearchInCollection_AfterAutoCreate(t *testing.T) {

@@ -156,16 +156,18 @@ contextd uses **payload-based tenant isolation** as the default multi-tenant str
 
 ### Tenant Context
 
-All operations require tenant context via Go's `context.Context`:
+Solo devs do not need to set anything — contextd derives `TenantID` from
+`$USER`/git config and `ProjectID` from the current working directory.
+Multi-tenant SaaS callers may still set `TenantInfo` explicitly:
 
 ```go
 import "github.com/fyrsmithlabs/contextd/internal/vectorstore"
 
-// Create tenant-scoped context (REQUIRED for all operations)
+// Explicit tenant context (wins over defaults)
 ctx := vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-    TenantID:  "org-123",      // Required: Organization/user identifier
-    TeamID:    "platform",     // Optional: Team scope
-    ProjectID: "contextd",     // Optional: Project scope
+    TenantID:  "org-123",      // Optional: organization/user identifier
+    TeamID:    "platform",     // Optional: team scope, no default
+    ProjectID: "contextd",     // Required floor for per-repo isolation
 })
 
 // All operations automatically filtered by tenant
@@ -174,49 +176,54 @@ results, err := store.Search(ctx, "query", 10)
 
 ### Isolation Modes
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `PayloadIsolation` | Single collection with metadata filtering | **Default, recommended** |
-| `FilesystemIsolation` | Separate database per tenant/project | Legacy, migration path available |
-| `NoIsolation` | No tenant filtering | **Testing only** |
+Select at deploy time via `CONTEXTD_ISOLATION_MODE` (or
+`vectorstore.isolation_mode` in config):
+
+| Mode         | Description                                            | Use Case                              |
+|--------------|--------------------------------------------------------|----------------------------------------|
+| `payload`    | Single collection with metadata filtering              | **Default** — solo devs and most teams |
+| `filesystem` | Separate database directory per tenant/project         | On-prem / regulated isolation         |
+| `none`       | No tenant filtering                                    | **Testing only**                       |
 
 ### Security Guarantees
 
-| Behavior | Description |
-|----------|-------------|
-| **Fail-closed** | Missing tenant context returns `ErrMissingTenant`, not empty results |
-| **Filter injection blocked** | User-provided `tenant_id`/`team_id`/`project_id` filters are rejected with `ErrTenantFilterInUserFilters` |
-| **Metadata enforced** | Tenant fields always set from authenticated context, never from user input |
+| Behavior                       | Description                                                                                                |
+|--------------------------------|------------------------------------------------------------------------------------------------------------|
+| **Fail-closed (project)**      | Missing `ProjectID` after defaulting returns `ErrMissingProject` — never silent cross-repo bleed           |
+| **Default resolver opt-in**    | Soft defaults only apply when `vectorstore.SetDefaultTenantResolver` was called; library tests retain `ErrMissingTenant` |
+| **Filter injection blocked**   | User-provided `tenant_id`/`team_id`/`project_id` filters are rejected with `ErrTenantFilterInUserFilters`   |
+| **Metadata enforced**          | Tenant fields always set from authenticated context, never from user input                                 |
 
 ### Configuration
 
-```go
-// PayloadIsolation is the default - no explicit config needed
-config := vectorstore.ChromemConfig{
-    Path:              "/data/vectorstore",
-    DefaultCollection: "memories",
-    VectorSize:        384,
-    // Isolation: vectorstore.NewPayloadIsolation(), // Default if not specified
-}
+```bash
+# Pick isolation strategy explicitly (default: payload)
+export CONTEXTD_ISOLATION_MODE=payload      # solo devs / teams
+export CONTEXTD_ISOLATION_MODE=filesystem   # regulated / on-prem
+export CONTEXTD_ISOLATION_MODE=none         # tests only
+```
 
-// Or explicitly set isolation mode
-config.Isolation = vectorstore.NewPayloadIsolation()    // Recommended
-config.Isolation = vectorstore.NewFilesystemIsolation() // Legacy
-config.Isolation = vectorstore.NewNoIsolation()         // Testing only!
+```yaml
+vectorstore:
+  provider: chromem
+  isolation_mode: payload   # payload | filesystem | none
 ```
 
 ### Key Types
 
-| Type | Purpose |
-|------|---------|
-| `TenantInfo` | Holds TenantID, TeamID, ProjectID |
-| `ContextWithTenant()` | Adds tenant info to context |
-| `TenantFromContext()` | Extracts tenant info (returns `ErrMissingTenant` if absent) |
-| `ApplyTenantFilters()` | Merges user filters with tenant filters, rejects injection attempts |
-| `IsolationMode` | Interface for isolation strategies |
+| Type                          | Purpose                                                                                |
+|-------------------------------|----------------------------------------------------------------------------------------|
+| `TenantInfo`                  | Holds TenantID, TeamID, ProjectID                                                       |
+| `ContextWithTenant()`         | Adds tenant info to context                                                             |
+| `TenantFromContext()`         | Extracts tenant info; falls back to registered default resolver before erroring         |
+| `SetDefaultTenantResolver()`  | Installs a process-wide resolver for soft defaults (wired in `cmd/contextd`)            |
+| `ErrMissingTenant`            | No tenant info and no resolvable default                                                |
+| `ErrMissingProject`           | Tenant resolved but ProjectID floor not met                                             |
+| `IsolationMode`               | Interface for isolation strategies                                                      |
 
 ### See Also
 
+- Tenancy spec: `docs/spec/tenancy/SPEC.md`
 - Security spec: `docs/spec/vector-storage/security.md`
 - Migration guide: `docs/migration/payload-filtering.md`
 - Package docs: `internal/vectorstore/README.md`
@@ -287,7 +294,7 @@ cmd/contextd/          # Entry point (stdio MCP server + HTTP server)
 cmd/ctxd/              # CLI binary for manual operations
 internal/
 ├── mcp/               # MCP server + tool handlers
-├── http/              # HTTP API server (scrub, threshold, status endpoints)
+├── http/              # HTTP API server (health, metrics, status endpoints)
 ├── reasoningbank/     # Cross-session memory (82% coverage)
 ├── checkpoint/        # Context snapshots
 ├── remediation/       # Error patterns
@@ -370,9 +377,8 @@ plugins/contextd/
 | `remediation_search` | Remediation | Find error fix patterns |
 | `remediation_record` | Remediation | Record new fix |
 | `remediation_feedback` | Remediation | Rate whether a fix was helpful |
-| `semantic_search` | Repository | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Repository | Smart search over indexed code. Without `collection_name`, derives collection from `project_path` and falls back to grep. With `collection_name` (from `repository_index`), searches that collection directly with optional `content_mode` (minimal/preview/full). |
 | `repository_index` | Repository | Index repo for semantic search |
-| `repository_search` | Repository | Semantic search over indexed code |
 | `troubleshoot_diagnose` | Troubleshoot | AI-powered error diagnosis |
 | `branch_create` | Context-Folding | Create isolated context branch with token budget |
 | `branch_return` | Context-Folding | Return from branch with scrubbed results |
@@ -390,50 +396,34 @@ plugins/contextd/
 2. **Core Services** - vectorstore, embeddings, checkpoint, remediation, repository, troubleshoot, project, secrets
 3. **MCP Integration** - simplified server, tool handlers, scrubbing
 4. **ReasoningBank** - memory package, MCP tools, distiller stub
-5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/scrub`, `/api/v1/threshold`, `/api/v1/status` endpoints; `ctxd` CLI binary
+5. **HTTP + ctxd CLI** - HTTP server with `/api/v1/status` endpoint plus `/health` and `/metrics`; `ctxd` CLI binary
 6. **Documentation** - CONTEXTD.md briefing doc, spec updates for new architecture, Claude Code hook setup guide
 
 ---
 
-## Temporal Workflows (Automation)
+## Plugin Update Check (Automation)
 
-The repository includes Temporal-based workflows for internal automation tasks.
+The repository runs a lightweight GitHub Actions workflow to remind PR
+authors about Priority #3 (update the Claude plugin when code changes
+require it).
 
-### Plugin Update Validation
+**Location:** `.github/workflows/plugin-check.yml`
 
-**Location:** `internal/workflows/`
+**Triggers:** `pull_request` (opened, synchronize, reopened)
 
-Automatically validates that Claude plugin files are updated when code changes require it.
+**Behavior:**
+- Inspects the PR's changed files via `gh pr view --json files`.
+- If files under `cmd/`, `internal/`, `pkg/`, `go.mod`, or `go.sum`
+  changed AND no files under `marketplace/plugins/contextd/` changed,
+  posts a reminder comment linking back to Priority #3 in this file.
+- Skipped for PRs authored by `dependabot[bot]` or labelled
+  `skip-plugin-check`.
+- Uses the default `GITHUB_TOKEN` — no third-party action dependencies.
 
-**Triggers:**
-- PR opened, synchronized, or reopened
-
-**Process:**
-1. Fetch PR file changes via GitHub API
-2. Categorize files (code vs plugin vs other)
-3. Validate plugin schemas if modified
-4. Post reminder or success comment to PR
-
-**Components:**
-- **Workflow:** `PluginUpdateValidationWorkflow` (orchestration)
-- **Activities:** GitHub API calls, file categorization, schema validation
-- **Worker:** `cmd/plugin-validator/main.go` (executes workflows)
-- **Webhook:** `cmd/github-webhook/main.go` (receives GitHub events)
-
-**Running:**
-```bash
-# Set environment variables
-export GITHUB_TOKEN=ghp_xxx
-export GITHUB_WEBHOOK_SECRET=your_secret
-
-# Start full stack
-docker-compose -f deploy/docker-compose.temporal.yml up
-
-# Access Temporal UI
-open http://localhost:8080
-```
-
-**See:** `internal/workflows/README.md` for complete documentation
+Plugin schema validation, if needed, can be added to the same workflow
+as plain `jq`/`go run` steps. The previous Temporal-based stack under
+`internal/workflows/` was removed because a distributed workflow engine
+was overkill for what fits in ~50 lines of YAML.
 
 ---
 

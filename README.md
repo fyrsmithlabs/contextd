@@ -254,7 +254,7 @@ After installation, here's how to use contextd:
 2. During Work
    └─→ /contextd-search <topic>     Find relevant memories
    └─→ /contextd-diagnose <error>   Get help with errors
-   └─→ Semantic search with repository_search()
+   └─→ Semantic search with semantic_search()
 
 3. Task Complete
    └─→ /contextd-remember           Record what you learned
@@ -340,9 +340,8 @@ ContextD exposes 25 tools to Claude Code, organized by category:
 
 | Tool | Purpose |
 |------|---------|
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Smart search over indexed code. Defaults to grep fallback; pass `collection_name` (from `repository_index`) for direct collection lookup with `content_mode` payload control. |
 | `repository_index` | Index a codebase for semantic search |
-| `repository_search` | Semantic search over indexed code |
 
 ### Context-Folding
 

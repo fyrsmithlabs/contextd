@@ -65,9 +65,8 @@ go build -o contextd ./cmd/contextd
 ### Repository & Search
 | Tool | Purpose |
 |------|---------|
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Smart search over indexed code; pass `collection_name` (from `repository_index`) to bypass project-path derivation and use `content_mode` payload control. |
 | `repository_index` | Index repository for semantic search |
-| `repository_search` | Semantic search over indexed code |
 
 ### Context Folding
 | Tool | Purpose |
@@ -157,10 +156,10 @@ Runs as stdio MCP server for Claude Code integration.
 contextd --http-port 9090
 ```
 
-Runs HTTP server with endpoints:
-- `GET /api/v1/status` - Health check
-- `POST /api/v1/threshold` - Trigger context threshold
-- `POST /api/v1/scrub` - Scrub secrets from text
+Runs HTTP server with read-only endpoints:
+- `GET /health` - Process health
+- `GET /metrics` - Prometheus metrics
+- `GET /api/v1/status` - Service status, version, counts
 
 ---
 

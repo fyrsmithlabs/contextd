@@ -52,7 +52,7 @@ After restarting Claude Code, the following tools should be available:
 - `memory_search`, `memory_record`, `memory_feedback`
 - `checkpoint_save`, `checkpoint_list`, `checkpoint_resume`
 - `remediation_search`, `remediation_record`
-- `repository_index`, `repository_search`
+- `repository_index`, `semantic_search`
 - `troubleshoot_diagnose`
 
 ---
@@ -199,29 +199,25 @@ For long debugging sessions (50% threshold):
 
 ## HTTP API Integration
 
-contextd also exposes an HTTP API for threshold triggers and status checks.
+contextd exposes a read-only HTTP API for status checks (consumed by `ctxd statusline` and external monitoring).
 
 ### Endpoints
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/v1/status` | GET | Service health and status |
-| `/api/v1/threshold` | POST | Trigger context threshold hook |
-| `/api/v1/scrub` | POST | Scrub secrets from text |
-
-### Example: Trigger Context Threshold
-
-```bash
-curl -X POST http://localhost:9090/api/v1/threshold \
-  -H "Content-Type: application/json" \
-  -d '{"percentage": 75, "session_id": "abc123"}'
-```
+| `/health` | GET | Process health |
+| `/metrics` | GET | Prometheus metrics |
+| `/api/v1/status` | GET | Service status, version, and counts |
 
 ### Example: Check Status
 
 ```bash
 curl http://localhost:9090/api/v1/status
 ```
+
+### Removed endpoints
+
+The previous `POST /api/v1/threshold` and `POST /api/v1/scrub` endpoints were removed. Hooks should call the MCP tools `checkpoint_save` and `secrets_scrub` directly instead.
 
 ---
 
@@ -307,8 +303,7 @@ docker run --rm -v contextd-data:/data alpine chown -R 1000:1000 /data
 | `remediation_search` | Find fixes for error patterns |
 | `remediation_record` | Record a new error fix |
 | `repository_index` | Index repository for semantic search |
-| `repository_search` | Semantic search over indexed code |
-| `semantic_search` | Smart search with semantic understanding + grep fallback |
+| `semantic_search` | Smart search over indexed code with optional `collection_name` and `content_mode` (merged behavior of the former `repository_search`). |
 | `branch_create` | Create isolated context branch with token budget |
 | `branch_return` | Return from branch with scrubbed results |
 | `branch_status` | Check branch status and budget usage |

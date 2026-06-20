@@ -19,32 +19,6 @@ import (
 	"github.com/fyrsmithlabs/contextd/internal/vectorstore"
 )
 
-// withTenantContext adds tenant context to the Go context for vectorstore operations.
-// This is required for payload-based tenant isolation to work correctly.
-// Returns an error if any ID fails validation (fail-closed security).
-func withTenantContext(ctx context.Context, tenantID, teamID, projectID string) (context.Context, error) {
-	// Validate tenant ID (required)
-	if err := sanitize.ValidateTenantID(tenantID); err != nil {
-		return ctx, fmt.Errorf("invalid tenant_id: %w", err)
-	}
-
-	// Validate team ID (optional, but must be valid if provided)
-	if err := sanitize.ValidateTeamID(teamID); err != nil {
-		return ctx, fmt.Errorf("invalid team_id: %w", err)
-	}
-
-	// Validate project ID (optional, but must be valid if provided)
-	if err := sanitize.ValidateProjectID(projectID); err != nil {
-		return ctx, fmt.Errorf("invalid project_id: %w", err)
-	}
-
-	return vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
-		TenantID:  tenantID,
-		TeamID:    teamID,
-		ProjectID: projectID,
-	}), nil
-}
-
 // deriveProjectID safely extracts a project ID from a path.
 // This is a secure replacement for filepath.Base() on untrusted input.
 // Returns empty string and error if path is invalid, or sanitized ID on success.
@@ -70,42 +44,93 @@ func deriveProjectID(path string) (string, error) {
 	return projectID, nil
 }
 
-// validateAndDeriveProjectPath validates a project path and derives tenant context info.
-// Returns the validated path, tenant ID, and project ID, or an error.
-func (s *Server) validateAndDeriveProjectPath(path, explicitTenantID string) (validPath, tenantID, projectID string, err error) {
-	// Validate project path if provided
-	if path != "" {
-		validPath, err = sanitize.ValidateProjectPath(path)
+// resolvedTenant carries the validated, derived IDs that a handler typically
+// also passes to the underlying service request.
+type resolvedTenant struct {
+	ValidPath string
+	TenantID  string
+	TeamID    string
+	ProjectID string
+}
+
+// tenantCtx is the canonical helper for resolving tenant context inside MCP
+// tool handlers:
+//
+//  1. Validates projectPath (when provided) via sanitize.ValidateProjectPath.
+//  2. Derives tenantID from the path (git remote → git user → $USER → "local")
+//     when no explicit value is supplied.
+//  3. Derives projectID from the path basename when no explicit value is
+//     supplied. When both projectPath and an explicit projectID are empty
+//     the resulting context omits projectID - this is appropriate for
+//     team/org-scoped operations but means the caller is opting out of the
+//     project isolation floor.
+//  4. Validates and sanitizes all three identifiers (CWE-287 hardening).
+//  5. Returns a context carrying the resulting TenantInfo for vectorstore ops.
+//
+// Callers pass empty strings for IDs they want auto-derived.
+//
+// The returned context is always safe to use; on error the original ctx is
+// returned unchanged so deferred metrics can still pull request context. The
+// resolvedTenant carries the validated IDs that the caller typically also
+// threads into service request structs.
+func (s *Server) tenantCtx(ctx context.Context, projectPath, tenantID, teamID, projectID string) (context.Context, resolvedTenant, error) {
+	resolved := resolvedTenant{}
+
+	// Validate path if provided.
+	if projectPath != "" {
+		var err error
+		resolved.ValidPath, err = sanitize.ValidateProjectPath(projectPath)
 		if err != nil {
-			return "", "", "", fmt.Errorf("invalid project_path: %w", err)
+			return ctx, resolved, fmt.Errorf("invalid project_path: %w", err)
 		}
 	}
 
-	// Derive tenant_id from validated path if not explicitly provided
-	tenantID = explicitTenantID
-	if tenantID == "" && validPath != "" {
-		tenantID = tenant.GetTenantIDForPath(validPath)
-	}
-
-	// Validate tenant_id was derived successfully
+	// Derive tenantID from path if not explicit. Falls back through git
+	// remote → git user → $USER → "local" so solo devs never see ErrMissingTenant.
 	if tenantID == "" {
-		return "", "", "", fmt.Errorf("tenant_id is required for data isolation. It is usually auto-detected from your git repository. Try running from within a git repository, or set tenant_id explicitly")
-	}
-
-	// Validate derived tenant_id format (CWE-287: prevent malformed tenant IDs)
-	if err := sanitize.ValidateTenantID(tenantID); err != nil {
-		return "", "", "", fmt.Errorf("derived tenant_id invalid: %w", err)
-	}
-
-	// Derive project_id from validated path
-	if validPath != "" {
-		projectID, err = deriveProjectID(validPath)
-		if err != nil {
-			return "", "", "", err
+		if resolved.ValidPath != "" {
+			tenantID = tenant.GetTenantIDForPath(resolved.ValidPath)
+		} else {
+			tenantID = tenant.GetDefaultTenantID()
 		}
 	}
+	if tenantID == "" {
+		return ctx, resolved, fmt.Errorf("tenant_id could not be derived; pass tenant_id explicitly or run from within a git repository")
+	}
+	if err := sanitize.ValidateTenantID(tenantID); err != nil {
+		return ctx, resolved, fmt.Errorf("invalid tenant_id: %w", err)
+	}
+	resolved.TenantID = tenantID
 
-	return validPath, tenantID, projectID, nil
+	// Derive projectID from path if not explicit. Empty projectID is a valid
+	// choice for team/org-scoped operations; downstream isolation enforces the
+	// project floor only when no TenantInfo is on the context at all.
+	if projectID == "" && resolved.ValidPath != "" {
+		derived, err := deriveProjectID(resolved.ValidPath)
+		if err != nil {
+			return ctx, resolved, err
+		}
+		projectID = derived
+	}
+	if projectID != "" {
+		if err := sanitize.ValidateProjectID(projectID); err != nil {
+			return ctx, resolved, fmt.Errorf("invalid project_id: %w", err)
+		}
+	}
+	resolved.ProjectID = projectID
+
+	// Team is optional but must validate when present.
+	if err := sanitize.ValidateTeamID(teamID); err != nil {
+		return ctx, resolved, fmt.Errorf("invalid team_id: %w", err)
+	}
+	resolved.TeamID = teamID
+
+	ctx = vectorstore.ContextWithTenant(ctx, &vectorstore.TenantInfo{
+		TenantID:  resolved.TenantID,
+		TeamID:    resolved.TeamID,
+		ProjectID: resolved.ProjectID,
+	})
+	return ctx, resolved, nil
 }
 
 // registerTools registers all MCP tools with the server.
@@ -170,9 +195,23 @@ type checkpointListInput struct {
 	AutoOnly    bool   `json:"auto_only,omitempty" jsonschema:"Only return auto-created checkpoints"`
 }
 
+// checkpointListRow is a typed row for checkpoint_list output. Field names
+// mirror checkpoint.Checkpoint so the SDK can derive a stable OutputSchema.
+type checkpointListRow struct {
+	ID          string    `json:"id" jsonschema:"Checkpoint ID"`
+	SessionID   string    `json:"session_id" jsonschema:"Session ID"`
+	Name        string    `json:"name" jsonschema:"Checkpoint name"`
+	Description string    `json:"description" jsonschema:"Scrubbed human-readable description"`
+	Summary     string    `json:"summary" jsonschema:"Scrubbed brief summary"`
+	TokenCount  int32     `json:"token_count" jsonschema:"Token count estimate"`
+	Threshold   float64   `json:"threshold" jsonschema:"Context threshold that triggered the checkpoint"`
+	AutoCreated bool      `json:"auto_created" jsonschema:"True if auto-created by system"`
+	CreatedAt   time.Time `json:"created_at" jsonschema:"Creation timestamp"`
+}
+
 type checkpointListOutput struct {
-	Checkpoints []map[string]interface{} `json:"checkpoints" jsonschema:"List of checkpoints"`
-	Count       int                      `json:"count" jsonschema:"Number of checkpoints returned"`
+	Checkpoints []checkpointListRow `json:"checkpoints" jsonschema:"List of checkpoints"`
+	Count       int                 `json:"count" jsonschema:"Number of checkpoints returned"`
 }
 
 type checkpointResumeInput struct {
@@ -194,12 +233,18 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_save",
 		Description: "Save a session checkpoint for later resumption",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrFalse(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointSaveInput) (*mcp.CallToolResult, checkpointSaveOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_save", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context (validates path, derives tenant/project, sets ctx).
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, checkpointSaveOutput{}, err
@@ -207,10 +252,10 @@ func (s *Server) registerCheckpointTools() {
 
 		saveReq := &checkpoint.SaveRequest{
 			SessionID:   args.SessionID,
-			TenantID:    tenantID,
+			TenantID:    rt.TenantID,
 			TeamID:      "", // Empty team is allowed
-			ProjectID:   projectID,
-			ProjectPath: validPath,
+			ProjectID:   rt.ProjectID,
+			ProjectPath: rt.ValidPath,
 			Name:        args.Name,
 			Description: args.Description,
 			Summary:     args.Summary,
@@ -220,13 +265,6 @@ func (s *Server) registerCheckpointTools() {
 			Threshold:   args.Threshold,
 			AutoCreated: args.AutoCreated,
 			Metadata:    args.Metadata,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = err
-			return nil, checkpointSaveOutput{}, err
 		}
 
 		cp, err := s.checkpointSvc.Save(ctx, saveReq)
@@ -258,12 +296,16 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_list",
 		Description: "List checkpoints for a session or project",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointListInput) (*mcp.CallToolResult, checkpointListOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_list", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context (validates path, derives tenant/project, sets ctx).
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, checkpointListOutput{}, err
@@ -271,19 +313,12 @@ func (s *Server) registerCheckpointTools() {
 
 		listReq := &checkpoint.ListRequest{
 			SessionID:   args.SessionID,
-			TenantID:    tenantID,
+			TenantID:    rt.TenantID,
 			TeamID:      "", // Empty team is allowed
-			ProjectID:   projectID,
-			ProjectPath: validPath,
+			ProjectID:   rt.ProjectID,
+			ProjectPath: rt.ValidPath,
 			Limit:       args.Limit,
 			AutoOnly:    args.AutoOnly,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = err
-			return nil, checkpointListOutput{}, err
 		}
 
 		checkpoints, err := s.checkpointSvc.List(ctx, listReq)
@@ -292,22 +327,22 @@ func (s *Server) registerCheckpointTools() {
 			return nil, checkpointListOutput{}, toolErr
 		}
 
-		results := make([]map[string]interface{}, 0, len(checkpoints))
+		results := make([]checkpointListRow, 0, len(checkpoints))
 		for _, cp := range checkpoints {
 			// Scrub text fields uniformly (consistent with checkpoint_save/resume)
 			scrubbedSummary := s.scrubber.Scrub(cp.Summary).Scrubbed
 			scrubbedDesc := s.scrubber.Scrub(cp.Description).Scrubbed
 
-			results = append(results, map[string]interface{}{
-				"id":           cp.ID,
-				"session_id":   cp.SessionID,
-				"name":         cp.Name,
-				"description":  scrubbedDesc,
-				"summary":      scrubbedSummary,
-				"token_count":  cp.TokenCount,
-				"threshold":    cp.Threshold,
-				"auto_created": cp.AutoCreated,
-				"created_at":   cp.CreatedAt,
+			results = append(results, checkpointListRow{
+				ID:          cp.ID,
+				SessionID:   cp.SessionID,
+				Name:        cp.Name,
+				Description: scrubbedDesc,
+				Summary:     scrubbedSummary,
+				TokenCount:  cp.TokenCount,
+				Threshold:   cp.Threshold,
+				AutoCreated: cp.AutoCreated,
+				CreatedAt:   cp.CreatedAt,
 			})
 		}
 
@@ -327,27 +362,27 @@ func (s *Server) registerCheckpointTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "checkpoint_resume",
 		Description: "Resume from a checkpoint at specified level (summary, context, or full)",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkpointResumeInput) (*mcp.CallToolResult, checkpointResumeOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "checkpoint_resume", &toolErr)()
 
-		// Validate tenant_id
-		if err := sanitize.ValidateTenantID(args.TenantID); err != nil {
-			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
-			return nil, checkpointResumeOutput{}, toolErr
+		// Resolve tenant context. checkpoint_resume looks up by checkpoint_id within
+		// a tenant; project floor is optional (caller may not know the project of an
+		// older checkpoint), so projectPath="" / projectID="".
+		ctx, rt, err := s.tenantCtx(ctx, "", args.TenantID, "", "")
+		if err != nil {
+			toolErr = err
+			return nil, checkpointResumeOutput{}, err
 		}
 
 		resumeReq := &checkpoint.ResumeRequest{
 			CheckpointID: args.CheckpointID,
-			TenantID:     args.TenantID,
+			TenantID:     rt.TenantID,
 			Level:        args.Level,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err := withTenantContext(ctx, args.TenantID, "", "")
-		if err != nil {
-			toolErr = err
-			return nil, checkpointResumeOutput{}, err
 		}
 
 		response, err := s.checkpointSvc.Resume(ctx, resumeReq)
@@ -390,9 +425,23 @@ type remediationSearchInput struct {
 	IncludeHierarchy bool                      `json:"include_hierarchy,omitempty" jsonschema:"Search parent scopes (project→team→org)"`
 }
 
+// remediationSearchRow is a typed row for remediation_search output. Fields
+// mirror remediation.ScoredRemediation so the SDK can derive an OutputSchema.
+type remediationSearchRow struct {
+	ID         string  `json:"id" jsonschema:"Remediation ID"`
+	Title      string  `json:"title" jsonschema:"Remediation title"`
+	Problem    string  `json:"problem" jsonschema:"Scrubbed problem description"`
+	RootCause  string  `json:"root_cause" jsonschema:"Scrubbed root cause analysis"`
+	Solution   string  `json:"solution" jsonschema:"Scrubbed solution description"`
+	Category   string  `json:"category" jsonschema:"Error category"`
+	Confidence float64 `json:"confidence" jsonschema:"Current confidence score (0-1)"`
+	Score      float64 `json:"score" jsonschema:"Relevance score (0-1)"`
+	UsageCount int64   `json:"usage_count" jsonschema:"Times this remediation has been retrieved"`
+}
+
 type remediationSearchOutput struct {
-	Remediations []map[string]interface{} `json:"remediations" jsonschema:"Matching remediations with scores"`
-	Count        int                      `json:"count" jsonschema:"Number of results"`
+	Remediations []remediationSearchRow `json:"remediations" jsonschema:"Matching remediations with scores"`
+	Count        int                    `json:"count" jsonschema:"Number of results"`
 }
 
 type remediationRecordInput struct {
@@ -438,40 +487,34 @@ func (s *Server) registerRemediationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_search",
 		Description: "Search for remediations by error message or pattern",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationSearchInput) (*mcp.CallToolResult, remediationSearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "remediation_search", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context. Remediation search is team/org-scoped, so we
+		// deliberately pass projectID="" - the helper will keep projectID empty
+		// on the resulting TenantInfo. Project floor isn't applicable for
+		// cross-project queries.
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, args.TeamID, "")
 		if err != nil {
 			toolErr = err
 			return nil, remediationSearchOutput{}, err
-		}
-
-		// Validate team_id if provided
-		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
-			toolErr = fmt.Errorf("invalid team_id: %w", err)
-			return nil, remediationSearchOutput{}, toolErr
 		}
 
 		searchReq := &remediation.SearchRequest{
 			Query:            args.Query,
-			TenantID:         tenantID,
+			TenantID:         rt.TenantID,
 			Scope:            args.Scope,
 			Category:         args.Category,
 			MinConfidence:    args.MinConfidence,
 			Limit:            args.Limit,
-			TeamID:           args.TeamID,
-			ProjectPath:      validPath,
+			TeamID:           rt.TeamID,
+			ProjectPath:      rt.ValidPath,
 			IncludeHierarchy: args.IncludeHierarchy,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
-		if err != nil {
-			toolErr = err
-			return nil, remediationSearchOutput{}, err
 		}
 
 		results, err := s.remediationSvc.Search(ctx, searchReq)
@@ -480,18 +523,27 @@ func (s *Server) registerRemediationTools() {
 			return nil, remediationSearchOutput{}, toolErr
 		}
 
-		remediations := make([]map[string]interface{}, 0, len(results))
+		remediations := make([]remediationSearchRow, 0, len(results))
 		for _, r := range results {
-			remediations = append(remediations, map[string]interface{}{
-				"id":          r.Remediation.ID,
-				"title":       r.Remediation.Title,
-				"problem":     r.Remediation.Problem,
-				"root_cause":  r.Remediation.RootCause,
-				"solution":    r.Remediation.Solution,
-				"category":    string(r.Remediation.Category),
-				"confidence":  r.Remediation.Confidence,
-				"score":       r.Score,
-				"usage_count": r.Remediation.UsageCount,
+			// Scrub free-form text fields (HANDLER-GUIDE §7.1).
+			problem := r.Remediation.Problem
+			rootCause := r.Remediation.RootCause
+			solution := r.Remediation.Solution
+			if s.scrubber != nil {
+				problem = s.scrubber.Scrub(problem).Scrubbed
+				rootCause = s.scrubber.Scrub(rootCause).Scrubbed
+				solution = s.scrubber.Scrub(solution).Scrubbed
+			}
+			remediations = append(remediations, remediationSearchRow{
+				ID:         r.Remediation.ID,
+				Title:      r.Remediation.Title,
+				Problem:    problem,
+				RootCause:  rootCause,
+				Solution:   solution,
+				Category:   string(r.Remediation.Category),
+				Confidence: r.Remediation.Confidence,
+				Score:      r.Score,
+				UsageCount: r.Remediation.UsageCount,
 			})
 		}
 
@@ -511,21 +563,21 @@ func (s *Server) registerRemediationTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_record",
 		Description: "Record a new remediation for an error that was successfully fixed",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrFalse(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationRecordInput) (*mcp.CallToolResult, remediationRecordOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "remediation_record", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, _, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Resolve tenant context. Remediation is scope-aware (project/team/org); pass
+		// projectID="" so the helper preserves an empty project floor for team/org
+		// scopes while still validating the team_id.
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, args.TeamID, "")
 		if err != nil {
 			toolErr = err
 			return nil, remediationRecordOutput{}, err
-		}
-
-		// Validate team_id if provided
-		if err := sanitize.ValidateTeamID(args.TeamID); err != nil {
-			toolErr = fmt.Errorf("invalid team_id: %w", err)
-			return nil, remediationRecordOutput{}, toolErr
 		}
 
 		recordReq := &remediation.RecordRequest{
@@ -539,18 +591,11 @@ func (s *Server) registerRemediationTools() {
 			Category:      args.Category,
 			Confidence:    args.Confidence,
 			Tags:          args.Tags,
-			TenantID:      tenantID,
+			TenantID:      rt.TenantID,
 			Scope:         args.Scope,
-			TeamID:        args.TeamID,
-			ProjectPath:   validPath,
+			TeamID:        rt.TeamID,
+			ProjectPath:   rt.ValidPath,
 			SessionID:     args.SessionID,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, args.TeamID, "")
-		if err != nil {
-			toolErr = err
-			return nil, remediationRecordOutput{}, err
 		}
 
 		rem, err := s.remediationSvc.Record(ctx, recordReq)
@@ -576,7 +621,11 @@ func (s *Server) registerRemediationTools() {
 	// remediation_feedback
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "remediation_feedback",
-		Description: "Provide feedback on whether a remediation was helpful. Updates confidence score based on real-world success/failure.",
+		Description: "Provide feedback on a remediation. Updates confidence score based on real-world success/failure.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args remediationFeedbackInput) (*mcp.CallToolResult, remediationFeedbackOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "remediation_feedback", &toolErr)()
@@ -587,22 +636,12 @@ func (s *Server) registerRemediationTools() {
 			return nil, remediationFeedbackOutput{}, toolErr
 		}
 
-		// Auto-derive tenant_id from project_path if not provided
-		tenantID := args.TenantID
-		if tenantID == "" && args.ProjectPath != "" {
-			tenantID = tenant.GetTenantIDForPath(args.ProjectPath)
-		}
-
-		// Validate tenant_id was derived successfully
-		if tenantID == "" {
-			toolErr = fmt.Errorf("tenant_id is required for data isolation. It is usually auto-detected from your git repository. Try running from within a git repository, or set tenant_id explicitly")
-			return nil, remediationFeedbackOutput{}, toolErr
-		}
-
-		// Validate derived tenant_id format (CWE-287: prevent malformed tenant IDs)
-		if err := sanitize.ValidateTenantID(tenantID); err != nil {
-			toolErr = fmt.Errorf("invalid tenant_id: %w", err)
-			return nil, remediationFeedbackOutput{}, toolErr
+		// Resolve tenant context. Feedback rewrites confidence; we don't need a
+		// project floor (the remediation already carries scope), so projectID="".
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
+		if err != nil {
+			toolErr = err
+			return nil, remediationFeedbackOutput{}, err
 		}
 
 		// Convert boolean helpful to Rating enum
@@ -614,7 +653,7 @@ func (s *Server) registerRemediationTools() {
 		// Call service method
 		feedbackReq := &remediation.FeedbackRequest{
 			RemediationID: args.RemediationID,
-			TenantID:      tenantID,
+			TenantID:      rt.TenantID,
 			Rating:        rating,
 		}
 
@@ -624,7 +663,7 @@ func (s *Server) registerRemediationTools() {
 		}
 
 		// Get updated remediation to return new confidence (mirror memory_feedback pattern)
-		rem, err := s.remediationSvc.Get(ctx, tenantID, args.RemediationID)
+		rem, err := s.remediationSvc.Get(ctx, rt.TenantID, args.RemediationID)
 		if err != nil {
 			// Fallback if we can't fetch the updated remediation
 			return &mcp.CallToolResult{
@@ -655,18 +694,42 @@ func (s *Server) registerRemediationTools() {
 // ===== REPOSITORY TOOLS =====
 
 type semanticSearchInput struct {
-	Query       string `json:"query" jsonschema:"required,Search query (natural language or pattern)"`
-	ProjectPath string `json:"project_path" jsonschema:"required,Project path to search within"`
-	TenantID    string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
-	Branch      string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	Query          string `json:"query" jsonschema:"required,Search query (natural language or pattern)"`
+	ProjectPath    string `json:"project_path,omitempty" jsonschema:"Project path to search within (required unless collection_name is provided)"`
+	CollectionName string `json:"collection_name,omitempty" jsonschema:"Collection name from repository_index output. When set, bypasses project-path to collection derivation and disables grep fallback."`
+	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
+	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
+	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content payload size when collection_name is set: minimal (default), preview, or full. Ignored without collection_name."`
+}
+
+// semanticSearchRow is the typed representation of a single semantic_search
+// result. Fields are optional because the shape varies by mode:
+//   - semantic (path-derived):    file_path, content, score, branch, metadata
+//   - semantic (collection_name): file_path, score, branch, plus content
+//     and/or content_preview and/or metadata depending on content_mode
+//   - grep fallback:              file_path, content, line_number, score
+//
+// The omitempty tags keep the wire format compact for whichever fields a
+// given branch did not populate. Replaces the previous []map[string]interface{}
+// per HANDLER-GUIDE §4.4.
+type semanticSearchRow struct {
+	FilePath       string                 `json:"file_path" jsonschema:"Path of the matching file relative to the project root"`
+	Content        string                 `json:"content,omitempty" jsonschema:"Full scrubbed content of the matched chunk (semantic+full and grep)"`
+	ContentPreview string                 `json:"content_preview,omitempty" jsonschema:"First 200 runes of scrubbed content (semantic preview mode)"`
+	Score          float64                `json:"score" jsonschema:"Relevance score (0-1 for semantic 1.0 for grep)"`
+	Branch         string                 `json:"branch,omitempty" jsonschema:"Git branch the match originated from"`
+	LineNumber     int                    `json:"line_number,omitempty" jsonschema:"1-based line number (grep fallback only)"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty" jsonschema:"Raw payload metadata (semantic+full only)"`
 }
 
 type semanticSearchOutput struct {
-	Results []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count   int                      `json:"count" jsonschema:"Number of results returned"`
-	Query   string                   `json:"query" jsonschema:"Original search query"`
-	Source  string                   `json:"source" jsonschema:"Source of results (semantic or grep)"`
+	Results     []semanticSearchRow `json:"results" jsonschema:"Search results with file paths and content"`
+	Count       int                 `json:"count" jsonschema:"Number of results returned"`
+	Query       string              `json:"query" jsonschema:"Original search query"`
+	Source      string              `json:"source" jsonschema:"Source of results (semantic or grep)"`
+	Branch      string              `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
+	ContentMode string              `json:"content_mode,omitempty" jsonschema:"Content mode used (only when collection_name is set)"`
 }
 
 type repositoryIndexInput struct {
@@ -688,52 +751,58 @@ type repositoryIndexOutput struct {
 	MaxFileSize     int64    `json:"max_file_size" jsonschema:"Max file size used"`
 }
 
-type repositorySearchInput struct {
-	Query          string `json:"query" jsonschema:"required,Semantic search query"`
-	ProjectPath    string `json:"project_path,omitempty" jsonschema:"Project path to search within (optional if collection_name provided)"`
-	CollectionName string `json:"collection_name,omitempty" jsonschema:"Collection name from repository_index (preferred - avoids tenant_id derivation issues)"`
-	TenantID       string `json:"tenant_id,omitempty" jsonschema:"Tenant identifier (defaults to git username)"`
-	Branch         string `json:"branch,omitempty" jsonschema:"Filter by branch (empty = all branches)"`
-	Limit          int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 10)"`
-	ContentMode    string `json:"content_mode,omitempty" jsonschema:"Content mode: minimal (default), preview, or full"`
-}
-
-type repositorySearchOutput struct {
-	Results     []map[string]interface{} `json:"results" jsonschema:"Search results with file paths and content"`
-	Count       int                      `json:"count" jsonschema:"Number of results returned"`
-	Query       string                   `json:"query" jsonschema:"Original search query"`
-	Branch      string                   `json:"branch,omitempty" jsonschema:"Branch filter applied (if any)"`
-	ContentMode string                   `json:"content_mode" jsonschema:"Content mode used"`
-}
-
 func (s *Server) registerRepositoryTools() {
 	// semantic_search
+	//
+	// Two modes:
+	//   1. project_path mode (default): derives the collection from project_path
+	//      and falls back to grep if semantic search returns nothing. Use when
+	//      you don't already know the collection name (e.g. ad-hoc searches).
+	//   2. collection_name mode: when collection_name is provided (typically
+	//      from repository_index output), skips path-based collection lookup
+	//      and the grep fallback. Adds content_mode (minimal/preview/full) to
+	//      control payload size. Use after explicitly indexing a repo.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "semantic_search",
-		Description: "Smart search that uses semantic understanding, falling back to grep if needed. Use this when the agent would normally use the Search tool.",
+		Description: "Semantic code search with grep fallback. Pass collection_name (from repository_index) with content_mode for direct lookup, or project_path for derivation with grep fallback.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args semanticSearchInput) (*mcp.CallToolResult, semanticSearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "semantic_search", &toolErr)()
 
-		// Validate and derive tenant context from project path
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
+		// Both branches must derive tenant context. The path-derived branch needs
+		// args.ProjectPath; the collection_name branch can run without one (the
+		// collection already encodes a tenant/project), but tenant_id is still
+		// required for fail-closed isolation, so we route through tenantCtx in
+		// both cases. The helper tolerates an empty projectPath when the caller
+		// supplies tenant_id directly.
+		ctx, rt, err := s.tenantCtx(ctx, args.ProjectPath, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, semanticSearchOutput{}, err
+		}
+
+		// collection_name mode: bypass path-derived collection lookup and grep
+		// fallback. Honor content_mode to keep payloads small.
+		if args.CollectionName != "" {
+			return s.semanticSearchInCollection(ctx, args, rt.ValidPath, rt.TenantID, &toolErr)
+		}
+
+		// project_path mode requires a path to drive collection derivation and
+		// the grep fallback. Surface a clear error rather than silently failing.
+		if rt.ValidPath == "" {
+			toolErr = fmt.Errorf("project_path is required when collection_name is not set")
+			return nil, semanticSearchOutput{}, toolErr
 		}
 
 		opts := repository.SearchOptions{
-			ProjectPath: validPath,
-			TenantID:    tenantID,
+			ProjectPath: rt.ValidPath,
+			TenantID:    rt.TenantID,
 			Branch:      args.Branch,
 			Limit:       args.Limit,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = err
-			return nil, semanticSearchOutput{}, err
 		}
 
 		// 1. Try Semantic Search
@@ -748,18 +817,18 @@ func (s *Server) registerRepositoryTools() {
 			useFallback = true
 		}
 
-		outputResults := make([]map[string]interface{}, 0)
+		outputResults := make([]semanticSearchRow, 0)
 		source := "semantic"
 
 		if !useFallback {
 			for _, r := range results {
 				scrubbed := s.scrubber.Scrub(r.Content).Scrubbed
-				outputResults = append(outputResults, map[string]interface{}{
-					"file_path": r.FilePath,
-					"content":   scrubbed,
-					"score":     r.Score,
-					"branch":    r.Branch,
-					"metadata":  r.Metadata,
+				outputResults = append(outputResults, semanticSearchRow{
+					FilePath: r.FilePath,
+					Content:  scrubbed,
+					Score:    float64(r.Score),
+					Branch:   r.Branch,
+					Metadata: r.Metadata,
 				})
 			}
 		} else {
@@ -768,9 +837,9 @@ func (s *Server) registerRepositoryTools() {
 
 			// Parse project's ignore files for grep using validated path
 			var excludePatterns []string
-			if parsed, parseErr := s.ignoreParser.ParseProject(validPath); parseErr != nil {
+			if parsed, parseErr := s.ignoreParser.ParseProject(rt.ValidPath); parseErr != nil {
 				s.logger.Warn("failed to parse ignore files for grep, using fallback",
-					zap.String("path", validPath),
+					zap.String("path", rt.ValidPath),
 					zap.Error(parseErr))
 				excludePatterns = s.ignoreParser.FallbackPatterns
 			} else {
@@ -778,7 +847,7 @@ func (s *Server) registerRepositoryTools() {
 			}
 
 			grepOpts := repository.GrepOptions{
-				ProjectPath:     validPath,
+				ProjectPath:     rt.ValidPath,
 				ExcludePatterns: excludePatterns,
 				CaseSensitive:   false, // Default to case-insensitive for better fallback experience
 			}
@@ -801,11 +870,11 @@ func (s *Server) registerRepositoryTools() {
 
 			for _, r := range grepResults {
 				scrubbed := s.scrubber.Scrub(r.Content).Scrubbed
-				outputResults = append(outputResults, map[string]interface{}{
-					"file_path":   r.FilePath,
-					"content":     scrubbed,
-					"line_number": r.LineNumber,
-					"score":       1.0,
+				outputResults = append(outputResults, semanticSearchRow{
+					FilePath:   r.FilePath,
+					Content:    scrubbed,
+					LineNumber: r.LineNumber,
+					Score:      1.0,
 				})
 			}
 		}
@@ -824,123 +893,14 @@ func (s *Server) registerRepositoryTools() {
 		}, output, nil
 	})
 
-	// repository_search
-	mcp.AddTool(s.mcp, &mcp.Tool{
-		Name:        "repository_search",
-		Description: "Semantic search over indexed repository code in _codebase collection. Prefer using collection_name from repository_index output.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositorySearchInput) (*mcp.CallToolResult, repositorySearchOutput, error) {
-		var toolErr error
-		defer s.startMetrics(ctx, "repository_search", &toolErr)()
-
-		// project_path is always required for tenant context (fail-closed security)
-		if args.ProjectPath == "" {
-			toolErr = fmt.Errorf("project_path is required for tenant context")
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Validate project path and derive tenant context (CWE-22 path traversal protection)
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.ProjectPath, args.TenantID)
-		if err != nil {
-			toolErr = err
-			return nil, repositorySearchOutput{}, err
-		}
-
-		opts := repository.SearchOptions{
-			CollectionName: args.CollectionName,
-			ProjectPath:    validPath,
-			TenantID:       tenantID,
-			Branch:         args.Branch,
-			Limit:          args.Limit,
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		results, err := s.repositorySvc.Search(ctx, args.Query, opts)
-		if err != nil {
-			toolErr = fmt.Errorf("repository search failed: %w", err)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Content mode constants
-		const (
-			previewMaxRunes = 200
-			previewEllipsis = "..."
-		)
-
-		// Determine content mode (default: minimal)
-		contentMode := args.ContentMode
-		if contentMode == "" {
-			contentMode = "minimal"
-		}
-
-		// Validate content_mode enum value
-		switch contentMode {
-		case "minimal", "preview", "full":
-			// Valid content mode
-		default:
-			toolErr = fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
-			return nil, repositorySearchOutput{}, toolErr
-		}
-
-		// Convert to output format based on content mode
-		outputResults := make([]map[string]interface{}, 0, len(results))
-		for _, r := range results {
-			result := map[string]interface{}{
-				"file_path": r.FilePath,
-				"score":     r.Score,
-				"branch":    r.Branch,
-			}
-
-			// Scrub content once before use (only if needed)
-			var scrubbedContent string
-			if contentMode == "full" || contentMode == "preview" {
-				scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
-			}
-
-			switch contentMode {
-			case "full":
-				// Full mode: include complete content and metadata
-				result["content"] = scrubbedContent
-				result["metadata"] = r.Metadata
-			case "preview":
-				// Preview mode: include first 200 characters (UTF-8 safe)
-				preview := scrubbedContent
-				runes := []rune(preview)
-				if len(runes) > previewMaxRunes {
-					preview = string(runes[:previewMaxRunes]) + previewEllipsis
-				}
-				result["content_preview"] = preview
-			case "minimal":
-				// Minimal mode: no content added - just file_path, score, branch
-			}
-
-			outputResults = append(outputResults, result)
-		}
-
-		output := repositorySearchOutput{
-			Results:     outputResults,
-			Count:       len(outputResults),
-			Query:       args.Query,
-			Branch:      args.Branch,
-			ContentMode: contentMode,
-		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s", output.Count, args.Query)},
-			},
-		}, output, nil
-	})
-
 	// repository_index
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "repository_index",
 		Description: "Index a repository for semantic code search",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrFalse(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args repositoryIndexInput) (*mcp.CallToolResult, repositoryIndexOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "repository_index", &toolErr)()
@@ -951,8 +911,8 @@ func (s *Server) registerRepositoryTools() {
 			return nil, repositoryIndexOutput{}, toolErr
 		}
 
-		// Validate project path and derive tenant context (CWE-22 path traversal protection)
-		validPath, tenantID, projectID, err := s.validateAndDeriveProjectPath(args.Path, args.TenantID)
+		// Resolve tenant context (validates path, derives tenant/project, sets ctx).
+		ctx, rt, err := s.tenantCtx(ctx, args.Path, args.TenantID, "", "")
 		if err != nil {
 			toolErr = err
 			return nil, repositoryIndexOutput{}, err
@@ -974,10 +934,10 @@ func (s *Server) registerRepositoryTools() {
 		if len(excludePatterns) == 0 {
 			// Parse project's ignore files (.gitignore, .dockerignore, etc.)
 			// Falls back to config defaults if no ignore files found
-			parsed, parseErr := s.ignoreParser.ParseProject(validPath)
+			parsed, parseErr := s.ignoreParser.ParseProject(rt.ValidPath)
 			if parseErr != nil {
 				s.logger.Warn("failed to parse ignore files, using fallback",
-					zap.String("path", validPath),
+					zap.String("path", rt.ValidPath),
 					zap.Error(parseErr))
 				excludePatterns = s.ignoreParser.FallbackPatterns
 			} else {
@@ -996,21 +956,14 @@ func (s *Server) registerRepositoryTools() {
 		}
 
 		opts := repository.IndexOptions{
-			TenantID:        tenantID,
+			TenantID:        rt.TenantID,
 			Branch:          args.Branch,
 			IncludePatterns: includePatterns,
 			ExcludePatterns: excludePatterns,
 			MaxFileSize:     args.MaxFileSize,
 		}
 
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, tenantID, "", projectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, repositoryIndexOutput{}, toolErr
-		}
-
-		result, err := s.repositorySvc.IndexRepository(ctx, validPath, opts)
+		result, err := s.repositorySvc.IndexRepository(ctx, rt.ValidPath, opts)
 		if err != nil {
 			toolErr = fmt.Errorf("repository index failed: %w", err)
 			return nil, repositoryIndexOutput{}, toolErr
@@ -1044,6 +997,97 @@ func (s *Server) registerRepositoryTools() {
 	})
 }
 
+// semanticSearchInCollection executes semantic_search when an explicit
+// collection_name is provided. It routes directly to repositorySvc.Search via
+// the CollectionName option (which uses SearchInCollection under the hood),
+// skips the grep fallback, and honors content_mode for payload sizing.
+func (s *Server) semanticSearchInCollection(ctx context.Context, args semanticSearchInput, validPath, tenantID string, toolErr *error) (*mcp.CallToolResult, semanticSearchOutput, error) {
+	opts := repository.SearchOptions{
+		CollectionName: args.CollectionName,
+		ProjectPath:    validPath,
+		TenantID:       tenantID,
+		Branch:         args.Branch,
+		Limit:          args.Limit,
+	}
+
+	results, err := s.repositorySvc.Search(ctx, args.Query, opts)
+	if err != nil {
+		*toolErr = fmt.Errorf("repository search failed: %w", err)
+		return nil, semanticSearchOutput{}, *toolErr
+	}
+
+	// Content mode constants
+	const (
+		previewMaxRunes = 200
+		previewEllipsis = "..."
+	)
+
+	// Determine content mode (default: minimal)
+	contentMode := args.ContentMode
+	if contentMode == "" {
+		contentMode = "minimal"
+	}
+
+	// Validate content_mode enum value
+	switch contentMode {
+	case "minimal", "preview", "full":
+		// Valid content mode
+	default:
+		*toolErr = fmt.Errorf("invalid content_mode: %q (must be 'minimal', 'preview', or 'full')", contentMode)
+		return nil, semanticSearchOutput{}, *toolErr
+	}
+
+	// Convert to output format based on content mode
+	outputResults := make([]semanticSearchRow, 0, len(results))
+	for _, r := range results {
+		row := semanticSearchRow{
+			FilePath: r.FilePath,
+			Score:    float64(r.Score),
+			Branch:   r.Branch,
+		}
+
+		// Scrub content once before use (only if needed)
+		var scrubbedContent string
+		if contentMode == "full" || contentMode == "preview" {
+			scrubbedContent = s.scrubber.Scrub(r.Content).Scrubbed
+		}
+
+		switch contentMode {
+		case "full":
+			// Full mode: include complete content and metadata
+			row.Content = scrubbedContent
+			row.Metadata = r.Metadata
+		case "preview":
+			// Preview mode: include first 200 characters (UTF-8 safe)
+			preview := scrubbedContent
+			runes := []rune(preview)
+			if len(runes) > previewMaxRunes {
+				preview = string(runes[:previewMaxRunes]) + previewEllipsis
+			}
+			row.ContentPreview = preview
+		case "minimal":
+			// Minimal mode: no content added - just file_path, score, branch
+		}
+
+		outputResults = append(outputResults, row)
+	}
+
+	output := semanticSearchOutput{
+		Results:     outputResults,
+		Count:       len(outputResults),
+		Query:       args.Query,
+		Source:      "semantic",
+		Branch:      args.Branch,
+		ContentMode: contentMode,
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: fmt.Sprintf("Found %d results for query: %s", output.Count, args.Query)},
+		},
+	}, output, nil
+}
+
 // ===== TROUBLESHOOT TOOLS =====
 
 type troubleshootDiagnoseInput struct {
@@ -1061,13 +1105,25 @@ type troubleshootDiagnoseOutput struct {
 }
 
 func (s *Server) registerTroubleshootTools() {
-	// troubleshoot_diagnose
+	// troubleshoot_diagnose — pure read but may invoke an LLM, so
+	// OpenWorldHint=true per HANDLER-GUIDE.md §2 ("external-world reads").
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "troubleshoot_diagnose",
-		Description: "Diagnose an error using AI and known patterns",
+		Description: "Diagnose an error using known patterns plus optional LLM-generated hypotheses.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrTrue(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args troubleshootDiagnoseInput) (*mcp.CallToolResult, troubleshootDiagnoseOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "troubleshoot_diagnose", &toolErr)()
+
+		// Reject empty error_message before reaching the service so the
+		// error names the missing field explicitly (HANDLER-GUIDE §3.5).
+		if args.ErrorMessage == "" {
+			toolErr = fmt.Errorf("error_message is required")
+			return nil, troubleshootDiagnoseOutput{}, toolErr
+		}
 
 		diagnosis, err := s.troubleshootSvc.Diagnose(ctx, args.ErrorMessage, args.ErrorContext)
 		if err != nil {
@@ -1075,11 +1131,24 @@ func (s *Server) registerTroubleshootTools() {
 			return nil, troubleshootDiagnoseOutput{}, toolErr
 		}
 
+		// Scrub free-form text fields that may carry secret-bearing error
+		// strings or LLM output (HANDLER-GUIDE §7).
+		rootCause := diagnosis.RootCause
+		recommendations := diagnosis.Recommendations
+		if s.scrubber != nil {
+			rootCause = s.scrubber.Scrub(rootCause).Scrubbed
+			scrubbedRecs := make([]string, len(recommendations))
+			for i, r := range recommendations {
+				scrubbedRecs[i] = s.scrubber.Scrub(r).Scrubbed
+			}
+			recommendations = scrubbedRecs
+		}
+
 		output := troubleshootDiagnoseOutput{
 			ErrorMessage:    diagnosis.ErrorMessage,
-			RootCause:       diagnosis.RootCause,
+			RootCause:       rootCause,
 			Hypotheses:      diagnosis.Hypotheses,
-			Recommendations: diagnosis.Recommendations,
+			Recommendations: recommendations,
 			RelatedPatterns: diagnosis.RelatedPatterns,
 			Confidence:      diagnosis.Confidence,
 		}
@@ -1100,10 +1169,30 @@ type memorySearchInput struct {
 	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum results (default: 5)"`
 }
 
+// memorySearchRow is a typed result row for memory_search. Replaces the
+// previous map[string]interface{} payload so the SDK can derive a proper
+// output schema (HANDLER-GUIDE.md §4.4).
+type memorySearchRow struct {
+	ID         string   `json:"id" jsonschema:"Memory ID"`
+	Title      string   `json:"title" jsonschema:"Memory title"`
+	Content    string   `json:"content" jsonschema:"Scrubbed memory content"`
+	Outcome    string   `json:"outcome" jsonschema:"Outcome type (success or failure)"`
+	Confidence float64  `json:"confidence" jsonschema:"Memory confidence score (0-1)"`
+	Relevance  float64  `json:"relevance" jsonschema:"Search relevance score (0-1)"`
+	Tags       []string `json:"tags,omitempty" jsonschema:"Memory tags"`
+}
+
+// memorySearchMetadata mirrors reasoningbank.SearchMetadata for the wire.
+type memorySearchMetadata struct {
+	SuggestedRefinements []string `json:"suggested_refinements" jsonschema:"Recommended search terms from results"`
+	QueryCoverage        float64  `json:"query_coverage" jsonschema:"How well results matched the query (0-1)"`
+	EntityMatches        int      `json:"entity_matches" jsonschema:"Count of distinct entities in results"`
+}
+
 type memorySearchOutput struct {
-	Memories []map[string]interface{} `json:"memories" jsonschema:"Matching memories"`
-	Count    int                      `json:"count" jsonschema:"Number of results"`
-	Metadata map[string]interface{}   `json:"metadata,omitempty" jsonschema:"Search metadata for iterative refinement"`
+	Memories []memorySearchRow    `json:"memories" jsonschema:"Matching memories"`
+	Count    int                  `json:"count" jsonschema:"Number of results"`
+	Metadata memorySearchMetadata `json:"metadata" jsonschema:"Search metadata for iterative refinement"`
 }
 
 type memoryRecordInput struct {
@@ -1124,8 +1213,9 @@ type memoryRecordOutput struct {
 }
 
 type memoryFeedbackInput struct {
-	MemoryID string `json:"memory_id" jsonschema:"required,Memory ID to provide feedback on"`
-	Helpful  bool   `json:"helpful" jsonschema:"required,Whether the memory was helpful"`
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier (tenant + project scope)"`
+	MemoryID  string `json:"memory_id" jsonschema:"required,Memory ID to provide feedback on"`
+	Helpful   bool   `json:"helpful" jsonschema:"required,Whether the memory was helpful"`
 }
 
 type memoryFeedbackOutput struct {
@@ -1135,6 +1225,7 @@ type memoryFeedbackOutput struct {
 }
 
 type memoryOutcomeInput struct {
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier (tenant + project scope)"`
 	MemoryID  string `json:"memory_id" jsonschema:"required,ID of the memory that was used"`
 	Succeeded bool   `json:"succeeded" jsonschema:"required,Whether the task succeeded after using this memory"`
 	SessionID string `json:"session_id,omitempty" jsonschema:"Optional session ID for correlation"`
@@ -1161,68 +1252,84 @@ type memoryConsolidateOutput struct {
 	DurationSeconds  float64  `json:"duration_seconds" jsonschema:"Time taken for consolidation operation"`
 }
 
+// memoryConsolidateSessionInput / memoryConsolidateSessionOutput replace
+// the previous anonymous-struct args/return on the memory_consolidate_session
+// handler (HANDLER-GUIDE.md §3.1).
+type memoryConsolidateSessionInput struct {
+	ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
+	SessionID string `json:"session_id" jsonschema:"required,Session ID to flush"`
+}
+
+type memoryConsolidateSessionOutput struct {
+	MemoryIDs []string `json:"memory_ids" jsonschema:"IDs of memories created from the session"`
+	Count     int      `json:"count" jsonschema:"Number of session memories created"`
+	Message   string   `json:"message" jsonschema:"Human-readable summary"`
+}
+
 func (s *Server) registerMemoryTools() {
-	// memory_search
+	// memory_search — pure read; ReadOnlyHint + closed-world.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_search",
-		Description: "Search for relevant memories/strategies from past sessions",
+		Description: "Search for relevant memories from past sessions scoped to project_id.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memorySearchInput) (*mcp.CallToolResult, memorySearchOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_search", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memorySearchOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memorySearchOutput{}, toolErr
+		// For memory tools project_id serves as both tenant and project scope.
+		// Pass it as the explicit tenantID *and* projectID; tenantCtx validates
+		// both and sets the resulting TenantInfo on ctx for the vectorstore.
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memorySearchOutput{}, err
 		}
 
 		limit := args.Limit
 		if limit <= 0 {
 			limit = 5
 		}
-
-		// Add tenant context to Go context for vectorstore operations
-		// For memory tools, ProjectID serves as both tenant and project scope
-		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, memorySearchOutput{}, toolErr
+		if limit > 100 {
+			limit = 100
 		}
 
-		scoredMemories, metadata, err := s.reasoningbankSvc.SearchWithMetadata(ctx, args.ProjectID, args.Query, limit)
+		scoredMemories, metadata, err := s.reasoningbankSvc.SearchWithMetadata(ctx, rt.ProjectID, args.Query, limit)
 		if err != nil {
 			toolErr = fmt.Errorf("memory search failed: %w", err)
 			return nil, memorySearchOutput{}, toolErr
 		}
 
-		results := make([]map[string]interface{}, 0, len(scoredMemories))
+		rows := make([]memorySearchRow, 0, len(scoredMemories))
 		for _, sm := range scoredMemories {
-			results = append(results, map[string]interface{}{
-				"id":         sm.Memory.ID,
-				"title":      sm.Memory.Title,
-				"content":    s.scrubber.Scrub(sm.Memory.Content).Scrubbed,
-				"outcome":    sm.Memory.Outcome,
-				"confidence": sm.Memory.Confidence,
-				"relevance":  sm.Relevance, // Search similarity score (0.0-1.0)
-				"tags":       sm.Memory.Tags,
+			content := sm.Memory.Content
+			if s.scrubber != nil {
+				content = s.scrubber.Scrub(content).Scrubbed
+			}
+			rows = append(rows, memorySearchRow{
+				ID:         sm.Memory.ID,
+				Title:      sm.Memory.Title,
+				Content:    content,
+				Outcome:    string(sm.Memory.Outcome),
+				Confidence: sm.Memory.Confidence,
+				Relevance:  sm.Relevance,
+				Tags:       sm.Memory.Tags,
 			})
 		}
 
-		// Convert metadata to map for output
-		metadataMap := map[string]interface{}{
-			"suggested_refinements": metadata.SuggestedRefinements,
-			"query_coverage":        metadata.QueryCoverage,
-			"entity_matches":        metadata.EntityMatches,
+		md := memorySearchMetadata{}
+		if metadata != nil {
+			md.SuggestedRefinements = metadata.SuggestedRefinements
+			md.QueryCoverage = metadata.QueryCoverage
+			md.EntityMatches = metadata.EntityMatches
 		}
 
 		output := memorySearchOutput{
-			Memories: results,
-			Count:    len(results),
-			Metadata: metadataMap,
+			Memories: rows,
+			Count:    len(rows),
+			Metadata: md,
 		}
 
 		return &mcp.CallToolResult{
@@ -1232,22 +1339,22 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_record
+	// memory_record — append-only write; not destructive.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_record",
-		Description: "Record a new memory/learning from the current session",
+		Description: "Record a new memory/learning from the current session.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrFalse(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryRecordInput) (*mcp.CallToolResult, memoryRecordOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_record", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memoryRecordOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memoryRecordOutput{}, toolErr
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryRecordOutput{}, err
 		}
 
 		outcome := reasoningbank.OutcomeSuccess
@@ -1255,13 +1362,13 @@ func (s *Server) registerMemoryTools() {
 			outcome = reasoningbank.OutcomeFailure
 		}
 
-		memory, err := reasoningbank.NewMemory(args.ProjectID, args.Title, args.Content, outcome, args.Tags)
+		memory, err := reasoningbank.NewMemory(rt.ProjectID, args.Title, args.Content, outcome, args.Tags)
 		if err != nil {
 			toolErr = fmt.Errorf("invalid memory: %w", err)
 			return nil, memoryRecordOutput{}, toolErr
 		}
 
-		// Set optional session fields for session-level buffering
+		// Set optional session fields for session-level buffering.
 		if args.SessionID != "" {
 			memory.SessionID = args.SessionID
 			if args.SessionDate != "" {
@@ -1269,13 +1376,6 @@ func (s *Server) registerMemoryTools() {
 					memory.SessionDate = &sd
 				}
 			}
-		}
-
-		// Add tenant context to Go context for vectorstore operations
-		ctx, err = withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, memoryRecordOutput{}, toolErr
 		}
 
 		if err := s.reasoningbankSvc.Record(ctx, memory); err != nil {
@@ -1297,20 +1397,33 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_feedback
+	// memory_feedback — mutating write (overwrites confidence).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_feedback",
-		Description: "Provide feedback on a memory to adjust its confidence",
+		Description: "Provide feedback on a memory to adjust its confidence score.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryFeedbackInput) (*mcp.CallToolResult, memoryFeedbackOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_feedback", &toolErr)()
+
+		// project_id is required so the mutating write is tenant-scoped — this
+		// closes the data-leak risk where Feedback previously ran on whatever
+		// (or no) tenant context happened to be on ctx.
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryFeedbackOutput{}, err
+		}
+		_ = rt // tenant scope is enforced via ctx; service uses memory_id directly.
 
 		if err := s.reasoningbankSvc.Feedback(ctx, args.MemoryID, args.Helpful); err != nil {
 			toolErr = fmt.Errorf("memory feedback failed: %w", err)
 			return nil, memoryFeedbackOutput{}, toolErr
 		}
 
-		// Get updated memory to return new confidence
 		memory, err := s.reasoningbankSvc.Get(ctx, args.MemoryID)
 		if err != nil {
 			toolErr = fmt.Errorf("failed to get updated memory: %w", err)
@@ -1330,15 +1443,24 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_outcome
+	// memory_outcome — mutating write (overwrites confidence).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_outcome",
-		Description: "Report whether a task succeeded after using a memory. Call this after completing a task that used a retrieved memory to help the system learn which memories are actually useful.",
+		Description: "Report whether a task succeeded after using a memory, updating its confidence.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryOutcomeInput) (*mcp.CallToolResult, memoryOutcomeOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_outcome", &toolErr)()
 
-		// Record the outcome signal
+		ctx, _, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryOutcomeOutput{}, err
+		}
+
 		newConfidence, err := s.reasoningbankSvc.RecordOutcome(ctx, args.MemoryID, args.Succeeded, args.SessionID)
 		if err != nil {
 			toolErr = fmt.Errorf("memory outcome failed: %w", err)
@@ -1358,63 +1480,54 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_consolidate
+	// memory_consolidate — mutating write (merges/archives existing memories).
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_consolidate",
-		Description: "Consolidate similar memories to reduce redundancy and improve knowledge quality. Merges memories with similarity above threshold into synthesized consolidated memories.",
+		Description: "Consolidate similar memories above the similarity threshold into synthesized refined summaries.",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateInput) (*mcp.CallToolResult, memoryConsolidateOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_consolidate", &toolErr)()
 
-		// Validate project_id (CWE-287 authentication bypass protection)
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, memoryConsolidateOutput{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, memoryConsolidateOutput{}, toolErr
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryConsolidateOutput{}, err
 		}
 
-		// Check if distiller is available
 		if s.distiller == nil {
 			toolErr = fmt.Errorf("memory consolidation not available: distiller not configured")
 			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
-		// Apply default similarity threshold if not specified
 		threshold := args.SimilarityThreshold
 		if threshold == 0 {
-			threshold = 0.8 // Default as specified in spec
+			threshold = 0.8 // Default per spec.
 		}
 
-		// Build consolidation options
 		opts := reasoningbank.ConsolidationOptions{
 			SimilarityThreshold: threshold,
 			DryRun:              args.DryRun,
 			MaxClustersPerRun:   args.MaxClusters,
 		}
 
-		// Execute consolidation
-		result, err := s.distiller.Consolidate(ctx, args.ProjectID, opts)
+		result, err := s.distiller.Consolidate(ctx, rt.ProjectID, opts)
 		if err != nil {
 			toolErr = fmt.Errorf("consolidation failed: %w", err)
 			return nil, memoryConsolidateOutput{}, toolErr
 		}
 
-		// Convert duration to seconds
-		durationSeconds := result.Duration.Seconds()
-
-		// Build output
 		output := memoryConsolidateOutput{
 			CreatedMemories:  result.CreatedMemories,
 			ArchivedMemories: result.ArchivedMemories,
 			SkippedCount:     result.SkippedCount,
 			TotalProcessed:   result.TotalProcessed,
-			DurationSeconds:  durationSeconds,
+			DurationSeconds:  result.Duration.Seconds(),
 		}
 
-		// Build result message
 		resultMsg := fmt.Sprintf("Consolidation complete: created %d, archived %d, skipped %d, processed %d memories (%.2fs)",
 			len(output.CreatedMemories),
 			len(output.ArchivedMemories),
@@ -1433,50 +1546,33 @@ func (s *Server) registerMemoryTools() {
 		}, output, nil
 	})
 
-	// memory_consolidate_session
+	// memory_consolidate_session — mutating write; named struct args.
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "memory_consolidate_session",
-		Description: "Flush and summarize a session's buffered turns into session-level memories. Only effective when granularity is set to 'session'.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct {
-		ProjectID string `json:"project_id" jsonschema:"required,Project identifier"`
-		SessionID string `json:"session_id" jsonschema:"required,Session ID to flush"`
-	}) (*mcp.CallToolResult, struct {
-		MemoryIDs []string `json:"memory_ids"`
-		Count     int      `json:"count"`
-		Message   string   `json:"message"`
-	}, error) {
+		Description: "Flush a session's buffered turns into session-level memories (granularity=session).",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: ptrTrue(),
+			OpenWorldHint:   ptrFalse(),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args memoryConsolidateSessionInput) (*mcp.CallToolResult, memoryConsolidateSessionOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "memory_consolidate_session", &toolErr)()
 
-		type output struct {
-			MemoryIDs []string `json:"memory_ids"`
-			Count     int      `json:"count"`
-			Message   string   `json:"message"`
+		ctx, rt, err := s.tenantCtx(ctx, "", args.ProjectID, "", args.ProjectID)
+		if err != nil {
+			toolErr = err
+			return nil, memoryConsolidateSessionOutput{}, err
 		}
 
-		if args.ProjectID == "" {
-			toolErr = fmt.Errorf("project_id is required (typically your repository name, e.g., 'my-app')")
-			return nil, output{}, toolErr
-		}
-		if err := sanitize.ValidateProjectID(args.ProjectID); err != nil {
-			toolErr = fmt.Errorf("invalid project_id: %w", err)
-			return nil, output{}, toolErr
-		}
 		if args.SessionID == "" {
 			toolErr = fmt.Errorf("session_id is required")
-			return nil, output{}, toolErr
+			return nil, memoryConsolidateSessionOutput{}, toolErr
 		}
 
-		ctx, err := withTenantContext(ctx, args.ProjectID, "", args.ProjectID)
-		if err != nil {
-			toolErr = fmt.Errorf("failed to set tenant context: %w", err)
-			return nil, output{}, toolErr
-		}
-
-		ids, err := s.reasoningbankSvc.FlushSession(ctx, args.ProjectID, args.SessionID)
+		ids, err := s.reasoningbankSvc.FlushSession(ctx, rt.ProjectID, args.SessionID)
 		if err != nil {
 			toolErr = fmt.Errorf("session flush failed: %w", err)
-			return nil, output{}, toolErr
+			return nil, memoryConsolidateSessionOutput{}, toolErr
 		}
 
 		if ids == nil {
@@ -1484,7 +1580,7 @@ func (s *Server) registerMemoryTools() {
 		}
 
 		msg := fmt.Sprintf("Session %s flushed: %d memories created", args.SessionID, len(ids))
-		out := output{
+		out := memoryConsolidateSessionOutput{
 			MemoryIDs: ids,
 			Count:     len(ids),
 			Message:   msg,
@@ -1551,7 +1647,13 @@ func (s *Server) registerFoldingTools() {
 	// branch_create - Create a new context branch
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_create",
-		Description: "Create a new context-folding branch. Branches allow isolated sub-tasks with their own token budget, automatically cleaned up on return. Use for complex multi-step operations that need context isolation.",
+		Description: "Open an isolated context-folding branch with its own token budget for a complex sub-task; auto-cleaned on return.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrFalse(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchCreateInput) (*mcp.CallToolResult, branchCreateOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_create", &toolErr)()
@@ -1595,7 +1697,13 @@ func (s *Server) registerFoldingTools() {
 	// branch_return - Return from a branch with results
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_return",
-		Description: "Return from a context-folding branch with results. The message will be scrubbed for secrets before being returned to the parent context. Any child branches will be force-returned first.",
+		Description: "Close a context-folding branch with a scrubbed result message; force-returns child branches first.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: ptrTrue(),
+			IdempotentHint:  false,
+			OpenWorldHint:   ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchReturnInput) (*mcp.CallToolResult, branchReturnOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_return", &toolErr)()
@@ -1627,7 +1735,11 @@ func (s *Server) registerFoldingTools() {
 	// branch_status - Get branch status
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "branch_status",
-		Description: "Get the status of a specific branch or the active branch for a session. Returns branch state, budget usage, and depth information.",
+		Description: "Report the status, depth, and budget usage of a specific branch or the active branch for a session.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: ptrFalse(),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args branchStatusInput) (*mcp.CallToolResult, branchStatusOutput, error) {
 		var toolErr error
 		defer s.startMetrics(ctx, "branch_status", &toolErr)()

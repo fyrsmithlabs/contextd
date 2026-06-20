@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/fyrsmithlabs/contextd/internal/checkpoint"
-	"github.com/fyrsmithlabs/contextd/internal/compression"
 	"github.com/fyrsmithlabs/contextd/internal/hooks"
 	"github.com/fyrsmithlabs/contextd/internal/reasoningbank"
 	"github.com/fyrsmithlabs/contextd/internal/remediation"
@@ -170,8 +169,6 @@ func (m *mockRegistry) Distiller() *reasoningbank.Distiller {
 }
 
 func (m *mockRegistry) Scrubber() secrets.Scrubber { return nil }
-
-func (m *mockRegistry) Compression() *compression.Service { return nil }
 
 func (m *mockRegistry) VectorStore() vectorstore.Store { return nil }
 

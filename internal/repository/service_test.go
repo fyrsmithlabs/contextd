@@ -534,7 +534,8 @@ func TestSearch_ReturnsBranchInResults(t *testing.T) {
 
 // TestSearch_WithCollectionName verifies that CollectionName bypasses tenant_id derivation.
 // This fixes the bug where repository_index with explicit tenant_id produces a different
-// collection name than repository_search with derived tenant_id.
+// collection name than semantic_search with derived tenant_id (formerly repository_search,
+// now merged into semantic_search).
 func TestSearch_WithCollectionName(t *testing.T) {
 	store := &mockStore{
 		searchResults: []vectorstore.SearchResult{

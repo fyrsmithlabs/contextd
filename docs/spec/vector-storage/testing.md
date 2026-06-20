@@ -178,9 +178,6 @@ go test ./internal/vectorstore/testdata
 
 # Quality metrics unit tests
 go test ./internal/vectorstore -run QualityMetrics
-
-# Integration tests with fake embeddings (fast)
-go test ./test/integration/framework -run SemanticSimilarity
 ```
 
 ### Real Embedding Tests (Quality Validation)
@@ -193,9 +190,6 @@ go test -v ./internal/vectorstore -run SemanticReal
 
 # Regression detection (fails if quality degrades)
 go test -v ./internal/vectorstore -run RegressionDetection
-
-# Integration tests with real embeddings
-USE_REAL_EMBEDDINGS=1 go test -v ./test/integration/framework -run SemanticSimilarity
 
 # Makefile target (if available)
 make test-semantic-real
@@ -231,7 +225,6 @@ go tool cover -html=coverage.out
   run: |
     go test ./internal/vectorstore/testdata
     go test ./internal/vectorstore -run QualityMetrics
-    go test ./test/integration/framework -run SemanticSimilarity
 
 # Real embedding tests (pre-merge, nightly, or on main branch)
 - name: Semantic Quality Tests
