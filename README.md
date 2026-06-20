@@ -104,24 +104,15 @@ This automatically:
 ### Option 2: Homebrew (macOS/Linux)
 
 ```bash
-# Add the tap and install
-brew tap fyrsmithlabs/contextd https://github.com/fyrsmithlabs/contextd
-brew install contextd
+# Install from the tap (builds from source, requires Go and onnxruntime)
+brew install fyrsmithlabs/tap/contextd
 ```
+
+**Note:** The Homebrew formula builds from source and requires Go and onnxruntime as dependencies. If you prefer a pre-built binary, use [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest) instead.
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
 
-### Option 3: Chocolatey (Windows)
-
-```powershell
-choco install contextd
-```
-
-Then add the MCP configuration (see [Configuration](#configuration) below).
-
-**Note:** Windows builds use pure Go (no CGO). Local ONNX embeddings are not available; configure a remote embedding provider or use the default.
-
-### Option 4: Download Binary
+### Option 3: Download Binary
 
 Download from [GitHub Releases](https://github.com/fyrsmithlabs/contextd/releases/latest):
 
@@ -142,6 +133,8 @@ mv contextd ~/.local/bin/       # User install
 # OR
 sudo mv contextd /usr/local/bin/  # System install
 ```
+
+**Note:** Windows builds use pure Go (no CGO). Local ONNX embeddings are not available; configure a remote embedding provider or use the default.
 
 Then add the MCP configuration (see [Configuration](#configuration) below).
 
@@ -448,11 +441,11 @@ No manual configuration needed for single-user deployments.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
-| `VECTORSTORE_PATH` | `~/.config/contextd/vectorstore` | Data storage path |
+| `CONTEXTD_VECTORSTORE_PROVIDER` | `chromem` | Vector store (`chromem` or `qdrant`) |
+| `CONTEXTD_VECTORSTORE_CHROMEM_PATH` | `~/.config/contextd/vectorstore` | Data storage path |
 | `QDRANT_HOST` | `localhost` | Qdrant host (if using qdrant) |
 | `QDRANT_PORT` | `6334` | Qdrant gRPC port |
-| `EMBEDDING_PROVIDER` | `fastembed` | Embedding provider |
+| `EMBEDDINGS_PROVIDER` | `fastembed` | Embedding provider |
 | `LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
 
 ### Using External Qdrant
@@ -476,7 +469,7 @@ Configure in `~/.claude/settings.json`:
       "command": "contextd",
       "args": ["--mcp", "--no-http"],
       "env": {
-        "VECTORSTORE_PROVIDER": "qdrant",
+        "CONTEXTD_VECTORSTORE_PROVIDER": "qdrant",
         "QDRANT_HOST": "localhost",
         "QDRANT_PORT": "6334"
       }
@@ -583,11 +576,18 @@ ctxd migrate             # Migrate data from Qdrant to chromem
 
 ## Building from Source
 
+**Requirements:**
+- Go 1.25+
+- CGO enabled (required for FastEmbed/ONNX local embeddings)
+- A C compiler (gcc or clang) -- on macOS, install Xcode Command Line Tools (`xcode-select --install`); on Linux, install `build-essential` or equivalent
+
+CGO is required because the FastEmbed embedding provider uses ONNX Runtime via cgo bindings. All `make build` and `make go-install` targets set `CGO_ENABLED=1` automatically.
+
 ```bash
 git clone https://github.com/fyrsmithlabs/contextd.git
 cd contextd
 
-# Build with FastEmbed (requires CGO)
+# Build with FastEmbed (CGO_ENABLED=1 is set by the Makefile)
 make build
 
 # Or install to $GOPATH/bin
@@ -601,6 +601,7 @@ make test
 
 ## Documentation
 
+- [Full Documentation Index](docs/README.md) - Browse all documentation by category
 - [Docker Setup](docs/DOCKER.md) - Running contextd in Docker
 - [Configuration](docs/configuration.md) - Full configuration reference
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions

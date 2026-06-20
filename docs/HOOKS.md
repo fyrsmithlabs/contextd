@@ -8,6 +8,22 @@ This guide covers integrating contextd with Claude Code using lifecycle hooks fo
 
 ### 1. Add contextd to Claude Code MCP Configuration
 
+**Native binary (recommended)** -- add to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "contextd": {
+      "type": "stdio",
+      "command": "contextd",
+      "args": ["--mcp", "--no-http"]
+    }
+  }
+}
+```
+
+**Docker alternative** -- if you prefer running via container:
+
 **Claude Code CLI** (`~/.claude/settings.json`):
 
 ```json
