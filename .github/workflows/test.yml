@@ -1,0 +1,56 @@
+# CI Test Suite
+# Runs unit tests with race detection, go vet, and generates coverage reports.
+# CGO_ENABLED=1 is required for FastEmbed (ONNX runtime).
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.7"
+          cache: true
+
+      - name: Install C dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        env:
+          CGO_ENABLED: "1"
+        run: go vet ./...
+
+      - name: Run tests with race detection and coverage
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -coverprofile=coverage.out -covermode=atomic -v ./...
+
+      - name: Display coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 14
